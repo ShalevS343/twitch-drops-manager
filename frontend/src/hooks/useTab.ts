@@ -19,7 +19,19 @@ export function useTab() {
   const [tab, setTab] = useState<TabId>(readTab)
 
   useEffect(() => {
-    const sync = () => setTab(readTab())
+    const sync = () => {
+      const next = readTab()
+      setTab(next)
+
+      // Keep the URL canonical: no hash defaults to #/overview and invalid
+      // hashes fall back without leaving a stale value in the address bar.
+      const target = `#/${next}`
+      if (window.location.hash !== target) {
+        window.history.replaceState(null, '', target)
+      }
+    }
+
+    sync()
     window.addEventListener('hashchange', sync)
     return () => window.removeEventListener('hashchange', sync)
   }, [])
