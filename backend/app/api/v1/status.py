@@ -31,9 +31,10 @@ async def status(session: SessionDep) -> StatusOut:
     )
     latest = await ScanRunRepository(session).latest()
     auth = await TwitchAuthRepository(session).get()
+    settings = get_settings()
 
     return StatusOut(
-        app=get_settings().app_name,
+        app=settings.app_name,
         twitch_configured=get_twitch_provider().ready,
         telegram_configured=get_telegram_provider().configured,
         games_selected=[game.name for game in selected],
@@ -43,4 +44,9 @@ async def status(session: SessionDep) -> StatusOut:
         last_error=latest.error if latest and not latest.ok else None,
         twitch_user_connected=auth is not None,
         twitch_login=(auth.login or None) if auth else None,
+        poll_seconds=settings.poll_seconds,
+        min_poll_seconds=settings.min_poll_seconds,
+        progress_poll_seconds=settings.progress_poll_seconds,
+        min_progress_poll_seconds=settings.min_progress_poll_seconds,
+        drops_api_keyed=bool(settings.drops_api_key),
     )

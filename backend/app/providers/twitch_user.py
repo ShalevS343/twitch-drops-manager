@@ -1,5 +1,6 @@
 import re
 import secrets
+import time
 import urllib.parse
 from typing import Any
 
@@ -56,6 +57,19 @@ query Inventory($fetchRewardCampaigns: Boolean) {
 }
 """
 
+PROFILE_QUERY = """
+query ViewerCard {
+  currentUser {
+    id
+    login
+    displayName
+    profileImageURL(width: 300)
+  }
+}
+"""
+
+PROFILE_CACHE_TTL_SECONDS = 600
+
 
 class TwitchUserProvider:
     """Twitch user-context access for read-only drops progress.
@@ -69,6 +83,7 @@ class TwitchUserProvider:
         self.settings = settings or get_settings()
         self._session_id = secrets.token_hex(8)
         self._device_id = secrets.token_hex(16)
+        self._profile_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
     @property
     def ready(self) -> bool:
@@ -161,6 +176,74 @@ class TwitchUserProvider:
             raise ProviderError("Unexpected Twitch inventory response")
 
         return inventory
+
+    async def fetch_profile(self, access_token: str, user_id: str = "") -> dict[str, Any]:
+        """Return the logged-in user's Twitch profile (display name, avatar).
+
+        Results are cached in memory for a few minutes so the status endpoint
+        does not hit Twitch on every page load. Nothing is persisted.
+        """
+        cache_key = user_id or (access_token or "")[-8:]
+        cached = self._profile_cache.get(cache_key)
+        if cached is not None:
+            expires_at, profile = cached
+            if time.monotonic() < expires_at:
+                return dict(profile)
+
+        self._require_ready()
+        payload = {
+            "operationName": "ViewerCard",
+            "query": PROFILE_QUERY,
+            "variables": {},
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(
+                    self.settings.twitch_gql_url,
+                    headers=self._headers(access_token),
+                    json=payload,
+                )
+        except httpx.HTTPError as exc:
+            raise ProviderError(f"Twitch profile request failed: {exc}") from exc
+
+        if response.status_code == 401:
+            raise NotConfiguredError(
+                "Twitch rejected the saved token; reconnect your account"
+            )
+        if response.status_code == 429:
+            raise ProviderError("Twitch GraphQL rate limit reached; try again later")
+        if response.status_code >= 400:
+            raise ProviderError(f"Twitch profile request failed ({response.status_code})")
+
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+
+        data = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(data, dict):
+            errors = body.get("errors") if isinstance(body, dict) else None
+            message = ""
+            if isinstance(errors, list) and errors:
+                first = errors[0]
+                if isinstance(first, dict):
+                    message = str(first.get("message") or "")
+            raise ProviderError(f"Twitch GraphQL error: {message or 'empty response'}")
+
+        errors = body.get("errors")
+        if isinstance(errors, list) and errors:
+            first = errors[0]
+            message = str(first.get("message") or "") if isinstance(first, dict) else ""
+            raise ProviderError(f"Twitch GraphQL error: {message or 'unknown error'}")
+
+        current_user = data.get("currentUser")
+        profile = dict(current_user) if isinstance(current_user, dict) else {}
+        self._profile_cache[cache_key] = (
+            time.monotonic() + PROFILE_CACHE_TTL_SECONDS,
+            profile,
+        )
+        return dict(profile)
 
     def _require_ready(self) -> None:
         if not self.ready:
