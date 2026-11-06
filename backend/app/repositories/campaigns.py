@@ -52,6 +52,19 @@ class CampaignRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().unique().all())
 
+    async def by_ids(self, ids: set[int]) -> list[Campaign]:
+        if not ids:
+            return []
+
+        result = await self.session.execute(
+            select(Campaign).where(Campaign.id.in_(ids))
+        )
+        return list(result.scalars().all())
+
+    async def list_all(self) -> list[Campaign]:
+        result = await self.session.execute(select(Campaign).order_by(Campaign.id))
+        return list(result.scalars().all())
+
     async def upsert_many(self, items: list[dict[str, Any]]) -> None:
         if not items:
             return

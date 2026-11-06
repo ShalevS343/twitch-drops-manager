@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.exceptions import NotConfiguredError, ProviderError
 from app.domain.models import TwitchAuth
-from app.domain.parsing import parse_inventory
+from app.domain.parsing import parse_inventory, parse_iso_datetime
 from app.providers.telegram import TelegramProvider
 from app.providers.twitch_user import TwitchUserProvider
 from app.repositories.notifications import NotificationRepository
@@ -17,6 +17,7 @@ from app.repositories.twitch_auth import TwitchAuthRepository
 logger = logging.getLogger(__name__)
 
 TOKEN_REFRESH_MARGIN = timedelta(minutes=5)
+SNAPSHOT_RETENTION = timedelta(hours=24)
 
 
 @dataclass
@@ -55,7 +56,11 @@ class ProgressService:
             campaigns = []
 
         rows = parse_inventory(campaigns)
-        await ProgressRepository(self.session).replace(rows)
+        now = datetime.now(timezone.utc)
+        repo = ProgressRepository(self.session)
+        await repo.replace(rows)
+        await repo.add_snapshots(rows)
+        await repo.prune_snapshots(now - SNAPSHOT_RETENTION)
         await self.session.commit()
 
         notified = await self._notify(rows)
@@ -109,33 +114,86 @@ class ProgressService:
         if not self.telegram.configured:
             return 0
 
-        repo = NotificationRepository(self.session)
-        sent = 0
+        events: list[tuple[str, str]] = []
 
         for row in rows:
-            if not row["is_ready"]:
+            if not row["is_ready"] or row["is_claimed"]:
                 continue
-
-            dedupe_key = f"drop-ready:{row['drop_id']}"
-            if await repo.exists(dedupe_key):
-                continue
-
-            message = (
-                "Twitch drop ready to claim!\n"
-                f"Game: {row['game_name'] or 'Unknown'}\n"
-                f"Campaign: {row['campaign_name']}\n"
-                f"Drop: {row['drop_name']}\n"
-                f"Watched: {row['current_minutes']}/{row['required_minutes']} min\n"
-                "Claim it at https://www.twitch.tv/drops/inventory"
+            events.append(
+                (
+                    f"drop-ready:{row['drop_id']}",
+                    (
+                        "• Ready to claim: "
+                        f"{row['drop_name']} ({row['campaign_name']}, "
+                        f"{row['game_name'] or 'Unknown'})"
+                    ),
+                )
             )
 
-            try:
-                await self.telegram.send(message)
-            except ProviderError as exc:
-                logger.warning("Telegram notification failed: %s", exc)
+        now = datetime.now(timezone.utc)
+        grouped: dict[str, list[dict]] = {}
+        for row in rows:
+            if row["is_claimed"]:
+                continue
+            campaign_id = row["campaign_gql_id"]
+            if not campaign_id:
+                continue
+            grouped.setdefault(campaign_id, []).append(row)
+
+        for campaign_id, campaign_rows in grouped.items():
+            ends_at = parse_iso_datetime(campaign_rows[0].get("campaign_ends_at"))
+            if ends_at is None:
                 continue
 
-            await repo.mark_sent(dedupe_key)
-            sent += 1
+            hours_left = (ends_at - now).total_seconds() / 3600
+            if hours_left <= 0:
+                continue
 
-        return sent
+            # Send only the tightest applicable window per campaign per run.
+            if hours_left <= 2:
+                suffix = "2h"
+            elif hours_left <= 24:
+                suffix = "24h"
+            else:
+                continue
+
+            total_remaining = sum(
+                max(0, int(row["required_minutes"]) - int(row["current_minutes"]))
+                for row in campaign_rows
+            )
+            events.append(
+                (
+                    f"campaign-ending:{campaign_id}:{suffix}",
+                    (
+                        f"• {campaign_rows[0]['campaign_name']} ends in ~{suffix}; "
+                        f"{len(campaign_rows)} drops left ({total_remaining} min)"
+                    ),
+                )
+            )
+
+        if not events:
+            return 0
+
+        repo = NotificationRepository(self.session)
+        claimed: list[tuple[str, str]] = []
+        for key, line in events:
+            if await repo.claim(key):
+                claimed.append((key, line))
+
+        if not claimed:
+            return 0
+
+        lines = ["Twitch Drops update", *(line for _, line in claimed)]
+        if any(key.startswith("drop-ready:") for key, _ in claimed):
+            lines.append("Claim: https://www.twitch.tv/drops/inventory")
+        message = "\n".join(lines)
+
+        try:
+            await self.telegram.send(message)
+        except ProviderError as exc:
+            logger.warning("Telegram notification failed: %s", exc)
+            for key, _ in claimed:
+                await repo.release(key)
+            return 0
+
+        return len(claimed)
