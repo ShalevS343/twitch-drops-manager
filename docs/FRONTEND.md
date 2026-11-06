@@ -50,7 +50,7 @@ Hash routes, default `#/overview`; invalid hashes are normalized:
 | `#/progress` | Progress | Personal drop progress, ETA, ready-to-claim |
 | `#/watch-queue` | Watch queue | Urgency-sorted eligible live streams |
 | `#/streams` | Streams | All live matched streams with filters |
-| `#/settings` | Settings | Games, actions, Twitch connection, system info |
+| `#/settings` | Settings | Games (including track-by-name), actions, Twitch connection, system info |
 | `#/profile` | Profile | Twitch account/profile, reconnect/disconnect |
 
 `useTab` uses `window.location.hash` + `hashchange` and `history.replaceState` to
@@ -70,7 +70,8 @@ TanStack Query; all requests go through `api/client.ts`:
 
 Invalidation: scan refreshes all queries; game save refreshes games/campaigns/
 status; progress refresh refreshes progress/watch queue/twitch/status; logout
-refreshes everything.
+refreshes everything. Saving a game name that is not cached yet is allowed; the
+response/next query reflects the newly created tracked row.
 
 ## Twitch connection flow
 
@@ -88,51 +89,66 @@ missing dates render `Unknown`; token expiry can be absent for legacy tokens.
 
 ## Design system
 
-**Direction:** solid industrial/editorial. Explicitly no gradients, glows,
-backdrop blur, or pill-shaped components. Borders, contrast, serif display type,
-mono metadata, square geometry.
+**Direction:** solid Twitch-violet UI with high-contrast, readable dark surfaces.
+Explicitly no gradients, glows, backdrop blur, or pill-shaped components.
+Borders, spacing, and a larger type scale carry the hierarchy.
 
 ### Tokens (`:root` in `index.css`)
 
 | Token | Value | Use |
 |---|---|---|
-| `--bg` | `#0a0b0c` | page/rail background |
-| `--surface` | `#111315` | cards/panels |
-| `--surface-2` | `#171a1d` | raised/hover |
-| `--surface-3` | `#1e2226` | tracks/inputs |
-| `--border` / `--border-strong` | `#292e32` / `#3b4248` | hairlines |
-| `--text` / `--text-strong` | `#e6e3dc` / `#f7f4ec` | copy |
-| `--muted` / `--muted-2` | `#92999e` / `#6b7378` | secondary/labels |
-| `--accent` | `#f2a600` | primary actions/active nav/progress |
-| `--accent-ink` | `#151001` | text on amber |
-| `--success` / `--warning` / `--danger` / `--live` | muted green/amber/red/green | states |
-| `--font-sans` | system sans | body |
-| `--font-display` | Georgia/serif | page titles, brand, profile heading |
-| `--font-mono` | system mono | labels, values, metadata |
-| `--radius` / `--radius-sm` | 4px / 3px | cards/buttons |
-| `--sidebar-width` | 248px | desktop rail |
+| `--bg` | `#0e1013` | page/rail background |
+| `--surface` | `#161a1f` | cards/panels |
+| `--surface-2` | `#1c2128` | raised/hover |
+| `--surface-3` | `#242a33` | tracks/inputs |
+| `--border` / `--border-strong` | `#303740` / `#48515d` | hairlines |
+| `--text` / `--text-strong` | `#eceef2` / `#ffffff` | copy |
+| `--muted` / `--muted-2` | `#b6bdc9` / `#949cab` | secondary/labels |
+| `--accent` | `#9146ff` | primary actions/active nav/progress |
+| `--accent-strong` | `#a970ff` | hover/icons |
+| `--accent-soft` | `#c9b3ff` | accent text on dark |
+| `--accent-ink` | `#ffffff` | text on violet |
+| `--success` / `--warning` / `--danger` / `--live` | `#7fd396` / `#f0b45c` / `#ff8b80` / `#7fd396` | states |
+| `--font-sans` | system sans | body, headings, labels |
+| `--font-display` | alias of `--font-sans` (700) | page titles/brand |
+| `--font-mono` | system mono | numbers and technical values only |
+| `--radius` / `--radius-sm` | 6px / 4px | cards/buttons |
+| `--sidebar-width` | 264px | desktop rail |
 
 ### Component rules
 
-- Badges and chips are **rectangular** (2–3px radius), often uppercase mono.
-- Buttons are solid rectangles; primary amber with dark text.
-- Cards/panels use 1px borders; no shadows.
-- Progress bars are 6px, square, solid amber/green/gray.
-- Avatars are square (2px radius), not circles.
+- Body text is **15px** with 1.6 line-height; nav is 14px; page titles are
+  `1.85rem`. Avoid micro-type: labels are sentence case at 12–13px, with mono
+  reserved for numeric/technical data.
+- Badges and chips are rectangular (3px radius), sentence case, sans-serif.
+- Buttons are solid rectangles; primary is Twitch violet with white text.
+- Cards/panels use 1px borders and 20–22px padding; no shadows.
+- Progress bars are 8px, square, solid violet/green/gray.
+- The brand mark, favicon, empty-state icon, connect icon, and avatars are
+  **circular**. The favicon is a violet circle with a white gift glyph.
 - Icons are a **custom filled/geometric set** in `components/ui/Icon.tsx` (nav
   icons are silhouettes; utilities use square-capped strokes). Do not swap in a
   generic outline icon library.
-- Headings use the serif display face; data uses mono with tabular numbers.
+- Headings use the sans display face; data uses mono with tabular numbers.
 
 ## Layout / responsive
 
-- Desktop: fixed 248px left sidebar; sticky topbar with page title + global
+- Desktop: fixed 264px left sidebar; sticky topbar with page title + global
   refresh/scan actions; main content max 1480px.
 - ≤900px: sidebar becomes a horizontally scrollable tab bar under the topbar.
-- ≤640px: compact topbar (brand + title + icon actions), single-column cards,
-  hidden button labels, full-width search.
-- `prefers`/focus states: 2px amber focus-visible outline, skip link, aria labels,
-  `aria-live` toast, keyboard-navigable tabs.
+- ≤640px: compact topbar (brand + title + icon actions), 2-column stat grid,
+  single-column cards, hidden button labels, full-width search/add-game row.
+- Focus states use a 2px violet outline; skip link, aria labels, `aria-live`
+  toast, and keyboard-navigable tabs are preserved.
+
+## Game tracking
+
+Settings → Games keeps the selected-game whitelist. Besides picking catalog games,
+the **“Track a game by name”** input accepts any name (case-insensitive) and adds
+it to the selection. Saving calls `PUT /games`; the backend creates a `Game` row
+if it does not exist, so a game can be tracked before it has a campaign. The scan
+then alerts when a campaign for that game becomes active. Changes are local until
+**Save selection** is clicked.
 
 ## Build / dev
 

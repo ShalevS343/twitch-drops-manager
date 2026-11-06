@@ -87,10 +87,29 @@ Keys in use:
 - `drop-ready:{drop_id}`
 - `campaign-ending:{campaign_gql_id}:24h`
 - `campaign-ending:{campaign_gql_id}:2h`
+- `campaign-started:{campaign_external_id}` for campaign-start digests
 - `{user_login}:{game_id}` for stream digests
 
 `NotificationRepository.claim()` inserts inside a SAVEPOINT; the unique constraint
 makes cross-process dedupe atomic. `release()` removes a claim after a send failure.
+
+### `campaign_starts`
+
+Pending campaign-start events for **selected** games. A row is created when a
+campaign transitions from a non-`ACTIVE` status to `ACTIVE` (new campaign,
+`UPCOMING` → `ACTIVE`, or a new campaign after the previous one ended). The row is
+deleted after a successful Telegram digest; if the send fails, it stays for the
+next scan to retry.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | int PK | |
+| `external_id` | string, unique, indexed | campaign identity (`"{game}:{gql_id}"`) |
+| `detected_at` | datetime | first time the start was observed |
+
+The matching `notifications` claim uses the key
+`campaign-started:{campaign_external_id}`. Orphan rows are removed when their
+campaign no longer exists in the catalog.
 
 ### `twitch_auth`
 
@@ -170,6 +189,7 @@ games 1─* streams 1─* stream_campaign_matches *─1 campaigns
 twitch_auth (1 row)     twitch_profile (1 row)
 drop_progress (current) 1─* progress_snapshots (history)
 notifications (dedupe ledger)
+campaign_starts (pending start events)
 scan_runs (audit)
 ```
 
@@ -185,6 +205,8 @@ by the `external_id` suffix (`"{game}:{gql_id}"`).
 - `drop_progress`: replaced on every progress sync.
 - `progress_snapshots`: pruned to 24h.
 - `notifications`: kept; one row per event forever (small).
+- `campaign_starts`: deleted after a successful digest; failed sends stay for the
+  next scan; orphan rows pruned on every scan.
 - `scan_runs`: kept (small); could be pruned in the future.
 
 ## Migrations

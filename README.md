@@ -18,9 +18,12 @@ never automates watching.
 - **Watch queue** — live streams matched to your in-progress campaigns, ordered by
   urgency.
 - **Telegram alerts** — one digest per run, atomic dedupe: ready-to-claim drops,
-  campaign deadline reminders (24h/2h), and newly eligible streams.
+  campaign deadline reminders (24h/2h), newly eligible streams, and campaign
+  starts for tracked games (including games with no current campaign).
+- **Track any game** — add a game by name in Settings even if it is not in the
+  catalog; get notified when its next campaign becomes active.
 - **Tabbed dashboard** — Overview, Campaigns, Progress, Watch queue, Streams,
-  Settings, and a Twitch profile page. Solid graphite/amber design, responsive.
+  Settings, and a Twitch profile page. High-contrast violet design, responsive.
 - **Rate-limit resilient** — the public catalog is cached to disk and served during
   the provider's 1-request/300s window.
 

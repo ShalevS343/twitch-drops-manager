@@ -112,3 +112,36 @@ redeploy". Manual compose runs use the same project name.
 
 **Consequences:** DB volume/network persist. Portainer may show drift after manual
 compose operations; prefer Portainer for production.
+
+## ADR-011 — Track games by name + campaign-start ledger
+
+**Context:** users want alerts for games that have no current campaign, or whose
+campaign ended and will return. The catalog only contains current campaigns, and a
+single failed Telegram send must not lose a start event.
+
+**Decision:** `PUT /games` creates a `Game` row for any selected name, so tracking
+does not depend on catalog presence. Scans compare each campaign's previous status
+with the incoming status; a transition to `ACTIVE` for a selected game creates a
+`campaign_starts` row. The notification send claims
+`campaign-started:{external_id}`, combines starts with live-stream alerts in one
+digest, deletes the pending row on success, and leaves it for retry on failure.
+
+**Consequences:** a start is reported once across processes; a Telegram outage
+delays but does not drop alerts. Campaigns that were already `ACTIVE` when a game
+is first tracked do not generate a start (there is no transition). Orphan rows are
+pruned each scan.
+
+## ADR-012 — Violet high-contrast UI (supersedes ADR-006 palette)
+
+**Context:** the graphite/amber pass was reported as hard to read: yellow accent,
+small/cluttered type, and dark text on dark surfaces.
+
+**Decision:** keep the solid industrial structure (no gradients/glows/pills) but
+move the accent to Twitch violet (`#9146ff`), raise the type scale (15px body,
+1.85rem page titles), use near-white copy/brighter muted grays and lighter
+surfaces, and make the brand mark/favicon/avatars circular. Mono is reserved for
+numeric/technical values.
+
+**Consequences:** better contrast and readability on desktop and mobile. New UI
+work must use the current `:root` tokens; do not reintroduce amber or micro
+uppercase/mono labels.

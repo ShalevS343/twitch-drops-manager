@@ -131,7 +131,8 @@ pass, lint/build pass, contracts aligned, docs updated, no secrets.
 
 ## Current baseline
 
-- Backend tests: **52 passed**
+- Backend tests: **58 passed**
 - Ruff: clean
 - Frontend: `npm run build` passes
-- Main includes P0 performance work and the solid graphite/amber UI
+- Main includes P0 performance work, game tracking/campaign-start alerts, and the
+  violet high-contrast UI
