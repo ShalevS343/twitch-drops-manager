@@ -1561,6 +1561,74 @@ code {
   flex: 0 0 auto;
 }
 
+/* ----------------------------------------------------------- focus watcher */
+
+.watch-focus {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-left: 3px solid var(--success);
+}
+
+.watch-focus-badges {
+  margin-top: -2px;
+}
+
+.watch-focus-target {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.watch-focus-copy {
+  min-width: 0;
+}
+
+.watch-focus-copy h3 {
+  margin: 7px 0 0;
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.watch-focus-reason {
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.watch-focus-waiting {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--warning);
+  background: var(--bg);
+}
+
+.watch-focus-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.watch-focus-candidates {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.watch-focus-empty p {
+  max-width: 70ch;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 /* ---------------------------------------------------------------- profile */
 
 .profile-card {

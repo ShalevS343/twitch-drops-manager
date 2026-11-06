@@ -171,6 +171,31 @@ Latest inventory snapshot (replaced each progress sync).
 Composite index `ix_progress_snapshots_drop_recorded (drop_id, recorded_at)`.
 Pruned to the last 24h on every progress sync. Used for rate/ETA.
 
+### `watch_focus`
+
+Singleton focus pointer for the queue watcher. The table is keyed by `id=1`;
+focused mode allows **one** watcher. It stores a copy of the focused stream and
+campaign so the UI can render the target without a join. It is not a playback
+controller and contains no watch heartbeats.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | int PK | always `1` |
+| `enabled` | bool | focused mode on/off |
+| `status` | string | `idle`, `focused`, `waiting` |
+| `reason` | string | `manual`, `auto`, `auto-move`, `waiting`, … |
+| `stream_id` | int, nullable | current Twitch stream row (recreated each scan) |
+| `user_login`, `user_name`, `stream_url`, `stream_title` | string | focused channel snapshot |
+| `game_name`, `game_box_art_url` | string | |
+| `campaign_id` | string | Twitch GQL campaign id from `drop_progress` |
+| `campaign_name` | string | |
+| `target_minutes` | int | remaining campaign watch minutes at focus time |
+| `ends_at` | string, nullable | campaign end |
+| `focused_at`, `updated_at` | datetime | |
+
+The worker matches the stored focus by `user_login` + `campaign_id` first (stream
+ids are replaced each scan), then falls back to `stream_id`.
+
 ### `scan_runs`
 
 | Column | Type | Notes |
@@ -190,6 +215,7 @@ twitch_auth (1 row)     twitch_profile (1 row)
 drop_progress (current) 1─* progress_snapshots (history)
 notifications (dedupe ledger)
 campaign_starts (pending start events)
+watch_focus (1 row, queue focus pointer)
 scan_runs (audit)
 ```
 
@@ -207,6 +233,7 @@ by the `external_id` suffix (`"{game}:{gql_id}"`).
 - `notifications`: kept; one row per event forever (small).
 - `campaign_starts`: deleted after a successful digest; failed sends stay for the
   next scan; orphan rows pruned on every scan.
+- `watch_focus`: single row; updated in place by the API/worker.
 - `scan_runs`: kept (small); could be pruned in the future.
 
 ## Migrations

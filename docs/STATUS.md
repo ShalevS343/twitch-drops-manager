@@ -1,8 +1,9 @@
 # Status / handoff
 
 Last updated: **2026-11-06**
-Source of truth: `main` (run `git log -1` for the exact tip). Game tracking +
-violet UI in `77bfc75`; manual watch sessions + per-game limits in `0eb9b16`.
+Source of truth: `main` (run `git log -1` for the exact tip); focused watcher
+work is on `feat/queue-watcher`. Game tracking + violet UI in `77bfc75`; manual
+watch sessions + per-game limits in `0eb9b16`.
 
 ## Current state
 
@@ -12,7 +13,9 @@ violet UI in `77bfc75`; manual watch sessions + per-game limits in `0eb9b16`.
   Telegram dedupe/digests, game tracking by name, campaign-start alerts, manual
   watch sessions, top-5-per-game live lists, and the violet high-contrast UI
   (circular logo/favicon).
-- Backend tests: **58 passed**; ruff clean.
+- `feat/queue-watcher` adds the focused watcher: one queue target at a time,
+  manual/auto/next dispatch, and worker auto-move when a focused live leaves the
+  queue. Backend tests: **68 passed**; ruff clean; frontend build passes.
 - Frontend: `npm run build` passes; visually verified with headless screenshots
   (desktop + mobile) against live data.
 - Game tracking: `PUT /games` creates missing `Game` rows, so a game can be
@@ -22,8 +25,12 @@ violet UI in `77bfc75`; manual watch sessions + per-game limits in `0eb9b16`.
 - Manual watch sessions are frontend-only: one local timer, persisted in
   `localStorage`, with next-campaign suggestions. No playback control or fake
   viewing. Watch queue/streams are grouped by game and capped at 5 by default.
+- Focused watcher is backend-persisted (`watch_focus`, one row) and reuses the
+  watch queue. It is a focus pointer only: no playback, heartbeats, or simulated
+  viewing. Manual session handoff still requires an explicit click.
 - Docs: API, data model, backend, frontend, decisions, changelog, and this file
-  updated for game tracking, manual sessions, and the violet UI pass.
+  updated for game tracking, manual sessions, the violet UI pass, and the focused
+  watcher.
 
 ### Live deployment (verify before assuming)
 
@@ -36,9 +43,10 @@ The Portainer stack `twitch-drops-manager` was last observed running a build fro
 
 **The live stack is behind `main`.** A redeploy is required to get P0 performance,
 the violet UI, the circular favicon, game tracking/campaign-start alerts, manual
-watch sessions, the per-game live caps, and the latest docs. The DB volume
-persists; `campaign_starts` is created automatically by `create_all`. Manual watch
-sessions are browser-local and need no migration.
+watch sessions, the per-game live caps, and the latest docs. The focused watcher
+is on `feat/queue-watcher` and needs a merge before redeploy. The DB volume
+persists; `campaign_starts` and `watch_focus` are created automatically by
+`create_all`. Manual watch sessions are browser-local and need no migration.
 
 ## Pending work
 
@@ -51,6 +59,7 @@ sessions are browser-local and need no migration.
    - UI violet theme + circular favicon
    - Settings → Games “Track a game by name” creates a tracked row
    - Watch queue: one manual session, timer persists on refresh, top 5 per game
+   - Focus watcher: enable, switch focus, Next live, auto-move on scan
    - Live streams: game groups + Per game selector
    - Kuma monitors for 8282/8000
 4. **P1 performance** (planned): per-endpoint response cache + ETag, `/dashboard`
@@ -77,6 +86,11 @@ sessions are browser-local and need no migration.
 - **Telegram token exposure**: pre-fix logs contained the bot token; rotate it.
 - **Manual timer is advisory**: it is wall-clock, browser-local, and can overstate
   elapsed time if left running; use pause/stop. It never verifies playback.
+- **Focused watcher is separate from the timer**: it can auto-move the focus while
+  an old manual session is still running; follow it with an explicit **Start
+  manual session**. Auto-move is bounded by `WATCHER_POLL_SECONDS` (default 60s).
+- **Stream identity is ephemeral**: scans replace `streams` rows, so the watcher
+  resolves its target by `user_login` + `campaign_id` and refreshes `stream_id`.
 - **Portainer drift**: manual `docker compose` runs use the same project name;
   Portainer may show the stack as out-of-sync until its next redeploy.
 - `.env` / `.env.save` are local and untracked; never commit them.

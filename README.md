@@ -25,6 +25,10 @@ never automates watching.
 - **Manual watch sessions** — start one campaign at a time, open the real stream,
   and track elapsed time locally. The timer never controls playback or simulates
   viewing.
+- **Focused watcher** — keep one live target selected from the watch queue for the
+  most urgent campaign, switch it manually or with **Next live**, and let the
+  worker move it when that stream goes offline. One watcher at a time; it is a
+  focus pointer, not playback automation.
 - **Top 5 per game** — watch queue and live streams group by game and show the
   top 5 by default, with a 5/10/20/All selector.
 - **Tabbed dashboard** — Overview, Campaigns, Progress, Watch queue, Streams,

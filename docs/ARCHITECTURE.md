@@ -70,12 +70,13 @@ Read endpoints are public on the LAN/tailnet; mutating endpoints optionally requ
 - `/status`, `/health` — system summary and health.
 - `/games`, `/campaigns`, `/streams` — catalog/stream reads.
 - `/progress`, `/watch-queue` — personal progress + actionable queue.
+- `/watcher` — single focused watcher (dispatch, move, stop); focus pointer only.
 - `/twitch/*` — connection status, implicit-login URL, token acceptance, logout.
 - `/scans`, `/notifications/test`, `/progress/refresh` — manual actions.
 
 ### Worker (`backend/app/worker/scheduler.py`)
 
-Two interval jobs:
+Three interval jobs:
 
 - **Scan** every `POLL_SECONDS` (default 900s, min 300s): fetch the public catalog,
   sync games/campaigns/rewards, fetch Twitch live streams for selected games,
@@ -83,8 +84,11 @@ Two interval jobs:
 - **Progress** every `PROGRESS_POLL_SECONDS` (default 300s, min 60s): refresh the
   user token if needed, fetch the Twitch inventory, replace `drop_progress`,
   insert rate snapshots, send ready/deadline digests.
+- **Watcher reconcile** every `WATCHER_POLL_SECONDS` (default 60s, min 30s): if
+  focused mode is on, keep the single focus target valid or move it to the next
+  live candidate. No playback or watch heartbeats.
 
-Both jobs also run once at startup.
+All jobs also run once at startup.
 
 ### Providers (`backend/app/providers`)
 
@@ -138,6 +142,8 @@ are hash routes (`#/overview`, `#/campaigns`, `#/progress`, `#/watch-queue`,
 - `/progress` reads `drop_progress` + `progress_snapshots` and computes metrics.
 - `/watch-queue` uses a lightweight campaign mapping and **one flat join** across
   streams, matches, campaigns, and games (P0 optimization).
+- `/watcher` reuses the watch-queue builder for candidates and returns the single
+  `watch_focus` row; the worker advances it when a focused live leaves the queue.
 - `/streams` uses one flat join returning stream + game + campaign names.
 - `/status` runs a small set of counts plus auth/scan/profile state.
 - `/twitch/status` is DB-only when a profile row exists; it schedules a background

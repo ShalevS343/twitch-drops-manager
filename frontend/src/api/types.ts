@@ -66,6 +66,8 @@ export interface Status {
   min_poll_seconds: number
   progress_poll_seconds: number
   min_progress_poll_seconds: number
+  watcher_poll_seconds: number
+  min_watcher_poll_seconds: number
   drops_api_keyed: boolean
 }
 
@@ -126,6 +128,56 @@ export interface WatchQueueItem {
   game_name: string
   game_box_art_url: string
   campaigns: WatchQueueCampaign[]
+}
+
+export type WatchStatus = 'idle' | 'focused' | 'waiting'
+
+export interface WatchCandidate {
+  stream_id: number
+  user_login: string
+  user_name: string
+  stream_url: string
+  stream_title: string
+  game_name: string
+  game_box_art_url: string
+  viewers: number
+  campaign_id: string
+  campaign_name: string
+  target_minutes: number
+  ends_at: string | null
+}
+
+export interface WatchFocus {
+  stream_id: number | null
+  user_login: string
+  user_name: string
+  stream_url: string
+  stream_title: string
+  game_name: string
+  game_box_art_url: string
+  campaign_id: string
+  campaign_name: string
+  target_minutes: number
+  ends_at: string | null
+  reason: string
+  focused_at: string | null
+  updated_at: string | null
+}
+
+export interface WatchState {
+  enabled: boolean
+  status: WatchStatus
+  max_watchers: number
+  auto_move: boolean
+  focus: WatchFocus | null
+  candidates: WatchCandidate[]
+  updated_at: string | null
+}
+
+export interface WatchFocusInput {
+  stream_id?: number
+  campaign_id?: string
+  strategy: 'manual' | 'auto' | 'next'
 }
 
 export interface ProgressRefresh {

@@ -10,6 +10,7 @@ from app.api.v1 import (
     status,
     streams,
     watch_queue,
+    watcher,
 )
 
 api_router = APIRouter()
@@ -22,3 +23,4 @@ api_router.include_router(scans.router, tags=["scans"])
 api_router.include_router(notifications.router, tags=["notifications"])
 api_router.include_router(progress.router, tags=["progress"])
 api_router.include_router(watch_queue.router, tags=["watch-queue"])
+api_router.include_router(watcher.router, tags=["watcher"])

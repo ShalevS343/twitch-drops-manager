@@ -176,3 +176,24 @@ viewers).
 **Consequences:** the default view stays short without changing backend
 contracts. Selecting All restores the complete list; future server-side limits
 would need a total-count contract to keep the “showing X of Y” copy accurate.
+
+## ADR-015 — Single focused watcher over the queue (focus pointer only)
+
+**Context:** the watch queue is urgency-sorted, but the user still has to decide
+which live stream to keep in front of them. Auto-playing or simulating viewing
+would cross the read-only/ToS boundary (ADR-002, ADR-013).
+
+**Decision:** add a persisted **focused watcher** that selects one live
+stream/campaign pair from the queue. Focused mode allows exactly one watcher
+(`watch_focus` singleton row). It can be enabled/disabled, dispatched manually,
+auto-picked from the most urgent campaign, or moved to the next live with
+`POST /watcher/focus`. The worker reconciles every `WATCHER_POLL_SECONDS`: if the
+focused stream leaves the queue or its campaign has no remaining watch time, the
+focus moves to the next candidate and records `reason=auto-move`.
+
+**Consequences:** the watcher always has a sensible current target without
+automating Twitch playback. Switching the focus does not start playback or a
+timer; the user explicitly clicks **Start manual session**. Stream ids change on
+every scan, so reconciliation matches `user_login` + `campaign_id` first. The
+feature is single-user and single-watcher by design; a future pool would need a
+new table/schema.

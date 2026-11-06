@@ -9,6 +9,7 @@ from app.providers.twitch import TwitchProvider
 from app.providers.twitch_user import TwitchUserProvider
 from app.services.progress_service import ProgressService
 from app.services.scan_service import ScanService
+from app.services.watch_focus_service import WatchFocusService
 
 
 @lru_cache
@@ -48,3 +49,7 @@ def build_progress_service(session: AsyncSession) -> ProgressService:
         provider=get_twitch_user_provider(),
         telegram=get_telegram_provider(),
     )
+
+
+def build_watch_focus_service(session: AsyncSession) -> WatchFocusService:
+    return WatchFocusService(session)

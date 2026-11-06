@@ -14,6 +14,20 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## 2026-11-06
 
+### Focused watcher (single focus pointer)
+
+- Added a persisted **focused watcher** over the watch queue: one live
+  stream/campaign target at a time (`watch_focus` singleton row, `max_watchers=1`).
+- Enable focused mode to auto-pick the most urgent live campaign, manually focus
+  any candidate, or click **Next live** to move the watcher to another stream.
+- A worker job re-checks every `WATCHER_POLL_SECONDS` (default 60s) and moves the
+  focus with `reason=auto-move` when the current live goes offline or its campaign
+  runs out of watch time; otherwise it waits.
+- Added `GET/PATCH/DELETE /watcher` and `POST /watcher/focus`; the UI panel on
+  Watch queue can hand the focus to the existing manual session timer.
+- The watcher is a focus pointer only: it never plays/controls streams, sends
+  watch heartbeats, or simulates viewing. Backend suite: **68 passed**.
+
 ### Manual watch sessions + per-game limits
 
 - Watch queue can start one browser-local watch session for a chosen

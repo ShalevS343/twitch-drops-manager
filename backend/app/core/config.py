@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     min_poll_seconds: int = 300
     progress_poll_seconds: int = 300
     min_progress_poll_seconds: int = 60
+    watcher_poll_seconds: int = 60
+    min_watcher_poll_seconds: int = 30
     default_games: str = "Rust,Minecraft"
 
     @property
@@ -65,6 +67,10 @@ class Settings(BaseSettings):
     @property
     def progress_interval_seconds(self) -> int:
         return max(self.min_progress_poll_seconds, self.progress_poll_seconds)
+
+    @property
+    def watcher_interval_seconds(self) -> int:
+        return max(self.min_watcher_poll_seconds, self.watcher_poll_seconds)
 
     @property
     def gql_client_id(self) -> str:

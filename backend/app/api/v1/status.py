@@ -48,5 +48,7 @@ async def status(session: SessionDep) -> StatusOut:
         min_poll_seconds=settings.min_poll_seconds,
         progress_poll_seconds=settings.progress_poll_seconds,
         min_progress_poll_seconds=settings.min_progress_poll_seconds,
+        watcher_poll_seconds=settings.watcher_poll_seconds,
+        min_watcher_poll_seconds=settings.min_watcher_poll_seconds,
         drops_api_keyed=bool(settings.drops_api_key),
     )

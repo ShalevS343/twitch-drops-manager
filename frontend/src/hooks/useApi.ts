@@ -66,6 +66,49 @@ export function useWatchQueue() {
   })
 }
 
+export function useWatcher() {
+  return useQuery({
+    queryKey: ['watcher'],
+    queryFn: api.watcher,
+    refetchInterval: 15_000,
+  })
+}
+
+export function useSetWatcherEnabled() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: api.setWatcherEnabled,
+    onSuccess: (state) => {
+      queryClient.setQueryData(['watcher'], state)
+      queryClient.invalidateQueries({ queryKey: ['watch-queue'] })
+    },
+  })
+}
+
+export function useFocusWatcher() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: api.focusWatcher,
+    onSuccess: (state) => {
+      queryClient.setQueryData(['watcher'], state)
+      queryClient.invalidateQueries({ queryKey: ['watch-queue'] })
+    },
+  })
+}
+
+export function useStopWatcher() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: api.stopWatcher,
+    onSuccess: (state) => {
+      queryClient.setQueryData(['watcher'], state)
+    },
+  })
+}
+
 export function useTwitchStatus() {
   return useQuery({
     queryKey: ['twitch-status'],

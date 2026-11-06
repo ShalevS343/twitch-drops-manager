@@ -131,8 +131,9 @@ pass, lint/build pass, contracts aligned, docs updated, no secrets.
 
 ## Current baseline
 
-- Backend tests: **58 passed**
+- Backend tests: **68 passed**
 - Ruff: clean
 - Frontend: `npm run build` passes
-- Main includes P0 performance work, game tracking/campaign-start alerts, and the
-  violet high-contrast UI
+- Main includes P0 performance work, game tracking/campaign-start alerts, manual
+  watch sessions, and the violet high-contrast UI; `feat/queue-watcher` adds the
+  single focused watcher over the watch queue.
