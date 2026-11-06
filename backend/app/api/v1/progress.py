@@ -132,16 +132,29 @@ async def refresh_progress(service: ProgressServiceDep) -> ProgressRefreshOut:
 
 
 @router.get("/twitch/status", response_model=TwitchUserStatusOut)
-async def twitch_status(session: SessionDep) -> TwitchUserStatusOut:
+async def twitch_status(session: SessionDep, provider: TwitchUserDep) -> TwitchUserStatusOut:
     auth = await TwitchAuthRepository(session).get()
     if auth is None:
         return TwitchUserStatusOut(connected=False)
+
+    display_name = auth.login or None
+    profile_image_url = None
+    try:
+        profile = await provider.fetch_profile(auth.access_token, auth.user_id or "")
+        display_name = str(profile.get("displayName") or "") or display_name
+        profile_image_url = str(profile.get("profileImageURL") or "") or None
+    except (NotConfiguredError, ProviderError):
+        display_name = auth.login or None
+        profile_image_url = None
 
     return TwitchUserStatusOut(
         connected=True,
         login=auth.login or None,
         user_id=auth.user_id or None,
         expires_at=auth.expires_at,
+        display_name=display_name,
+        profile_image_url=profile_image_url,
+        connected_at=auth.updated_at,
     )
 
 

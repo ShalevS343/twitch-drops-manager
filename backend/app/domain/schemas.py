@@ -84,6 +84,11 @@ class StatusOut(BaseModel):
     last_error: str | None = None
     twitch_user_connected: bool = False
     twitch_login: str | None = None
+    poll_seconds: int = 900
+    min_poll_seconds: int = 300
+    progress_poll_seconds: int = 300
+    min_progress_poll_seconds: int = 60
+    drops_api_keyed: bool = False
 
 
 class GamesUpdate(BaseModel):
@@ -154,6 +159,9 @@ class TwitchUserStatusOut(BaseModel):
     login: str | None = None
     user_id: str | None = None
     expires_at: datetime | None = None
+    display_name: str | None = None
+    profile_image_url: str | None = None
+    connected_at: datetime | None = None
 
 
 class TwitchConnectOut(BaseModel):
