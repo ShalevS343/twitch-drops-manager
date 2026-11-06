@@ -3,7 +3,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -42,7 +52,9 @@ class Campaign(Base):
     details_url: Mapped[str] = mapped_column(String(1024), default="")
     owner_name: Mapped[str] = mapped_column(String(255), default="")
     allow: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    raw: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # Only ever written (see CampaignRepository.upsert_many); deferring avoids
+    # loading the large raw payload on every full Campaign query.
+    raw: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, deferred=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -128,6 +140,29 @@ class Notification(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class TwitchProfile(Base):
+    """Persisted Twitch display profile for the connected account.
+
+    Keeping this in its own table (rather than altering ``twitch_auth``) lets
+    ``create_all`` add it to an existing database. There is at most one row.
+    """
+
+    __tablename__ = "twitch_profile"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, default=""
+    )
+    display_name: Mapped[str] = mapped_column(String(255), default="")
+    profile_image_url: Mapped[str] = mapped_column(String(1024), default="")
+    connected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class TwitchAuth(Base):
     """User-level Twitch OAuth tokens used to read the drops inventory."""
 
@@ -181,6 +216,13 @@ class ProgressSnapshot(Base):
     """A point-in-time reading used to estimate watch rate and ETA."""
 
     __tablename__ = "progress_snapshots"
+    __table_args__ = (
+        Index(
+            "ix_progress_snapshots_drop_recorded",
+            "drop_id",
+            "recorded_at",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     drop_id: Mapped[str] = mapped_column(String(128), index=True)

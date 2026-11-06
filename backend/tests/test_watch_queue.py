@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -195,6 +196,76 @@ async def test_watch_queue_sorts_by_earliest_end_remaining_and_viewers():
             "late-low",
             "unknown-stream",
         ]
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_watch_queue_uses_a_single_flat_join_and_three_queries():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        game = Game(name="Rust", selected=True)
+        session.add(game)
+        await session.flush()
+
+        campaign = await _add_campaign(
+            session, game, "Rust:campaign-1", "Campaign One", "2026-11-10T00:00:00Z"
+        )
+        await _add_stream(session, game, "alpha", 100, [campaign])
+        session.add(_progress("drop-1", campaign, required=100, current=40))
+        await session.commit()
+
+        statements: list[str] = []
+
+        def record_statement(
+            _connection, _cursor, statement, _parameters, _context, _executemany
+        ):
+            statements.append(statement)
+
+        event.listen(engine.sync_engine, "before_cursor_execute", record_statement)
+        items = await list_watch_queue(session)
+        event.remove(engine.sync_engine, "before_cursor_execute", record_statement)
+
+        assert len(items) == 1
+        assert len(statements) == 3
+        assert all(statement.lstrip().upper().startswith("SELECT") for statement in statements)
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_watch_queue_falls_back_to_flat_campaign_name_and_ends_at():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        game = Game(name="Rust", selected=True)
+        session.add(game)
+        await session.flush()
+
+        campaign = await _add_campaign(
+            session, game, "Rust:campaign-1", "Campaign One", "2026-11-10T00:00:00Z"
+        )
+        await _add_stream(session, game, "alpha", 100, [campaign])
+        session.add(
+            DropProgress(
+                drop_id="drop-1",
+                drop_name="Drop One",
+                campaign_gql_id="campaign-1",
+                campaign_name="",
+                campaign_ends_at=None,
+                game_name="Rust",
+                required_minutes=100,
+                current_minutes=40,
+            )
+        )
+        await session.commit()
+
+        items = await list_watch_queue(session)
+
+        assert len(items) == 1
+        assert items[0].campaigns[0].campaign_name == "Campaign One"
+        assert items[0].campaigns[0].ends_at == "2026-11-10T00:00:00Z"
 
     await engine.dispose()
 
