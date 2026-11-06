@@ -1,0 +1,35 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api.v1.router import api_router
+from app.core.config import get_settings
+from app.core.db import engine, init_db
+from app.core.logging import configure_logging
+
+settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    configure_logging()
+    await init_db()
+    yield
+    await engine.dispose()
+
+
+app = FastAPI(title=settings.app_name, lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.include_router(api_router, prefix=settings.api_prefix)
+
+
+@app.get("/", include_in_schema=False)
+async def root() -> dict:
+    return {"app": settings.app_name, "docs": "/docs", "api": settings.api_prefix}

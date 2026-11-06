@@ -1,0 +1,167 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #111827;
+  color: #f9fafb;
+}
+
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 16px 64px;
+}
+
+header h1 {
+  margin: 0 0 4px;
+}
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 1.15rem;
+}
+
+h3 {
+  margin: 8px 0;
+}
+
+section {
+  margin-top: 24px;
+}
+
+.panel,
+.card {
+  background: #1f2937;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+button,
+a {
+  color: #fff;
+  background: #6441a5;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 13px;
+  text-decoration: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+button.secondary {
+  background: #374151;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.muted {
+  color: #cbd5e1;
+}
+
+.error {
+  color: #fca5a5;
+}
+
+.success {
+  color: #86efac;
+}
+
+.facts {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 6px;
+}
+
+.facts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #374151;
+  padding-bottom: 4px;
+}
+
+.game-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+
+.game {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: #111827;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.game small {
+  margin-left: auto;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.card .badge {
+  display: inline-block;
+  background: #374151;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.75rem;
+  margin-right: 6px;
+}
+
+.card .badge.active {
+  background: #166534;
+}
+
+.rewards {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+  display: grid;
+  gap: 6px;
+}
+
+.rewards li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  background: #111827;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.rewards small {
+  grid-column: 1 / -1;
+  color: #cbd5e1;
+}
