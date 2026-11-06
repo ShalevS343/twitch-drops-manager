@@ -21,7 +21,9 @@ class FakeProvider:
                 {
                     "id": "campaign-1",
                     "name": "Test Campaign",
-                    "endAt": "2026-12-01T00:00:00Z",
+                    # Keep this outside the 24h deadline-reminder window so the
+                    # test only exercises the ready-to-claim notification.
+                    "endAt": "2099-12-01T00:00:00Z",
                     "game": {
                         "displayName": "Rust",
                         "boxArtURL": "https://example.test/rust.jpg",
