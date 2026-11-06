@@ -3,8 +3,8 @@
 Last updated: **2026-11-07**
 Source of truth: `main` (run `git log -1` for the exact tip). Game tracking +
 violet UI in `77bfc75`; manual watch sessions + per-game limits in `0eb9b16`;
-ETA removal + clearer action labels in `0c6a7e2`; focused watcher on
-`feat/queue-watcher`.
+ETA removal + clearer action labels in `0c6a7e2`; focused watcher +
+campaign-start stream gating in `5e3937e`.
 
 ## Current state
 
@@ -14,7 +14,7 @@ ETA removal + clearer action labels in `0c6a7e2`; focused watcher on
   Telegram dedupe/digests, game tracking by name, campaign-start alerts, manual
   watch sessions, top-5-per-game live lists, and the violet high-contrast UI
   (circular logo/favicon).
-- `feat/queue-watcher` adds the focused watcher (one queue target at a time,
+- `main` includes the focused watcher (one queue target at a time,
   manual/auto/next dispatch, worker auto-move) and gates stream alerts on a
   campaign start. Backend tests: **70 passed**; ruff clean; frontend build
   passes.
@@ -50,10 +50,10 @@ The Portainer stack `twitch-drops-manager` was last observed running a build fro
 
 **The live stack is behind `main`.** A redeploy is required to get P0 performance,
 the violet UI, the circular favicon, game tracking/campaign-start alerts, manual
-watch sessions, the per-game live caps, and the latest docs. The focused watcher
-is on `feat/queue-watcher` and needs a merge before redeploy. The DB volume
-persists; `campaign_starts` and `watch_focus` are created automatically by
-`create_all`. Manual watch sessions are browser-local and need no migration.
+watch sessions, the per-game live caps, the focused watcher, and the
+campaign-start stream gating. The DB volume persists; `campaign_starts` and
+`watch_focus` are created automatically by `create_all`. Manual watch sessions
+are browser-local and need no migration.
 
 ## Pending work
 
