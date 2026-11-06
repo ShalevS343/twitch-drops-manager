@@ -28,6 +28,19 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 - The watcher is a focus pointer only: it never plays/controls streams, sends
   watch heartbeats, or simulates viewing. Backend suite: **68 passed**.
 
+### Clearer action labels + ETA removal
+
+- Removed `eta_minutes` from `ProgressDropOut`, `ProgressCampaignOut`, and
+  `WatchQueueCampaignOut` (breaking response change) and deleted the ETA
+  calculation. Remaining minutes and watch rate are unchanged.
+- Progress, watch queue, and overview now show only `X min left`; no “at current
+  pace”/ETA text.
+- Renamed vague actions to state the verb and object: “Scan for new drops”,
+  “Sync drop progress”, “Send test message”, “Track this game”, “Save tracked
+  games”, “Start watch timer”, “Pause/Resume watch timer”, “Open stream on
+  Twitch”, “Claim on Twitch”, “View campaign on Twitch”, “Manage tracked games”.
+- Loading labels now match the action (“Scanning…”, “Syncing…”, “Sending…”).
+
 ### Manual watch sessions + per-game limits
 
 - Watch queue can start one browser-local watch session for a chosen

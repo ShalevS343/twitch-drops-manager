@@ -144,7 +144,7 @@ export function CampaignsPage() {
                 disabled={scan.isPending}
               >
                 <Icon name="scan" size={16} />
-                {scan.isPending ? 'Scanning…' : 'Scan now'}
+                {scan.isPending ? 'Scanning…' : 'Scan for new drops'}
               </button>
             }
           />

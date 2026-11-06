@@ -1,8 +1,7 @@
-"""Shared remaining-time, watch-rate and ETA calculations."""
+"""Shared remaining-time and watch-rate calculations."""
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -17,7 +16,6 @@ MIN_RATE_MINUTES_PER_HOUR = 0.5
 class DropMetrics:
     remaining_minutes: int
     rate_minutes_per_hour: float | None
-    eta_minutes: int | None
 
 
 def to_utc(value: datetime) -> datetime:
@@ -61,39 +59,19 @@ def watch_rate(snapshots: Iterable[Any], now: datetime) -> float | None:
     return rate
 
 
-def eta_minutes(remaining_minutes: int, rate: float | None) -> int | None:
-    if not rate or remaining_minutes <= 0:
-        return None
-    return math.ceil(remaining_minutes / rate * 60)
-
-
 def drop_metrics(drop: Any, snapshots: Iterable[Any], now: datetime) -> DropMetrics:
     remaining = drop_remaining_minutes(drop)
     rate = watch_rate(snapshots, now)
     return DropMetrics(
         remaining_minutes=remaining,
         rate_minutes_per_hour=rate,
-        eta_minutes=eta_minutes(remaining, rate),
     )
 
 
-def campaign_totals(
-    items: Iterable[tuple[DropMetrics, bool]],
-) -> tuple[int, int | None]:
-    """Aggregate drop metrics for one campaign.
-
-    ``items`` contains ``(metrics, is_claimed)`` pairs. The campaign ETA is
-    only meaningful when every unclaimed drop has an ETA of its own.
-    """
-    remaining = 0
-    etas: list[int | None] = []
-
-    for metrics, claimed in items:
-        if claimed:
-            continue
-        remaining += metrics.remaining_minutes
-        etas.append(metrics.eta_minutes)
-
-    if all(eta is not None for eta in etas):
-        return remaining, sum(eta for eta in etas if eta is not None)
-    return remaining, None
+def campaign_remaining_minutes(items: Iterable[tuple[DropMetrics, bool]]) -> int:
+    """Sum the remaining minutes of every unclaimed drop in one campaign."""
+    return sum(
+        metrics.remaining_minutes
+        for metrics, claimed in items
+        if not claimed
+    )

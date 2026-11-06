@@ -91,7 +91,6 @@ export interface ProgressDrop {
   benefits: string[]
   remaining_minutes: number
   rate_minutes_per_hour: number | null
-  eta_minutes: number | null
 }
 
 export interface ProgressCampaign {
@@ -104,7 +103,6 @@ export interface ProgressCampaign {
   total_count: number
   drops: ProgressDrop[]
   remaining_minutes: number
-  eta_minutes: number | null
 }
 
 export interface WatchQueueCampaign {
@@ -112,7 +110,6 @@ export interface WatchQueueCampaign {
   campaign_name: string
   ends_at: string | null
   remaining_minutes: number
-  eta_minutes: number | null
   next_drop_name: string | null
   next_drop_remaining_minutes: number | null
 }

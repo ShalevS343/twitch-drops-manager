@@ -1,9 +1,10 @@
 # Status / handoff
 
-Last updated: **2026-11-06**
-Source of truth: `main` (run `git log -1` for the exact tip); focused watcher
-work is on `feat/queue-watcher`. Game tracking + violet UI in `77bfc75`; manual
-watch sessions + per-game limits in `0eb9b16`.
+Last updated: **2026-11-07**
+Source of truth: `main` (run `git log -1` for the exact tip). Game tracking +
+violet UI in `77bfc75`; manual watch sessions + per-game limits in `0eb9b16`;
+ETA removal + clearer action labels in `0c6a7e2`; focused watcher on
+`feat/queue-watcher`.
 
 ## Current state
 
@@ -28,9 +29,11 @@ watch sessions + per-game limits in `0eb9b16`.
 - Focused watcher is backend-persisted (`watch_focus`, one row) and reuses the
   watch queue. It is a focus pointer only: no playback, heartbeats, or simulated
   viewing. Manual session handoff still requires an explicit click.
-- Docs: API, data model, backend, frontend, decisions, changelog, and this file
-  updated for game tracking, manual sessions, the violet UI pass, and the focused
-  watcher.
+- ETA was removed from the progress/watch-queue API and UI; remaining minutes are
+  shown instead. Action buttons now use explicit verb + object labels.
+- Docs: API, data model, backend, architecture, frontend, decisions, changelog,
+  and this file updated for game tracking, manual sessions, ETA removal, the
+  violet UI pass, and the focused watcher.
 
 ### Live deployment (verify before assuming)
 
@@ -61,6 +64,8 @@ persists; `campaign_starts` and `watch_focus` are created automatically by
    - Watch queue: one manual session, timer persists on refresh, top 5 per game
    - Focus watcher: enable, switch focus, Next live, auto-move on scan
    - Live streams: game groups + Per game selector
+   - No ETA text; progress shows `X min left` and actions read “Scan for new
+     drops” / “Sync drop progress”
    - Kuma monitors for 8282/8000
 4. **P1 performance** (planned): per-endpoint response cache + ETag, `/dashboard`
    bootstrap endpoint, combined `/status` queries. Goal: initial load <50 ms.
@@ -91,6 +96,9 @@ persists; `campaign_starts` and `watch_focus` are created automatically by
   manual session**. Auto-move is bounded by `WATCHER_POLL_SECONDS` (default 60s).
 - **Stream identity is ephemeral**: scans replace `streams` rows, so the watcher
   resolves its target by `user_login` + `campaign_id` and refreshes `stream_id`.
+- **API change**: `eta_minutes` was removed from `/progress` and `/watch-queue`
+  responses. Remaining minutes and watch rate remain; an external client reading
+  ETA must drop that field.
 - **Portainer drift**: manual `docker compose` runs use the same project name;
   Portainer may show the stack as out-of-sync until its next redeploy.
 - `.env` / `.env.save` are local and untracked; never commit them.

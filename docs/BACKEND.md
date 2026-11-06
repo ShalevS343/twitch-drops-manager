@@ -34,7 +34,7 @@ app/
   services/
     scan_service.py       catalog + streams + campaign-start alerts
     progress_service.py   inventory + snapshots + ready/deadline alerts
-    progress_metrics.py   remaining/rate/ETA calculations
+    progress_metrics.py   remaining-time and watch-rate calculations
     watch_queue_service.py  shared queue builder + candidate selection
     watch_focus_service.py  single focused-watcher state + auto-move
     factory.py            cached providers + service builders
@@ -125,15 +125,14 @@ See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
    - atomically claim each key before sending; one digest; release on failure.
 8. Commit; return counts.
 
-### Rate / ETA math (`progress_metrics.py`)
+### Remaining-time / watch-rate math (`progress_metrics.py`)
 
 - `remaining_minutes = max(0, required - current)` (claimed → 0).
 - Rate uses snapshots from the last **2 hours**: oldest vs newest, requires at
   least 5 minutes span; `rate = delta_minutes * 60 / span_minutes`.
 - Rate below `0.5` min/hour → `null` (not actually watching).
-- `eta_minutes = ceil(remaining / rate * 60)` when rate is available.
-- Campaign remaining = sum of unclaimed drops; campaign ETA = sum of drop ETAs
-  only when every unclaimed drop has one; otherwise `null` (all claimed → `0`).
+- Campaign remaining = sum of unclaimed drops. There is no ETA field: the UI
+  shows remaining minutes only.
 
 ## Watch queue
 
@@ -225,7 +224,7 @@ Repositories wrap SQLAlchemy. Notable choices:
 
 - parsing/inventory
 - scan service (catalog, streams, scoped alerts, campaign starts, retry)
-- progress service (rate/ETA, digests, deadline windows, retry)
+- progress service (watch rate, digests, deadline windows, retry)
 - notifications (claim/release/duplicate)
 - watch queue (filtering/sorting/next drop)
 - focused watcher (singleton, manual/auto/next, auto-move, waiting)

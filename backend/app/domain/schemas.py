@@ -111,7 +111,6 @@ class ProgressDropOut(BaseModel):
     benefits: list[str] = Field(default_factory=list)
     remaining_minutes: int = 0
     rate_minutes_per_hour: float | None = None
-    eta_minutes: int | None = None
 
 
 class ProgressCampaignOut(BaseModel):
@@ -124,7 +123,6 @@ class ProgressCampaignOut(BaseModel):
     total_count: int = 0
     drops: list[ProgressDropOut] = Field(default_factory=list)
     remaining_minutes: int = 0
-    eta_minutes: int | None = None
 
 
 class WatchQueueCampaignOut(BaseModel):
@@ -132,7 +130,6 @@ class WatchQueueCampaignOut(BaseModel):
     campaign_name: str
     ends_at: str | None = None
     remaining_minutes: int = 0
-    eta_minutes: int | None = None
     next_drop_name: str | None = None
     next_drop_remaining_minutes: int | None = None
 

@@ -139,7 +139,7 @@ export function TwitchConnect({ connect }: { connect: TwitchConnectController })
                 className="btn btn-primary"
                 disabled={connect.saving || !connect.redirectUrl.trim()}
               >
-                {connect.saving ? 'Saving…' : 'Save connection'}
+                {connect.saving ? 'Saving…' : 'Save Twitch connection'}
               </button>
               <button
                 type="button"
@@ -147,7 +147,7 @@ export function TwitchConnect({ connect }: { connect: TwitchConnectController })
                 onClick={connect.cancel}
                 disabled={connect.saving}
               >
-                Cancel
+                Cancel connection
               </button>
             </div>
           </form>

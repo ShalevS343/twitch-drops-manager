@@ -29,7 +29,7 @@ port 8000). Interactive OpenAPI: `http://<host>:8000/docs`.
 | POST | `/scans` | token | Run a catalog/stream scan now |
 | GET | `/scans/latest` | — | Latest scan run |
 | POST | `/notifications/test` | token | Send a Telegram test message |
-| GET | `/progress` | — | Personal drop progress + ETA |
+| GET | `/progress` | — | Personal drop progress |
 | POST | `/progress/refresh` | token | Sync Twitch inventory now |
 | GET | `/watch-queue` | — | Live streams for in-progress campaigns |
 | GET | `/watcher` | — | Focused watcher state + dispatchable candidates |
@@ -203,7 +203,6 @@ prevents duplicates.
   "claimed_count": 0,
   "total_count": 7,
   "remaining_minutes": 1260,
-  "eta_minutes": null,
   "drops": [{
     "drop_id": "2abc74f1-...",
     "drop_name": "50% Silver Lion Booster",
@@ -216,8 +215,7 @@ prevents duplicates.
     "ends_at": "2026-11-12T09:59:59.999Z",
     "benefits": ["50% SL Booster"],
     "remaining_minutes": 0,
-    "rate_minutes_per_hour": 12.0,
-    "eta_minutes": null
+    "rate_minutes_per_hour": 12.0
   }]
 }]
 ```
@@ -250,7 +248,6 @@ Errors: `400` Twitch not connected/expired, `502` GQL/provider failure.
     "campaign_name": "WTCS Pro Grand Finals",
     "ends_at": "2026-11-12T09:59:59.999Z",
     "remaining_minutes": 1260,
-    "eta_minutes": null,
     "next_drop_name": "1 day of Premium",
     "next_drop_remaining_minutes": 12
   }]
