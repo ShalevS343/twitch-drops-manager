@@ -132,8 +132,10 @@ export function ProfilePage({ twitch }: Props) {
 
             <p className="notice">
               <Icon name="twitch" size={15} />
-              Profile is read directly from Twitch. This app stores only an OAuth token;
-              there are no local user accounts.
+              <span>
+                Profile is read directly from Twitch. This app stores only an OAuth
+                token; there are no local user accounts.
+              </span>
             </p>
           </>
         ) : (
@@ -167,8 +169,10 @@ export function ProfilePage({ twitch }: Props) {
 
             <p className="notice">
               <Icon name="twitch" size={15} />
-              Profile is read directly from Twitch. This app stores only an OAuth token;
-              there are no local user accounts.
+              <span>
+                Profile is read directly from Twitch. This app stores only an OAuth
+                token; there are no local user accounts.
+              </span>
             </p>
           </>
         )}

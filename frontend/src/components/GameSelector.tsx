@@ -31,6 +31,7 @@ export function GameSelector({ games, isLoading }: Props) {
   const [selected, setSelected] = useState<Set<string>>(() => selectedNames(games))
   const [saved, setSaved] = useState<Set<string>>(() => selectedNames(games))
   const [search, setSearch] = useState('')
+  const [newGame, setNewGame] = useState('')
   const save = useSaveGames()
 
   useEffect(() => {
@@ -76,6 +77,19 @@ export function GameSelector({ games, isLoading }: Props) {
       next.delete(name)
       return next
     })
+  }
+
+  function addByName() {
+    const name = newGame.trim()
+    if (!name) {
+      return
+    }
+
+    const existing = games.find(
+      (game) => game.name.toLowerCase() === name.toLowerCase(),
+    )
+    add(existing?.name ?? name)
+    setNewGame('')
   }
 
   function saveSelection() {
@@ -142,6 +156,36 @@ export function GameSelector({ games, isLoading }: Props) {
           </div>
         )}
       </div>
+
+      <div className="add-game-row">
+        <input
+          className="search-input"
+          type="text"
+          value={newGame}
+          onChange={(event) => setNewGame(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              addByName()
+            }
+          }}
+          placeholder="Track a game by name…"
+          aria-label="Track a game by name"
+        />
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={addByName}
+          disabled={!newGame.trim()}
+        >
+          <Icon name="plus" size={14} />
+          Track game
+        </button>
+      </div>
+      <p className="muted small">
+        Games don&apos;t need a current campaign. Track them by name and you&apos;ll get
+        a Telegram alert when a campaign starts.
+      </p>
 
       <div className="search-row">
         <label className="search-field">

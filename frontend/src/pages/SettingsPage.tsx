@@ -282,8 +282,10 @@ export function SettingsPage({ status, twitch }: Props) {
 
         <p className="notice">
           <Icon name="alert" size={15} />
-          Scan and progress intervals, credentials, and notification settings are
-          configured in the backend <code>.env</code> file. They are read-only here.
+          <span>
+            Scan and progress intervals, credentials, and notification settings are
+            configured in the backend <code>.env</code> file. They are read-only here.
+          </span>
         </p>
 
         {status.isLoading && <LoadingState label="Loading system status…" />}
