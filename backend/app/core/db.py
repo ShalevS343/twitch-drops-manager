@@ -54,6 +54,13 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
+def _create_missing_indexes(connection) -> None:
+    """Create model indexes that ``create_all`` skipped on existing tables."""
+    for table in Base.metadata.tables.values():
+        for index in table.indexes:
+            index.create(connection, checkfirst=True)
+
+
 async def init_db() -> None:
     from app.domain import models  # noqa: F401
 
@@ -63,6 +70,7 @@ async def init_db() -> None:
         try:
             async with engine.begin() as connection:
                 await connection.run_sync(Base.metadata.create_all)
+                await connection.run_sync(_create_missing_indexes)
             return
         except OperationalError as exc:
             last_error = exc

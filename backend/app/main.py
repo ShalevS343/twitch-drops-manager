@@ -3,6 +3,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.progress import (
+    shutdown_profile_refresh,
+    start_profile_refresh_warmup,
+)
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.db import engine, init_db
@@ -15,8 +19,12 @@ settings = get_settings()
 async def lifespan(_app: FastAPI):
     configure_logging()
     await init_db()
-    yield
-    await engine.dispose()
+    start_profile_refresh_warmup()
+    try:
+        yield
+    finally:
+        await shutdown_profile_refresh()
+        await engine.dispose()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

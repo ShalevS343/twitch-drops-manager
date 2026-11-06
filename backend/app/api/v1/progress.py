@@ -1,8 +1,10 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import ProgressServiceDep, SessionDep, TwitchUserDep
+from app.core.db import SessionLocal
 from app.core.exceptions import NotConfiguredError, ProviderError
 from app.core.security import require_api_token
 from app.domain.models import DropProgress, ProgressSnapshot
@@ -17,10 +19,135 @@ from app.domain.schemas import (
 )
 from app.repositories.progress import ProgressRepository
 from app.repositories.twitch_auth import TwitchAuthRepository
-from app.services.factory import build_progress_service
+from app.repositories.twitch_profile import TwitchProfileRepository
+from app.services.factory import build_progress_service, get_twitch_user_provider
 from app.services.progress_metrics import RATE_WINDOW, drop_metrics
 
 router = APIRouter()
+
+# Background profile fetches are tracked so shutdown can cancel them, and each
+# user gets at most one in-flight fetch at a time.
+_profile_refresh_tasks: set[asyncio.Task[None]] = set()
+_profile_refresh_inflight: set[str] = set()
+
+
+async def _fetch_and_save_profile(
+    session,
+    provider,
+    *,
+    user_id: str,
+    access_token: str,
+    connected_at: datetime,
+):
+    """Fetch the Twitch profile and persist it, even when the fetch fails.
+
+    A failed fetch stores an empty profile row. That keeps ``/twitch/status``
+    DB-only afterwards (we deliberately do not retry GQL on every request);
+    the profile is refreshed on the next connect.
+    """
+    display_name = ""
+    profile_image_url = ""
+    try:
+        profile = await provider.fetch_profile(access_token, user_id)
+        display_name = str(profile.get("displayName") or "")
+        profile_image_url = str(profile.get("profileImageURL") or "")
+    except (NotConfiguredError, ProviderError):
+        pass
+
+    return await TwitchProfileRepository(session).save(
+        user_id=user_id,
+        display_name=display_name,
+        profile_image_url=profile_image_url,
+        connected_at=connected_at,
+    )
+
+
+async def refresh_twitch_profile(
+    user_id: str,
+    provider=None,
+    session_factory=None,
+) -> None:
+    """Fetch and store the Twitch profile in its own session.
+
+    Used by the non-blocking cold path: ``/twitch/status`` never waits for
+    Twitch GQL, and the next poll returns the stored profile.
+    """
+    factory = session_factory or SessionLocal
+
+    async with factory() as session:
+        auth = await TwitchAuthRepository(session).get()
+        if auth is None:
+            return
+        if user_id and (auth.user_id or "") != user_id:
+            return
+        if await TwitchProfileRepository(session).get() is not None:
+            return
+
+        await _fetch_and_save_profile(
+            session,
+            provider or get_twitch_user_provider(),
+            user_id=auth.user_id or "",
+            access_token=auth.access_token,
+            connected_at=auth.updated_at,
+        )
+        await session.commit()
+
+
+async def _run_profile_refresh(user_id: str, provider=None) -> None:
+    try:
+        await refresh_twitch_profile(user_id, provider)
+    finally:
+        _profile_refresh_inflight.discard(user_id)
+
+
+def _track_task(coro) -> asyncio.Task[None]:
+    task = asyncio.create_task(coro)
+    _profile_refresh_tasks.add(task)
+    task.add_done_callback(_profile_refresh_tasks.discard)
+    return task
+
+
+def schedule_profile_refresh(user_id: str, provider=None) -> asyncio.Task[None] | None:
+    """Schedule one background refresh per user, or return None if already busy."""
+    if user_id in _profile_refresh_inflight:
+        return None
+
+    _profile_refresh_inflight.add(user_id)
+    try:
+        return _track_task(_run_profile_refresh(user_id, provider))
+    except RuntimeError:
+        _profile_refresh_inflight.discard(user_id)
+        return None
+
+
+async def _warm_up_profile_on_startup(session_factory=None) -> None:
+    factory = session_factory or SessionLocal
+
+    async with factory() as session:
+        auth = await TwitchAuthRepository(session).get()
+        if auth is None:
+            return
+        if await TwitchProfileRepository(session).get() is not None:
+            return
+        user_id = auth.user_id or ""
+
+    schedule_profile_refresh(user_id)
+
+
+def start_profile_refresh_warmup() -> None:
+    """Start the startup profile check without blocking the lifespan."""
+    _track_task(_warm_up_profile_on_startup())
+
+
+async def shutdown_profile_refresh() -> None:
+    """Cancel in-flight background profile fetches during shutdown."""
+    while _profile_refresh_tasks:
+        tasks = list(_profile_refresh_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    _profile_refresh_tasks.clear()
+    _profile_refresh_inflight.clear()
 
 
 def _percent(drop: DropProgress) -> int:
@@ -137,24 +264,29 @@ async def twitch_status(session: SessionDep, provider: TwitchUserDep) -> TwitchU
     if auth is None:
         return TwitchUserStatusOut(connected=False)
 
-    display_name = auth.login or None
-    profile_image_url = None
-    try:
-        profile = await provider.fetch_profile(auth.access_token, auth.user_id or "")
-        display_name = str(profile.get("displayName") or "") or display_name
-        profile_image_url = str(profile.get("profileImageURL") or "") or None
-    except (NotConfiguredError, ProviderError):
-        display_name = auth.login or None
-        profile_image_url = None
+    profile = await TwitchProfileRepository(session).get()
+    if profile is None:
+        # Never block this request on Twitch GQL. The next poll (or the startup
+        # warm-up) stores the profile in the background and returns it then.
+        schedule_profile_refresh(auth.user_id or "", provider)
+        return TwitchUserStatusOut(
+            connected=True,
+            login=auth.login or None,
+            user_id=auth.user_id or None,
+            expires_at=auth.expires_at,
+            display_name=auth.login or None,
+            profile_image_url=None,
+            connected_at=auth.updated_at,
+        )
 
     return TwitchUserStatusOut(
         connected=True,
         login=auth.login or None,
         user_id=auth.user_id or None,
         expires_at=auth.expires_at,
-        display_name=display_name,
-        profile_image_url=profile_image_url,
-        connected_at=auth.updated_at,
+        display_name=profile.display_name or auth.login or None,
+        profile_image_url=profile.profile_image_url or None,
+        connected_at=profile.connected_at or auth.updated_at,
     )
 
 
@@ -209,12 +341,22 @@ async def twitch_connect(
         if expires_in > 0
         else None
     )
+    user_id = str(info.get("user_id") or "")
     await TwitchAuthRepository(session).save(
-        user_id=str(info.get("user_id") or ""),
+        user_id=user_id,
         login=str(info.get("login") or ""),
         access_token=token,
         refresh_token="",
         expires_at=expires_at,
+    )
+    await session.commit()
+
+    await _fetch_and_save_profile(
+        session,
+        provider,
+        user_id=user_id,
+        access_token=token,
+        connected_at=datetime.now(timezone.utc),
     )
     await session.commit()
 
@@ -239,6 +381,7 @@ async def twitch_connect(
 )
 async def twitch_logout(session: SessionDep) -> dict:
     await TwitchAuthRepository(session).clear()
+    await TwitchProfileRepository(session).clear()
     await ProgressRepository(session).replace([])
     await session.commit()
     return {"disconnected": True}
