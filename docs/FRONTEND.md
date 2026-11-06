@@ -128,6 +128,8 @@ Borders, spacing, and a larger type scale carry the hierarchy.
   reserved for numeric/technical data.
 - Badges and chips are rectangular (3px radius), sentence case, sans-serif.
 - Buttons are solid rectangles; primary is Twitch violet with white text.
+- Overview quick actions use a two-column grid of equal-width buttons with
+  centered icon + label; one column at ≤640px.
 - Cards/panels use 1px borders and 20–22px padding; no shadows.
 - Progress bars are 8px, square, solid violet/green/gray.
 - The brand mark, favicon, empty-state icon, connect icon, and avatars are

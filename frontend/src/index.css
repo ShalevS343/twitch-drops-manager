@@ -923,9 +923,15 @@ code {
 }
 
 .quick-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.quick-actions .btn {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
 }
 
 /* ------------------------------------------------------------------ lists */
@@ -2225,6 +2231,10 @@ code {
   }
 
   .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-actions {
     grid-template-columns: 1fr;
   }
 
