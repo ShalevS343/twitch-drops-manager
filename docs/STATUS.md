@@ -2,7 +2,8 @@
 
 Last updated: **2026-11-06**
 Source of truth: `main` (run `git log -1` for the exact tip). Game tracking +
-violet UI in `77bfc75`; manual watch sessions + per-game limits in `0eb9b16`.
+violet UI in `77bfc75`; manual watch sessions + per-game limits in `0eb9b16`;
+ETA removal + clearer action labels in `0c6a7e2`.
 
 ## Current state
 
