@@ -33,6 +33,23 @@ class FakeTwitch:
         ]
 
 
+class MultiStreamTwitch:
+    ready = True
+
+    async def get_streams(self, game_id, max_pages=5):
+        return [
+            {
+                "user_login": login,
+                "user_name": login.title(),
+                "title": f"{login} drops",
+                "viewer_count": 10,
+                "language": "en",
+                "started_at": "2026-01-01T00:00:00Z",
+            }
+            for login in ("alpha", "beta", "gamma")
+        ]
+
+
 class FakeTelegram:
     configured = False
 
@@ -198,6 +215,35 @@ async def test_scan_suppresses_alerts_for_campaigns_not_in_progress():
 
         assert result.notified_count == 0
         assert telegram.messages == []
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scan_digests_multiple_new_streams_once():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        telegram = RecordingTelegram()
+        service = ScanService(
+            session=session,
+            settings=Settings(default_games="Rust", _env_file=None),
+            sunkwi=FakeSunkwi(payload()),
+            twitch=MultiStreamTwitch(),
+            telegram=telegram,
+        )
+
+        first = await service.run()
+        assert first.notified_count == 3
+        assert len(telegram.messages) == 1
+        message = telegram.messages[0]
+        assert "3 eligible streams live" in message
+        for login in ("alpha", "beta", "gamma"):
+            assert login in message.lower()
+
+        second = await service.run()
+        assert second.notified_count == 0
+        assert len(telegram.messages) == 1
 
     await engine.dispose()
 

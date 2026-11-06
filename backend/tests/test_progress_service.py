@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 from app.api.v1.progress import list_progress
 from app.core.config import Settings
 from app.core.db import Base
+from app.core.exceptions import ProviderError
 from app.domain.models import DropProgress, Notification, ProgressSnapshot
 from app.repositories.twitch_auth import TwitchAuthRepository
 from app.services.progress_service import ProgressService
@@ -300,11 +301,11 @@ async def test_progress_service_sends_campaign_deadline_reminders_once():
         )
 
         first = await service.run()
-        assert first.notified_count == 2
-        assert len(telegram.messages) == 2
-        assert all("Test Campaign" in message for message in telegram.messages)
-        assert all("Unclaimed drops: 1" in message for message in telegram.messages)
-        assert all("Remaining watch time: 60 min" in message for message in telegram.messages)
+        assert first.notified_count == 1
+        assert len(telegram.messages) == 1
+        assert "Test Campaign" in telegram.messages[0]
+        assert "ends in ~2h" in telegram.messages[0]
+        assert "1 drops left (60 min)" in telegram.messages[0]
 
         snapshot_total = await session.scalar(
             select(func.count()).select_from(ProgressSnapshot)
@@ -314,13 +315,176 @@ async def test_progress_service_sends_campaign_deadline_reminders_once():
         keys = set(
             (await session.execute(select(Notification.dedupe_key))).scalars().all()
         )
-        assert keys == {
-            "campaign-ending:campaign-1:24h",
-            "campaign-ending:campaign-1:2h",
-        }
+        assert keys == {"campaign-ending:campaign-1:2h"}
 
         second = await service.run()
         assert second.notified_count == 0
-        assert len(telegram.messages) == 2
+        assert len(telegram.messages) == 1
+
+    await engine.dispose()
+
+
+class TwoReadyDropsProvider:
+    async def fetch_inventory(self, access_token):
+        return {
+            "dropCampaignsInProgress": [
+                {
+                    "id": "campaign-1",
+                    "name": "Test Campaign",
+                    "endAt": "2099-12-01T00:00:00Z",
+                    "game": {"displayName": "Rust"},
+                    "timeBasedDrops": [
+                        {
+                            "id": "drop-1",
+                            "name": "First Drop",
+                            "requiredMinutesWatched": 60,
+                            "self": {
+                                "isClaimed": False,
+                                "currentMinutesWatched": 60,
+                            },
+                        },
+                        {
+                            "id": "drop-2",
+                            "name": "Second Drop",
+                            "requiredMinutesWatched": 30,
+                            "self": {
+                                "isClaimed": False,
+                                "currentMinutesWatched": 30,
+                            },
+                        },
+                    ],
+                }
+            ]
+        }
+
+    async def refresh(self, refresh_token):
+        raise AssertionError("Token should not need refreshing in this test")
+
+
+@pytest.mark.asyncio
+async def test_progress_service_digests_multiple_ready_drops_once():
+    engine, factory = await _session()
+    telegram = FakeTelegram()
+
+    async with factory() as session:
+        await TwitchAuthRepository(session).save(
+            user_id="123",
+            login="viewer",
+            access_token="token",
+            refresh_token="refresh",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        await session.commit()
+
+        service = ProgressService(
+            session=session,
+            settings=Settings(default_games="Rust", _env_file=None),
+            provider=TwoReadyDropsProvider(),
+            telegram=telegram,
+        )
+
+        first = await service.run()
+        assert first.notified_count == 2
+        assert len(telegram.messages) == 1
+        assert "First Drop" in telegram.messages[0]
+        assert "Second Drop" in telegram.messages[0]
+
+        second = await service.run()
+        assert second.notified_count == 0
+        assert len(telegram.messages) == 1
+
+        keys = set(
+            (await session.execute(select(Notification.dedupe_key))).scalars().all()
+        )
+        assert keys == {"drop-ready:drop-1", "drop-ready:drop-2"}
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_progress_service_uses_24h_window_when_campaign_ends_in_10h():
+    engine, factory = await _session()
+    telegram = FakeTelegram()
+
+    async with factory() as session:
+        await TwitchAuthRepository(session).save(
+            user_id="123",
+            login="viewer",
+            access_token="token",
+            refresh_token="refresh",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        await session.commit()
+
+        end_at = (datetime.now(timezone.utc) + timedelta(hours=10)).isoformat()
+        service = ProgressService(
+            session=session,
+            settings=Settings(default_games="Rust", _env_file=None),
+            provider=DeadlineProvider(end_at),
+            telegram=telegram,
+        )
+
+        result = await service.run()
+        assert result.notified_count == 1
+        assert len(telegram.messages) == 1
+        assert "ends in ~24h" in telegram.messages[0]
+
+        keys = set(
+            (await session.execute(select(Notification.dedupe_key))).scalars().all()
+        )
+        assert keys == {"campaign-ending:campaign-1:24h"}
+
+    await engine.dispose()
+
+
+class FlakyTelegram:
+    configured = True
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+        self.failures = 1
+
+    async def send(self, message):
+        if self.failures:
+            self.failures -= 1
+            raise ProviderError("telegram unavailable")
+        self.messages.append(message)
+
+
+@pytest.mark.asyncio
+async def test_progress_service_releases_claim_when_send_fails():
+    engine, factory = await _session()
+    telegram = FlakyTelegram()
+
+    async with factory() as session:
+        await TwitchAuthRepository(session).save(
+            user_id="123",
+            login="viewer",
+            access_token="token",
+            refresh_token="refresh",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        await session.commit()
+
+        end_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        service = ProgressService(
+            session=session,
+            settings=Settings(default_games="Rust", _env_file=None),
+            provider=DeadlineProvider(end_at),
+            telegram=telegram,
+        )
+
+        first = await service.run()
+        assert first.notified_count == 0
+        assert telegram.messages == []
+        notification_total = await session.scalar(
+            select(func.count()).select_from(Notification)
+        )
+        assert notification_total == 0
+
+        second = await service.run()
+        assert second.notified_count == 1
+        assert len(telegram.messages) == 1
+        assert "ends in ~2h" in telegram.messages[0]
 
     await engine.dispose()

@@ -230,7 +230,7 @@ class ScanService:
             }
 
         repo = NotificationRepository(self.session)
-        sent = 0
+        claimed: list[tuple[dict[str, Any], list[str]]] = []
 
         for stream in streams:
             if scoped:
@@ -247,25 +247,36 @@ class ScanService:
                 campaign_names = list(stream["campaign_names"])
 
             dedupe_key = f"{stream['user_login'].casefold()}:{stream['game_id']}"
-            if await repo.exists(dedupe_key):
-                continue
+            if await repo.claim(dedupe_key):
+                claimed.append((stream, campaign_names))
 
-            message = (
-                "New Twitch Drops stream!\n"
-                f"Game: {stream['game_name']}\n"
-                f"Streamer: {stream['user_name']}\n"
-                f"Title: {stream['title']}\n"
-                f"Campaigns: {', '.join(campaign_names)}\n"
-                f"{stream['url']}"
+        if not claimed:
+            return 0
+
+        noun = "stream" if len(claimed) == 1 else "streams"
+        lines = [f"Twitch Drops: {len(claimed)} eligible {noun} live"]
+        for stream, campaign_names in claimed[:10]:
+            campaign_text = (
+                f" ({', '.join(campaign_names)})" if campaign_names else ""
             )
+            lines.append(
+                f"• {stream['game_name']} — {stream['user_name']}: "
+                f"{stream['title']}{campaign_text}"
+            )
+            lines.append(f"  {stream['url']}")
 
-            try:
-                await self.telegram.send(message)
-            except ProviderError as exc:
-                logger.warning("Telegram notification failed: %s", exc)
-                continue
+        extra = len(claimed) - 10
+        if extra > 0:
+            lines.append(f"…and {extra} more")
 
-            await repo.mark_sent(dedupe_key)
-            sent += 1
+        try:
+            await self.telegram.send("\n".join(lines))
+        except ProviderError as exc:
+            logger.warning("Telegram notification failed: %s", exc)
+            for stream, _ in claimed:
+                await repo.release(
+                    f"{stream['user_login'].casefold()}:{stream['game_id']}"
+                )
+            return 0
 
-        return sent
+        return len(claimed)

@@ -9,3 +9,6 @@ def configure_logging() -> None:
         stream=sys.stdout,
         force=True,
     )
+    # httpx logs request URLs, which include the Telegram bot token.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
