@@ -185,9 +185,10 @@ class WatchFocusOut(BaseModel):
 
 class WatchStateOut(BaseModel):
     enabled: bool = False
-    status: Literal["idle", "focused", "waiting"] = "idle"
+    status: Literal["idle", "focused", "offline", "waiting"] = "idle"
+    reason: str = ""
     max_watchers: int = 1
-    auto_move: bool = True
+    auto_move: bool = False
     focus: WatchFocusOut | None = None
     candidates: list[WatchCandidateOut] = Field(default_factory=list)
     updated_at: datetime | None = None

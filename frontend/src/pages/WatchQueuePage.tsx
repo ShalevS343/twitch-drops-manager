@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 
-import type { WatchFocus, WatchQueueCampaign, WatchQueueItem } from '../api/types'
+import type { WatchQueueCampaign, WatchQueueItem } from '../api/types'
 import { WatchFocusPanel } from '../components/WatchFocusPanel'
 import { WatchQueueCard } from '../components/WatchQueueCard'
 import { WatchSessionPanel } from '../components/WatchSessionPanel'
@@ -65,25 +65,6 @@ export function WatchQueuePage() {
     startSession(suggestion.stream, suggestion.campaign)
   }
 
-  function handleStartFocus(focus: WatchFocus) {
-    if (session || focus.stream_id === null) {
-      return
-    }
-
-    watch.start({
-      streamId: focus.stream_id,
-      userLogin: focus.user_login,
-      userName: focus.user_name,
-      streamUrl: focus.stream_url,
-      streamTitle: focus.stream_title,
-      gameName: focus.game_name,
-      campaignId: focus.campaign_id,
-      campaignName: focus.campaign_name,
-      targetMinutes: focus.target_minutes,
-    })
-    openStream(focus.stream_url)
-  }
-
   return (
     <div className="page">
       <div className="section-head">
@@ -109,10 +90,7 @@ export function WatchQueuePage() {
         </div>
       </div>
 
-      <WatchFocusPanel
-        sessionActive={session !== null}
-        onStartSession={handleStartFocus}
-      />
+      <WatchFocusPanel />
 
       {session && (
         <WatchSessionPanel
@@ -135,9 +113,8 @@ export function WatchQueuePage() {
           <div className="callout-copy">
             <strong>Watch one campaign at a time</strong>
             <p>
-              Pick a campaign below to start a local timer and open the real
-              stream. Only one session runs at a time, and it never controls
-              playback.
+              Pick a campaign below to start a timer and open the stream. Only
+              one session runs at a time.
             </p>
           </div>
         </div>

@@ -14,18 +14,42 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## 2026-11-07
 
-### Stream alerts gated on campaign starts
+### Campaign time uses the largest open drop
 
-- Stream notifications are now sent only when a tracked game has a newly started
-  campaign in the same scan. Scans with no campaign start send no standalone
-  “Live now” digest.
-- Stream dedupe keys include the start event
-  (`stream-alert:{campaign_external_id}:{user_login}:{game_id}`), so the same
-  channel can be announced again for a later campaign.
-- Streams for the just-started campaign are included even before the next
-  progress sync; other streams remain scoped to in-progress campaigns.
-- Added regression tests for no-start suppression, start-without-progress, and
-  re-notification on a later campaign. Backend suite: **70 passed**.
+- Campaign `remaining_minutes` now uses the **maximum** remaining requirement of
+  its unclaimed drops, not the sum. Drop requirements share watch time, so a 1h
+  drop + a 2h drop needs 2h, not 3h.
+- Applied to `/progress`, `/watch-queue`, the focus watcher target, and the
+  Overview/watch-queue displays. Watch-queue urgency sorting across multiple
+  campaigns now also uses the largest remaining campaign.
+- Added a regression test for the 1h + 2h case.
+
+### Focus watcher — offline/completion alerts, no timer
+
+- Removed the focus panel’s manual-session handoff and timer; the panel is now
+  monitor-only and links to the stream.
+- The watcher no longer auto-moves to the next live. If the focused live goes
+  offline while the campaign still has time, it sends one Telegram alert per
+  online session and sets `status=offline`; the target stays until the user picks
+  another live or the campaign completes.
+- When the focused campaign completes, the watcher sends one completion alert and
+  turns focused mode off (`reason=completed`).
+- Added `watch-offline:*` and `watch-complete:*` notification dedupe keys, with
+  retry on Telegram failure.
+
+### Telegram — no live-stream alerts
+
+- Scan notifications now send **campaign starts only**. New live streams are
+  never sent to Telegram, so the bot no longer spams with “Live now” digests.
+- Removed the `stream-alert:*` notification key and the stream-digest code path.
+- Backend suite: **69 passed**.
+
+### UI — removed automation disclaimers
+
+- Removed the “never plays/controls/simulates watching” notes from the watch
+  session and focus watcher panels, the “never claims rewards” copy from the
+  connect callouts, and the “read-only” wording in Settings.
+- Removed the now-unused `.watch-session-note` styles.
 
 ### UI — quick actions alignment
 
@@ -40,13 +64,12 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   stream/campaign target at a time (`watch_focus` singleton row, `max_watchers=1`).
 - Enable focused mode to auto-pick the most urgent live campaign, manually focus
   any candidate, or click **Next live** to move the watcher to another stream.
-- A worker job re-checks every `WATCHER_POLL_SECONDS` (default 60s) and moves the
-  focus with `reason=auto-move` when the current live goes offline or its campaign
-  runs out of watch time; otherwise it waits.
-- Added `GET/PATCH/DELETE /watcher` and `POST /watcher/focus`; the UI panel on
-  Watch queue can hand the focus to the existing manual session timer.
-- The watcher is a focus pointer only: it never plays/controls streams, sends
-  watch heartbeats, or simulates viewing. Backend suite: **68 passed**.
+- A worker job re-checks every `WATCHER_POLL_SECONDS` (default 60s), notifies when
+  the focused live goes offline while the campaign is open, and turns focused mode
+  off when the campaign completes.
+- Added `GET/PATCH/DELETE /watcher` and `POST /watcher/focus`.
+- The watcher is a focus pointer only; offline/completion alerts are described
+  below. Backend suite: **68 passed** at the time of the original merge.
 
 ### Clearer action labels + ETA removal
 
@@ -87,7 +110,8 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 - Added the `campaign_starts` pending ledger: failed Telegram sends are retried on
   the next scan instead of losing the event; the `notifications` claim prevents
   duplicate sends.
-- Campaign-start and live-stream events are combined into one digest per scan.
+- Campaign-start and live-stream events were combined into one digest per scan at
+  that time; live-stream Telegram alerts were removed on 2026-11-07.
 - Added tests for new/`UPCOMING` starts, add-by-name tracking, untracked-game
   suppression, and retry-after-failure. Backend suite: **58 passed**.
 
@@ -158,7 +182,7 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   third-party-app tokens; the implicit grant + pasted redirect is the working path.
 - Persisted token in `twitch_auth`; profile cache in `twitch_profile`.
 - Watch queue, ETA/rate snapshots, campaign deadline reminders (24h/2h), scoped
-  live-stream alerts.
+  live-stream alerts (later removed on 2026-11-07).
 - Telegram: atomic claim-before-send dedupe, one digest per run, claim release on
   failure, ready-to-claim link, `httpx` request logging disabled to stop token
   leakage.

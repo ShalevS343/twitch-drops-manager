@@ -36,10 +36,10 @@ app/
     progress_service.py   inventory + snapshots + ready/deadline alerts
     progress_metrics.py   remaining-time and watch-rate calculations
     watch_queue_service.py  shared queue builder + candidate selection
-    watch_focus_service.py  single focused-watcher state + auto-move
+    watch_focus_service.py  focused-watcher state + offline/completion alerts
     factory.py            cached providers + service builders
   worker/scheduler.py     APScheduler worker entry point
-tests/                    pytest suite (70 tests)
+tests/                    pytest suite (69 tests)
 ```
 
 ## Startup (`main.py`)
@@ -74,7 +74,7 @@ tests/                    pytest suite (70 tests)
 | `telegram_bot_token` / `chat_id` | empty | Notifications |
 | `poll_seconds` | 900 | Scan interval, min `min_poll_seconds` |
 | `progress_poll_seconds` | 300 | Progress interval, min `min_progress_poll_seconds` |
-| `watcher_poll_seconds` | 60 | Focus auto-move interval, min `min_watcher_poll_seconds` |
+| `watcher_poll_seconds` | 60 | Focus monitor/reconcile interval, min `min_watcher_poll_seconds` |
 | `default_games` | `Rust,Minecraft` | First-run whitelist |
 
 See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
@@ -96,18 +96,11 @@ See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
 6. Match streams to active campaigns using `allow` (channel allowlist when
    `isEnabled`).
 7. Replace the `streams`/`stream_campaign_matches` tables.
-8. Notify in one digest **gated on a campaign start**:
-   - pending campaign starts for selected games;
-   - live streams only for games that have a newly started campaign. Streams are
-     scoped to in-progress campaigns, plus the campaign that just started (so a
-     new campaign can be announced before the next progress sync).
-   If there is no pending campaign start, no stream digest is sent. Stream keys
-   include the start event:
-   `stream-alert:{start_campaign_external_id}:{user_login}:{game_id}`, so the
-   same channel can be announced again for a later campaign. Each event is
-   claimed atomically with `campaign-started:*` / `stream-alert:*`. On Telegram
-   failure all claims are released and pending starts remain for the next scan;
-   on success start rows are deleted.
+8. Notify only about **pending campaign starts** for selected games. New live
+   streams are deliberately not sent to Telegram. Each start is claimed
+   atomically with `campaign-started:{external_id}`. On Telegram failure the
+   claim is released and the start remains for the next scan; on success the
+   pending start row is deleted.
 9. Write a `ScanRun` (`ok`, error, counts).
 
 ## Progress service
@@ -136,8 +129,10 @@ See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
 - Rate uses snapshots from the last **2 hours**: oldest vs newest, requires at
   least 5 minutes span; `rate = delta_minutes * 60 / span_minutes`.
 - Rate below `0.5` min/hour → `null` (not actually watching).
-- Campaign remaining = sum of unclaimed drops. There is no ETA field: the UI
-  shows remaining minutes only.
+- Campaign remaining = **max** of the unclaimed drops' remaining minutes, not
+  their sum: watch time counts toward every open drop in the campaign, so a 1h
+  drop + a 2h drop takes 2h, not 3h. There is no ETA field: the UI shows
+  remaining minutes only.
 
 ## Watch queue
 
@@ -167,9 +162,15 @@ the only writer of focused mode:
   campaign filter), and `next` (exclude the current stream).
 - `reconcile()` runs every `WATCHER_POLL_SECONDS` in the worker. It resolves the
   stored focus by `user_login` + `campaign_id` (stream rows are recreated each
-  scan), refreshes the snapshot, and moves to the next candidate with
-  `reason=auto-move` if the current live/campaign left the queue. If nothing is
-  eligible it sets `status=waiting`.
+  scan) and refreshes the snapshot. It does **not** auto-move to another live.
+- If the campaign is complete (`drop_progress` has no remaining watch time), it
+  sends a completion notification once and turns focused mode off. If the live
+  went offline but the campaign still has time left, it sends one offline
+  notification per online session, keeps the target, and sets
+  `status=offline`; the user can pick another live manually.
+- Notification dedupe keys: `watch-offline:{campaign_id}:{user_login}:{focused_at}`
+  and `watch-complete:{campaign_id}`. Telegram failures release the claim so the
+  next reconcile retries.
 - This is a focus pointer only: no playback control, no watch heartbeats, no
   simulated viewing.
 
@@ -225,14 +226,14 @@ Repositories wrap SQLAlchemy. Notable choices:
 
 ## Tests
 
-`backend/tests` (70 tests):
+`backend/tests` (69 tests):
 
 - parsing/inventory
 - scan service (catalog, streams, campaign-start-gated alerts, retry)
 - progress service (watch rate, digests, deadline windows, retry)
 - notifications (claim/release/duplicate)
 - watch queue (filtering/sorting/next drop)
-- focused watcher (singleton, manual/auto/next, auto-move, waiting)
+- focused watcher (singleton, manual/auto/next, offline, completion)
 - streams API, status API, DB/index creation, models (deferred raw)
 
 Run:

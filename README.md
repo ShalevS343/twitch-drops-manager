@@ -17,19 +17,19 @@ never automates watching.
   watched, percentages, remaining time, and claimed state.
 - **Watch queue** — live streams matched to your in-progress campaigns, ordered by
   urgency.
-- **Telegram alerts** — one digest per run, atomic dedupe: ready-to-claim drops,
-  campaign deadline reminders (24h/2h), and campaign starts for tracked games
-  (including games with no current campaign). Live streams are included only
-  when a tracked game starts a campaign; there is no standalone stream digest.
+- **Telegram alerts** — ready-to-claim drops, campaign deadline reminders
+  (24h/2h), campaign starts for tracked games (including games with no current
+  campaign), focused-live offline alerts, and focused campaign-completion alerts.
+  New live streams are not sent to Telegram.
 - **Track any game** — add a game by name in Settings even if it is not in the
   catalog; get notified when its next campaign becomes active.
 - **Manual watch sessions** — start one campaign at a time, open the real stream,
   and track elapsed time locally. The timer never controls playback or simulates
   viewing.
 - **Focused watcher** — keep one live target selected from the watch queue for the
-  most urgent campaign, switch it manually or with **Next live**, and let the
-  worker move it when that stream goes offline. One watcher at a time; it is a
-  focus pointer, not playback automation.
+  most urgent campaign, switch it manually or with **Next live**, get a Telegram
+  alert if that live goes offline while the campaign is open, and turn focus off
+  automatically when the campaign completes. One watcher at a time.
 - **Top 5 per game** — watch queue and live streams group by game and show the
   top 5 by default, with a 5/10/20/All selector.
 - **Tabbed dashboard** — Overview, Campaigns, Progress, Watch queue, Streams,

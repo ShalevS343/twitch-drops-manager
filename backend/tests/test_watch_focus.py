@@ -18,6 +18,16 @@ from app.repositories.watch_focus import WatchFocusRepository
 from app.services.watch_focus_service import WatchFocusError, WatchFocusService
 
 
+class RecordingTelegram:
+    configured = True
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    async def send(self, message: str) -> None:
+        self.messages.append(message)
+
+
 async def _session():
     engine = create_async_engine(
         "sqlite+aiosqlite://",
@@ -205,12 +215,13 @@ async def test_manual_focus_rejects_a_stream_outside_the_queue():
 
 
 @pytest.mark.asyncio
-async def test_reconcile_moves_when_the_focused_live_goes_offline():
+async def test_reconcile_notifies_and_keeps_focus_when_live_goes_offline():
     engine, factory = await _session()
 
     async with factory() as session:
         _, _, early_stream, _, _ = await _seed(session)
-        service = WatchFocusService(session)
+        telegram = RecordingTelegram()
+        service = WatchFocusService(session, telegram=telegram)
 
         state = await service.set_enabled(True)
         assert state.focus is not None
@@ -220,12 +231,26 @@ async def test_reconcile_moves_when_the_focused_live_goes_offline():
         early_stream.live = False
         await session.commit()
 
-        moved = await service.reconcile()
-        assert moved.status == "focused"
-        assert moved.focus is not None
-        assert moved.focus.user_login == "late-high"
-        assert moved.focus.campaign_id == "late"
-        assert moved.focus.reason == "auto-move"
+        state = await service.reconcile()
+        assert state.enabled is True
+        assert state.status == "offline"
+        assert state.focus is not None
+        assert state.focus.user_login == "early-stream"
+        assert state.focus.campaign_id == "early"
+        assert state.focus.reason == "offline"
+        # Another live for the same campaign is offered for a manual switch.
+        assert {candidate.user_login for candidate in state.candidates} == {
+            "late-high",
+            "late-low",
+        }
+        assert len(telegram.messages) == 1
+        assert "is no longer live" in telegram.messages[0]
+        assert "Early Campaign" in telegram.messages[0]
+
+        # Reconcile again: the offline notification is not repeated.
+        again = await service.reconcile()
+        assert again.status == "offline"
+        assert len(telegram.messages) == 1
 
         count = await session.scalar(select(func.count()).select_from(WatchFocus))
         assert count == 1
@@ -234,12 +259,13 @@ async def test_reconcile_moves_when_the_focused_live_goes_offline():
 
 
 @pytest.mark.asyncio
-async def test_reconcile_waits_when_no_live_is_left():
+async def test_reconcile_keeps_focus_offline_when_no_live_is_left():
     engine, factory = await _session()
 
     async with factory() as session:
         await _seed(session)
-        service = WatchFocusService(session)
+        telegram = RecordingTelegram()
+        service = WatchFocusService(session, telegram=telegram)
         await service.set_enabled(True)
 
         await session.execute(Stream.__table__.update().values(live=False))
@@ -247,9 +273,74 @@ async def test_reconcile_waits_when_no_live_is_left():
 
         state = await service.reconcile()
         assert state.enabled is True
-        assert state.status == "waiting"
-        assert state.focus is None
+        assert state.status == "offline"
+        assert state.focus is not None
+        assert state.focus.campaign_id == "early"
         assert state.candidates == []
+        assert len(telegram.messages) == 1
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_turns_focus_off_when_campaign_completes():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        await _seed(session)
+        telegram = RecordingTelegram()
+        service = WatchFocusService(session, telegram=telegram)
+        await service.set_enabled(True)
+
+        # Claiming the last drop completes the focused campaign.
+        await session.execute(
+            DropProgress.__table__.update()
+            .where(DropProgress.drop_id == "drop-early")
+            .values(is_claimed=True, is_ready=False)
+        )
+        await session.commit()
+
+        state = await service.reconcile()
+        assert state.enabled is False
+        assert state.status == "idle"
+        assert state.reason == "completed"
+        assert state.focus is None
+        assert len(telegram.messages) == 1
+        assert "campaign complete" in telegram.messages[0]
+        assert "Focus mode has been turned off" in telegram.messages[0]
+
+        # Completion is idempotent.
+        again = await service.reconcile()
+        assert again.enabled is False
+        assert len(telegram.messages) == 1
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_notifies_again_after_live_returns():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        _, _, early_stream, _, _ = await _seed(session)
+        telegram = RecordingTelegram()
+        service = WatchFocusService(session, telegram=telegram)
+        await service.set_enabled(True)
+
+        early_stream.live = False
+        await session.commit()
+        await service.reconcile()
+
+        early_stream.live = True
+        await session.commit()
+        online = await service.reconcile()
+        assert online.status == "focused"
+
+        early_stream.live = False
+        await session.commit()
+        await service.reconcile()
+
+        assert len(telegram.messages) == 2
 
     await engine.dispose()
 
@@ -268,7 +359,7 @@ async def test_next_moves_to_another_live_and_keeps_current_when_none_exists():
         moved = await service.focus(strategy="next")
         assert moved.focus is not None
         assert moved.focus.user_login == "late-high"
-        assert moved.focus.reason == "auto-move"
+        assert moved.focus.reason == "next"
 
         # Only the current stream remains in the queue.
         await session.execute(

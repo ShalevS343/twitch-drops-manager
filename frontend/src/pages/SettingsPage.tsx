@@ -186,7 +186,7 @@ export function SettingsPage({ status, twitch }: Props) {
               <Icon name="twitch" size={18} />
               Twitch connection
             </h2>
-            <p>Authorize read-only access to drop progress on your account.</p>
+            <p>Authorize access to drop progress on your account.</p>
           </div>
           {twitch.isLoading ? (
             <Badge tone="muted">Checking…</Badge>
@@ -279,7 +279,7 @@ export function SettingsPage({ status, twitch }: Props) {
               <Icon name="settings" size={18} />
               System
             </h2>
-            <p>Read-only values reported by the backend.</p>
+            <p>Values reported by the backend.</p>
           </div>
           <Badge tone="accent">Managed by .env</Badge>
         </div>
@@ -288,7 +288,7 @@ export function SettingsPage({ status, twitch }: Props) {
           <Icon name="alert" size={15} />
           <span>
             Scan and progress intervals, credentials, and notification settings are
-            configured in the backend <code>.env</code> file. They are read-only here.
+            configured in the backend <code>.env</code> file.
           </span>
         </p>
 

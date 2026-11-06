@@ -80,13 +80,15 @@ Three interval jobs:
 
 - **Scan** every `POLL_SECONDS` (default 900s, min 300s): fetch the public catalog,
   sync games/campaigns/rewards, fetch Twitch live streams for selected games,
-  match streams to campaigns, send stream alerts.
+  match streams to campaigns, and send campaign-start alerts. New live streams
+  are stored for the UI but are not sent to Telegram.
 - **Progress** every `PROGRESS_POLL_SECONDS` (default 300s, min 60s): refresh the
   user token if needed, fetch the Twitch inventory, replace `drop_progress`,
   insert rate snapshots, send ready/deadline digests.
-- **Watcher reconcile** every `WATCHER_POLL_SECONDS` (default 60s, min 30s): if
-  focused mode is on, keep the single focus target valid or move it to the next
-  live candidate. No playback or watch heartbeats.
+- **Watcher reconcile** every `WATCHER_POLL_SECONDS` (default 60s, min 30s):
+  monitor the single focus target. Notify when the live goes offline while the
+  campaign is open; notify and turn focus off when the campaign completes. It
+  does not auto-move or control playback.
 
 All jobs also run once at startup.
 
@@ -123,9 +125,9 @@ are hash routes (`#/overview`, `#/campaigns`, `#/progress`, `#/watch-queue`,
 4. For each selected game with a Twitch game id, Helix returns live streams.
 5. Streams are matched to active campaigns (respecting channel allowlists) and
    inserted; old stream rows are replaced.
-6. Campaign starts and streams are sent as **one Telegram digest**, but only when
-   a tracked game has a newly started campaign. Stream dedupe keys include the
-   start event, so later campaigns can notify again.
+6. Campaign starts for tracked games are sent as a Telegram digest. New live
+   streams are not sent to Telegram; the focused watcher has its own offline and
+   completion alerts.
 7. A `ScanRun` row records counts and errors.
 
 ### Progress sync

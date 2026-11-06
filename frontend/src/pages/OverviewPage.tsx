@@ -105,7 +105,7 @@ export function OverviewPage({ status, twitch }: Props) {
             <strong>Connect your Twitch account</strong>
             <p>
               See how far along each drop is, get ready-to-claim alerts, and keep the
-              watch queue accurate. This app never claims rewards for you.
+              watch queue accurate.
             </p>
           </div>
           <a className="btn btn-primary" href="#/profile">

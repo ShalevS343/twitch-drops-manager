@@ -103,12 +103,6 @@ export function WatchSessionPanel({
         <span>Started at {startedAt}</span>
       </div>
 
-      <p className="watch-session-note">
-        <Icon name="alert" size={14} />
-        This timer is local only. It does not play, control, or simulate watching
-        on Twitch.
-      </p>
-
       <div className="card-footer watch-session-actions">
         <button
           type="button"

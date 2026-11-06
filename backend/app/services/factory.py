@@ -52,4 +52,4 @@ def build_progress_service(session: AsyncSession) -> ProgressService:
 
 
 def build_watch_focus_service(session: AsyncSession) -> WatchFocusService:
-    return WatchFocusService(session)
+    return WatchFocusService(session, telegram=get_telegram_provider())

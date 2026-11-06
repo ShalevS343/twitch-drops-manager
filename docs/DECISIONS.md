@@ -123,8 +123,9 @@ single failed Telegram send must not lose a start event.
 does not depend on catalog presence. Scans compare each campaign's previous status
 with the incoming status; a transition to `ACTIVE` for a selected game creates a
 `campaign_starts` row. The notification send claims
-`campaign-started:{external_id}`, combines starts with live-stream alerts in one
-digest, deletes the pending row on success, and leaves it for retry on failure.
+`campaign-started:{external_id}`, sends starts (live-stream alerts were removed
+in ADR-016), deletes the pending row on success, and leaves it for retry on
+failure.
 
 **Consequences:** a start is reported once across processes; a Telegram outage
 delays but does not drop alerts. Campaigns that were already `ACTIVE` when a game
@@ -187,31 +188,30 @@ would cross the read-only/ToS boundary (ADR-002, ADR-013).
 stream/campaign pair from the queue. Focused mode allows exactly one watcher
 (`watch_focus` singleton row). It can be enabled/disabled, dispatched manually,
 auto-picked from the most urgent campaign, or moved to the next live with
-`POST /watcher/focus`. The worker reconciles every `WATCHER_POLL_SECONDS`: if the
-focused stream leaves the queue or its campaign has no remaining watch time, the
-focus moves to the next candidate and records `reason=auto-move`.
+`POST /watcher/focus`. The worker reconciles every `WATCHER_POLL_SECONDS`:
+if the focused live leaves the queue while the campaign still has time, it sends
+one Telegram notification per online session, keeps the target, and sets
+`status=offline` (it does **not** auto-move). If the campaign completes, it sends
+one completion notification and turns focused mode off.
 
-**Consequences:** the watcher always has a sensible current target without
-automating Twitch playback. Switching the focus does not start playback or a
-timer; the user explicitly clicks **Start manual session**. Stream ids change on
-every scan, so reconciliation matches `user_login` + `campaign_id` first. The
-feature is single-user and single-watcher by design; a future pool would need a
-new table/schema.
+**Consequences:** focus is a monitoring pointer, not a timer or playback
+controller. The user manually picks another live after an offline alert. Stream
+ids change on every scan, so reconciliation matches `user_login` + `campaign_id`
+first. Notification claims are released on Telegram failure so the next
+reconcile retries. The feature is single-user and single-watcher by design; a
+future pool would need a new table/schema.
 
-## ADR-016 — Stream alerts follow campaign starts
+## ADR-016 — No Telegram alerts for new live streams
 
-**Context:** scan-level stream discovery can produce a stream digest on every scan
-even when nothing changed about the user's campaigns, which is noisy.
+**Context:** scan-level stream discovery produced stream digests that spam the
+bot. The user only wants campaign-start alerts and focused-watcher events.
 
-**Decision:** only claim and send stream alerts when the same scan also has a
-pending campaign start for the stream's game. If a campaign started, include live
-streams for that game, scoped to in-progress campaigns plus the just-started
-campaign. Stream dedupe keys include the start campaign's external id
-(`stream-alert:{campaign_external_id}:{user_login}:{game_id}`), so a channel can
-be announced again when a later campaign starts.
+**Decision:** the scan notification path only sends pending campaign starts. It
+never claims or sends live-stream alerts. Discovered streams are still stored and
+shown in the watch queue/streams UI. Focused-watcher notifications are separate
+and are limited to an offline target and campaign completion.
 
-**Consequences:** no standalone “Live now” messages; stream alerts always arrive
-in the “New campaign” digest. A game with a start but no eligible stream sends
-only the campaign line. The `notifications` ledger keeps one key per
-start-event/channel pair. When Telegram fails, both the start and stream claims are
-released and the start row remains for retry.
+**Consequences:** no “Live now” messages at all. The `notifications` ledger is
+used for `campaign-started:*`, `watch-offline:*`, and `watch-complete:*`. When
+Telegram fails, the campaign-start claim is released and the start row remains
+for retry.

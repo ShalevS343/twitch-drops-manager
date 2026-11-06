@@ -127,7 +127,7 @@ export interface WatchQueueItem {
   campaigns: WatchQueueCampaign[]
 }
 
-export type WatchStatus = 'idle' | 'focused' | 'waiting'
+export type WatchStatus = 'idle' | 'focused' | 'offline' | 'waiting'
 
 export interface WatchCandidate {
   stream_id: number
@@ -164,6 +164,7 @@ export interface WatchFocus {
 export interface WatchState {
   enabled: boolean
   status: WatchStatus
+  reason: string
   max_watchers: number
   auto_move: boolean
   focus: WatchFocus | null

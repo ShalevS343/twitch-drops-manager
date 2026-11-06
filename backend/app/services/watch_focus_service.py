@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import ProviderError
 from app.domain.models import WatchFocus, utcnow
 from app.domain.schemas import (
     WatchCandidateOut,
@@ -9,12 +12,18 @@ from app.domain.schemas import (
     WatchQueueItemOut,
     WatchStateOut,
 )
+from app.providers.telegram import TelegramProvider
+from app.repositories.notifications import NotificationRepository
+from app.repositories.progress import ProgressRepository
 from app.repositories.watch_focus import WatchFocusRepository
+from app.services.progress_metrics import drop_remaining_minutes
 from app.services.watch_queue_service import (
     FocusCandidate,
     build_watch_queue,
     find_candidate,
 )
+
+logger = logging.getLogger(__name__)
 
 MAX_WATCHERS = 1
 CANDIDATE_LIMIT = 8
@@ -135,12 +144,19 @@ def _apply_target(row: WatchFocus, candidate: FocusCandidate, reason: str) -> No
 class WatchFocusService:
     """Manage the single focused watcher over the urgency-sorted queue.
 
-    This is a focus pointer only. It never controls playback, sends watch
-    heartbeats, or simulates viewing.
+    The watcher monitors one live stream/campaign target. It notifies when the
+    target goes offline while the campaign is still open, and turns itself off
+    (with a notification) when the campaign completes. It never controls
+    playback.
     """
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        telegram: TelegramProvider | None = None,
+    ) -> None:
         self.session = session
+        self.telegram = telegram
         self.repo = WatchFocusRepository(session)
 
     def _state(
@@ -150,22 +166,55 @@ class WatchFocusService:
         status = "idle"
         focus: WatchFocusOut | None = None
         if enabled and row is not None:
-            status = row.status if row.status in {"focused", "waiting"} else "waiting"
-            if status == "focused" and row.campaign_id:
+            status = (
+                row.status
+                if row.status in {"focused", "offline", "waiting"}
+                else "waiting"
+            )
+            if status in {"focused", "offline"} and row.campaign_id:
                 focus = WatchFocusOut.model_validate(row)
-            elif status == "focused":
+            elif status in {"focused", "offline"}:
                 status = "waiting"
 
         return WatchStateOut(
             enabled=enabled,
             status=status,
+            reason=row.reason if row is not None else "idle",
             max_watchers=MAX_WATCHERS,
-            auto_move=True,
+            auto_move=False,
             focus=focus,
             candidates=_build_candidates(
                 items, exclude_stream_id=focus.stream_id if focus else None
             ),
             updated_at=row.updated_at if row is not None else None,
+        )
+
+    async def _notify_once(self, dedupe_key: str, message: str) -> bool:
+        """Send once, returning True when delivered or no channel is configured."""
+        if self.telegram is None or not self.telegram.configured:
+            return True
+
+        repo = NotificationRepository(self.session)
+        if not await repo.claim(dedupe_key):
+            return True
+
+        try:
+            await self.telegram.send(message)
+        except ProviderError as exc:
+            logger.warning("Watcher notification failed: %s", exc)
+            await repo.release(dedupe_key)
+            return False
+        return True
+
+    async def _campaign_remaining(self, campaign_id: str) -> int:
+        rows = await ProgressRepository(self.session).list()
+        return max(
+            (
+                drop_remaining_minutes(row)
+                for row in rows
+                if row.campaign_gql_id == campaign_id
+            ),
+            default=0,
         )
 
     async def get_state(self) -> WatchStateOut:
@@ -229,6 +278,9 @@ class WatchFocusService:
                 )
             row = row or await self.repo.get_or_create()
             _apply_target(row, candidate, "manual")
+            # A manual focus starts a new monitoring session, so a later
+            # offline event can notify again.
+            row.focused_at = utcnow()
 
         elif strategy == "next":
             row = row or await self.repo.get_or_create()
@@ -238,7 +290,7 @@ class WatchFocusService:
                 exclude_stream_id=row.stream_id,
             )
             if candidate is not None:
-                _apply_target(row, candidate, "auto-move")
+                _apply_target(row, candidate, "next")
             else:
                 current = _find_current(items, row) if row.campaign_id else None
                 if current is not None:
@@ -268,28 +320,79 @@ class WatchFocusService:
         return self._state(row, items)
 
     async def reconcile(self) -> WatchStateOut:
-        """Advance the focus when its live stream leaves the queue.
+        """Monitor the focused target and react to offline/completed campaigns.
 
-        The worker calls this on an interval. When the focused channel goes
-        offline, ends, or its campaign runs out of watch time, the watcher moves
-        to the next dispatchable live stream. If nothing is available it waits.
+        - Campaign complete: notify once, then turn focused mode off.
+        - Live gone but campaign still open: notify once per online session and
+          keep the target in ``offline`` state so the user can pick another live.
+        - No target yet: select the next candidate when one appears.
         """
         row = await self.repo.get()
         items = await build_watch_queue(self.session)
         if row is None or not row.enabled:
             return self._state(row, items)
 
-        current = _find_current(items, row) if row.campaign_id else None
-        if current is not None:
-            _apply_target(row, current, row.reason or "manual")
-        else:
-            candidate = find_candidate(items, exclude_stream_id=row.stream_id)
+        if not row.campaign_id:
+            candidate = find_candidate(items)
             if candidate is not None:
-                _apply_target(row, candidate, "auto-move")
+                _apply_target(row, candidate, "auto")
             else:
                 row.status = "waiting"
                 row.reason = "waiting"
                 _clear_target(row)
+            await self.session.commit()
+            return self._state(row, items)
 
+        current = _find_current(items, row)
+        if current is not None:
+            was_offline = row.status == "offline"
+            _apply_target(
+                row,
+                current,
+                "live" if was_offline else (row.reason or "manual"),
+            )
+            if was_offline:
+                # New online session: allow the next offline event to notify.
+                row.focused_at = utcnow()
+                row.reason = "live"
+            await self.session.commit()
+            return self._state(row, items)
+
+        remaining = await self._campaign_remaining(row.campaign_id)
+        if remaining <= 0:
+            delivered = await self._notify_once(
+                f"watch-complete:{row.campaign_id}",
+                (
+                    "Twitch Drops: campaign complete.\n"
+                    f"{row.campaign_name} ({row.game_name}) has no watch time "
+                    "left.\n"
+                    "Focus mode has been turned off."
+                ),
+            )
+            if delivered:
+                row.enabled = False
+                row.status = "idle"
+                row.reason = "completed"
+                _clear_target(row)
+            else:
+                row.status = "waiting"
+                row.reason = "completion-pending"
+            await self.session.commit()
+            return self._state(row, items)
+
+        marker = row.focused_at.isoformat() if row.focused_at else "unknown"
+        delivered = await self._notify_once(
+            f"watch-offline:{row.campaign_id}:{row.user_login}:{marker}",
+            (
+                f"Twitch Drops: {row.user_name or row.user_login} is no longer "
+                "live.\n"
+                f"{row.campaign_name} ({row.game_name}) still has "
+                f"{remaining} min left.\n"
+                "Pick another live stream in the watch queue."
+            ),
+        )
+        row.status = "offline"
+        row.reason = "offline" if delivered else "offline-pending"
+        row.target_minutes = remaining
         await self.session.commit()
         return self._state(row, items)
