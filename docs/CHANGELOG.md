@@ -8,10 +8,40 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   combined `/status` queries.
 - P2 performance: materialized dashboard snapshot, explicit relationship loaders,
   background scan job.
-- Deploy the current `main` (P0 + solid UI) to the live Portainer stack.
+- Deploy the current `main` (P0 + game tracking + violet UI) to the live
+  Portainer stack.
 - Rotate the Telegram bot token if it appeared in pre-fix logs.
 
 ## 2026-11-06
+
+### Game tracking + campaign-start alerts
+
+- Games can now be tracked by name even when they are absent from the drop
+  catalog: `PUT /games` creates missing `Game` rows, and Settings has a
+  “Track a game by name” input.
+- Scans detect campaigns that become `ACTIVE` for a selected game — a new
+  campaign, `UPCOMING` → `ACTIVE`, or the next campaign after the previous one
+  ended — and include them in the Telegram digest.
+- Added the `campaign_starts` pending ledger: failed Telegram sends are retried on
+  the next scan instead of losing the event; the `notifications` claim prevents
+  duplicate sends.
+- Campaign-start and live-stream events are combined into one digest per scan.
+- Added tests for new/`UPCOMING` starts, add-by-name tracking, untracked-game
+  suppression, and retry-after-failure. Backend suite: **58 passed**.
+
+### UI — violet readability pass
+
+- Replaced the amber accent with Twitch violet (`#9146ff`, hover `#a970ff`) and
+  white button text.
+- Raised text contrast: near-white body copy, brighter muted gray, lighter
+  surfaces/borders.
+- Larger type scale (15px body, 14px nav, 1.85rem page titles) and sentence-case
+  labels; mono is now reserved for numeric/technical data.
+- More padding/gaps and fewer micro uppercase labels to reduce clutter.
+- Brand mark, favicon, connect icon, empty-state icon, and avatars are circular;
+  the favicon is a violet circle with a white gift glyph.
+- Verified desktop and mobile screenshots; fixed the System notice wrapping on
+  narrow screens.
 
 ### Documentation
 

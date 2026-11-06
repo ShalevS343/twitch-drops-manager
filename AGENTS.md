@@ -80,7 +80,7 @@ docker compose --project-directory infra -f infra/docker-compose.yml config -q
 docker compose --project-directory infra -f infra/docker-compose.yml up -d --build
 ```
 
-Expected current baseline: backend tests **52 passed**, ruff clean, frontend build
+Expected current baseline: backend tests **58 passed**, ruff clean, frontend build
 passes.
 
 ## 5. Worktree workflow for parallel work

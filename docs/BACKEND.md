@@ -30,14 +30,14 @@ app/
     telegram.py           Bot API send
   repositories/
     campaigns.py games.py streams.py notifications.py progress.py
-    scans.py twitch_auth.py twitch_profile.py
+    campaign_starts.py scans.py twitch_auth.py twitch_profile.py
   services/
-    scan_service.py       catalog + streams + stream alerts
+    scan_service.py       catalog + streams + campaign-start alerts
     progress_service.py   inventory + snapshots + ready/deadline alerts
     progress_metrics.py   remaining/rate/ETA calculations
     factory.py            cached providers + service builders
   worker/scheduler.py     APScheduler worker entry point
-tests/                    pytest suite (52 tests)
+tests/                    pytest suite (58 tests)
 ```
 
 ## Startup (`main.py`)
@@ -83,17 +83,24 @@ See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
 1. `SunkwiProvider.fetch_games()` — 20s timeout; on 429/5xx/timeout returns the
    cache; `429` without cache raises `ProviderError` with the retry window.
 2. Upsert games; on the very first run, select `DEFAULT_GAMES`.
-3. Parse campaigns for selected games; upsert campaigns + rewards; delete stale
-   campaigns.
-4. Discover streams via Helix for each selected game with a Twitch game id.
-5. Match streams to active campaigns using `allow` (channel allowlist when
+3. Parse campaigns for selected games; capture the previous status of every
+   campaign, then upsert campaigns + rewards and delete stale campaigns.
+4. For selected games, record a `campaign_starts` row when a campaign's status
+   changes to `ACTIVE` from anything else (`UPCOMING`, `ENDED`, or no prior row).
+   This covers games with no current campaign and the next campaign after one
+   ended. Orphan pending rows are pruned.
+5. Discover streams via Helix for each selected game with a Twitch game id.
+6. Match streams to active campaigns using `allow` (channel allowlist when
    `isEnabled`).
-6. Replace the `streams`/`stream_campaign_matches` tables.
-7. Notify: if `drop_progress` has rows (Twitch connected), only streams matching
-   an in-progress campaign are eligible; otherwise fall back to all selected-game
-   matches. Claims each stream's dedupe key, sends **one digest**, releases claims
-   on send failure.
-8. Write a `ScanRun` (`ok`, error, counts).
+7. Replace the `streams`/`stream_campaign_matches` tables.
+8. Notify in one digest:
+   - pending campaign starts for selected games;
+   - live streams (when `drop_progress` has rows, only streams matching an
+     in-progress campaign; otherwise all selected-game matches).
+   Each event is claimed atomically (`campaign-started:*` or
+   `{user_login}:{game_id}`). On Telegram failure all claims are released and
+   pending starts remain for the next scan; on success start rows are deleted.
+9. Write a `ScanRun` (`ok`, error, counts).
 
 ## Progress service
 
@@ -189,10 +196,10 @@ Repositories wrap SQLAlchemy. Notable choices:
 
 ## Tests
 
-`backend/tests` (52 tests):
+`backend/tests` (58 tests):
 
 - parsing/inventory
-- scan service (catalog, streams, scoped alerts)
+- scan service (catalog, streams, scoped alerts, campaign starts, retry)
 - progress service (rate/ETA, digests, deadline windows, retry)
 - notifications (claim/release/duplicate)
 - watch queue (filtering/sorting/next drop)

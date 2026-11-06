@@ -23,7 +23,7 @@ port 8000). Interactive OpenAPI: `http://<host>:8000/docs`.
 | GET | `/health` | — | Liveness + configured providers |
 | GET | `/status` | — | Dashboard summary, intervals, connection state |
 | GET | `/games` | — | Games with campaign counts |
-| PUT | `/games` | token | Save selected game whitelist |
+| PUT | `/games` | token | Save selected game whitelist (creates missing games) |
 | GET | `/campaigns` | — | Campaigns for selected games |
 | GET | `/streams` | — | Live matched streams |
 | POST | `/scans` | token | Run a catalog/stream scan now |
@@ -109,6 +109,16 @@ port 8000). Interactive OpenAPI: `http://<host>:8000/docs`.
 
 Response: `{ "games": ["War Thunder", "Rust"] }` (names actually selected).
 
+Names are matched case-insensitively and de-duplicated. A name that does not yet
+exist in the catalog is created as a tracked `Game` row with no Twitch metadata;
+a later scan fills in the game id and box art. This is what allows tracking a game
+that currently has no campaign.
+
+When a tracked game's campaign becomes `ACTIVE` (new campaign, `UPCOMING` →
+`ACTIVE`, or the first campaign after an earlier one ended), the scan records a
+pending campaign-start event and includes it in the next Telegram digest. If
+Telegram fails, the event stays pending and is retried on the next scan.
+
 ## Campaigns
 
 `GET /campaigns?game=War%20Thunder&status=ACTIVE&active_only=false`
@@ -156,6 +166,13 @@ Returns `CampaignOut[]`:
 
 Errors: `400` provider not configured, `502` upstream failure. The scan is also
 recorded in `scan_runs`.
+
+`notified_count` counts successfully delivered campaign-start and live-stream
+events; both are combined into one digest per scan. A campaign start is detected
+when a selected game's campaign transitions from any non-`ACTIVE` state to
+`ACTIVE`, including a brand-new campaign after the previous one ended. Delivery
+failures leave the start pending for the next scan; the notification claim
+prevents duplicates.
 
 `GET /scans/latest` → `ScanRunOut`; `404` if no scan has run.
 

@@ -54,12 +54,31 @@ class GameRepository:
         return game
 
     async def set_selected(self, names: list[str]) -> list[Game]:
-        wanted = {name.strip().casefold() for name in names if name.strip()}
+        wanted: dict[str, str] = {}
+        for raw in names:
+            name = raw.strip()
+            if name:
+                wanted.setdefault(name.casefold(), name)
+
         games = await self.list()
+        by_name = {game.name.casefold(): game for game in games}
+
+        # Allow tracking a game before it has a campaign (or before it appears
+        # in the catalog at all). The scan fills in Twitch metadata later.
+        for key, name in wanted.items():
+            if key not in by_name:
+                game = Game(name=name, selected=True)
+                self.session.add(game)
+                by_name[key] = game
+
         for game in games:
             game.selected = game.name.casefold() in wanted
+
         await self.session.flush()
-        return [game for game in games if game.selected]
+        return sorted(
+            (game for game in by_name.values() if game.selected),
+            key=lambda game: game.name.casefold(),
+        )
 
     async def select_defaults(self, names: list[str]) -> None:
         await self.set_selected(names)

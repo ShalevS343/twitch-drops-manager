@@ -52,6 +52,18 @@ class CampaignRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().unique().all())
 
+    async def statuses_by_external_ids(self, external_ids: set[str]) -> dict[str, str]:
+        if not external_ids:
+            return {}
+
+        result = await self.session.execute(
+            select(Campaign.external_id, Campaign.status).where(
+                Campaign.external_id.in_(external_ids)
+            )
+        )
+        return {external_id: status for external_id, status in result.all()}
+
+
     async def by_ids(self, ids: set[int]) -> list[Campaign]:
         if not ids:
             return []

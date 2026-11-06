@@ -5,7 +5,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings
 from app.core.db import Base
-from app.domain.models import Campaign, DropProgress, Game, Stream
+from app.core.exceptions import ProviderError
+from app.domain.models import Campaign, CampaignStart, DropProgress, Game, Stream
+from app.repositories.games import GameRepository
 from app.services.scan_service import ScanService
 
 
@@ -169,11 +171,67 @@ async def _run_scan(session, telegram):
     return await service.run()
 
 
+async def _seed_campaign(
+    session,
+    *,
+    game_name: str = "Rust",
+    twitch_game_id: str = "263490",
+    external_id: str = "Rust:1",
+    status: str = "ACTIVE",
+) -> None:
+    game = Game(name=game_name, twitch_game_id=twitch_game_id, selected=True)
+    session.add(game)
+    await session.flush()
+    session.add(
+        Campaign(
+            external_id=external_id,
+            game_id=game.id,
+            name=f"{game_name} Drops",
+            status=status,
+        )
+    )
+    await session.commit()
+
+
+def warthunder_payload(status: str = "ACTIVE") -> dict:
+    return {
+        "games": [
+            {
+                "gameDisplayName": "War Thunder",
+                "gameId": "66366",
+                "campaigns": [
+                    {
+                        "id": "wt-1",
+                        "name": "WT Campaign",
+                        "status": status,
+                        "allow": {"isEnabled": False},
+                    }
+                ],
+            }
+        ]
+    }
+
+
+class FlakyTelegram:
+    configured = True
+
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+        self.fail_next = True
+
+    async def send(self, message):
+        if self.fail_next:
+            self.fail_next = False
+            raise ProviderError("simulated Telegram failure")
+        self.messages.append(message)
+
+
 @pytest.mark.asyncio
 async def test_scan_alerts_only_for_in_progress_campaigns():
     engine, factory = await _scan_session()
 
     async with factory() as session:
+        await _seed_campaign(session)
         session.add(
             DropProgress(
                 drop_id="drop-1",
@@ -200,6 +258,7 @@ async def test_scan_suppresses_alerts_for_campaigns_not_in_progress():
     engine, factory = await _scan_session()
 
     async with factory() as session:
+        await _seed_campaign(session)
         session.add(
             DropProgress(
                 drop_id="drop-1",
@@ -224,6 +283,7 @@ async def test_scan_digests_multiple_new_streams_once():
     engine, factory = await _scan_session()
 
     async with factory() as session:
+        await _seed_campaign(session)
         telegram = RecordingTelegram()
         service = ScanService(
             session=session,
@@ -237,7 +297,7 @@ async def test_scan_digests_multiple_new_streams_once():
         assert first.notified_count == 3
         assert len(telegram.messages) == 1
         message = telegram.messages[0]
-        assert "3 eligible streams live" in message
+        assert "Live now (3 streams)" in message
         for login in ("alpha", "beta", "gamma"):
             assert login in message.lower()
 
@@ -253,11 +313,182 @@ async def test_scan_keeps_selected_game_alerts_without_progress_rows():
     engine, factory = await _scan_session()
 
     async with factory() as session:
+        await _seed_campaign(session)
         telegram = RecordingTelegram()
         result = await _run_scan(session, telegram)
 
         assert result.notified_count == 1
         assert len(telegram.messages) == 1
         assert "Rust Drops" in telegram.messages[0]
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scan_notifies_when_campaign_starts():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        telegram = RecordingTelegram()
+        result = await _run_scan(session, telegram)
+
+        assert result.notified_count == 2  # campaign start + live stream
+        assert len(telegram.messages) == 1
+        message = telegram.messages[0]
+        assert "New campaign:" in message
+        assert "Rust Drops" in message
+
+        starts = await session.scalar(select(func.count()).select_from(CampaignStart))
+        assert starts == 0
+
+        second = await _run_scan(session, telegram)
+        assert second.notified_count == 0
+        assert len(telegram.messages) == 1
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scan_notifies_when_upcoming_campaign_becomes_active():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        await _seed_campaign(
+            session,
+            game_name="War Thunder",
+            twitch_game_id="66366",
+            external_id="War Thunder:wt-1",
+            status="UPCOMING",
+        )
+        telegram = RecordingTelegram()
+        service = ScanService(
+            session=session,
+            settings=Settings(default_games="Rust", _env_file=None),
+            sunkwi=FakeSunkwi(warthunder_payload("ACTIVE")),
+            twitch=FakeTwitch(),
+            telegram=telegram,
+        )
+
+        result = await service.run()
+
+        assert result.notified_count == 2
+        assert "New campaign:" in telegram.messages[0]
+        assert "WT Campaign" in telegram.messages[0]
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scan_notifies_for_game_added_by_name():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        await GameRepository(session).set_selected(["War Thunder"])
+        await session.commit()
+
+        telegram = RecordingTelegram()
+        service = ScanService(
+            session=session,
+            settings=Settings(default_games="Rust", _env_file=None),
+            sunkwi=FakeSunkwi(warthunder_payload("ACTIVE")),
+            twitch=FakeTwitch(),
+            telegram=telegram,
+        )
+
+        result = await service.run()
+
+        assert result.notified_count == 2
+        assert "New campaign:" in telegram.messages[0]
+        assert "War Thunder" in telegram.messages[0]
+
+        game = await session.scalar(
+            select(Game).where(Game.name == "War Thunder")
+        )
+        assert game is not None
+        assert game.selected is True
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scan_does_not_notify_untracked_game_start():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        payload = {
+            "games": [
+                {
+                    "gameDisplayName": "Minecraft",
+                    "gameId": "27471",
+                    "campaigns": [
+                        {
+                            "id": "mc-1",
+                            "name": "Minecraft Drops",
+                            "status": "ACTIVE",
+                        }
+                    ],
+                }
+            ]
+        }
+        telegram = RecordingTelegram()
+        service = ScanService(
+            session=session,
+            settings=Settings(default_games="Rust", _env_file=None),
+            sunkwi=FakeSunkwi(payload),
+            twitch=FakeTwitch(),
+            telegram=telegram,
+        )
+
+        result = await service.run()
+
+        assert result.notified_count == 0
+        assert telegram.messages == []
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scan_retries_campaign_start_after_send_failure():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        telegram = FlakyTelegram()
+        service = ScanService(
+            session=session,
+            settings=Settings(default_games="Rust", _env_file=None),
+            sunkwi=FakeSunkwi(payload()),
+            twitch=FakeTwitch(),
+            telegram=telegram,
+        )
+
+        first = await service.run()
+        assert first.notified_count == 0
+        assert telegram.messages == []
+        starts = await session.scalar(select(func.count()).select_from(CampaignStart))
+        assert starts == 1
+
+        second = await service.run()
+        assert second.notified_count == 2
+        assert len(telegram.messages) == 1
+        assert "New campaign:" in telegram.messages[0]
+        starts = await session.scalar(select(func.count()).select_from(CampaignStart))
+        assert starts == 0
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_set_selected_creates_tracked_game_without_campaign():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        selected = await GameRepository(session).set_selected(["War Thunder"])
+        await session.commit()
+
+        assert [game.name for game in selected] == ["War Thunder"]
+        game = await session.scalar(select(Game).where(Game.name == "War Thunder"))
+        assert game is not None
+        assert game.selected is True
+        assert game.box_art_url == ""
 
     await engine.dispose()
