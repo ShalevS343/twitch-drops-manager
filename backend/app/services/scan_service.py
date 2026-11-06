@@ -19,6 +19,7 @@ from app.domain.parsing import (
 from app.providers.sunkwi import SunkwiProvider
 from app.providers.telegram import TelegramProvider
 from app.providers.twitch import TwitchProvider
+from app.repositories.campaign_starts import CampaignStartRepository
 from app.repositories.campaigns import CampaignRepository
 from app.repositories.games import GameRepository
 from app.repositories.notifications import NotificationRepository
@@ -70,8 +71,17 @@ class ScanService:
 
             parsed = self._parse_campaigns(games, games_by_name)
             campaign_repo = CampaignRepository(self.session)
+            existing_status = await campaign_repo.statuses_by_external_ids(
+                {item["external_id"] for item in parsed}
+            )
             await campaign_repo.upsert_many(parsed)
             await campaign_repo.delete_stale({item["external_id"] for item in parsed})
+
+            start_repo = CampaignStartRepository(self.session)
+            await start_repo.add_pending(
+                self._started_campaigns(parsed, existing_status, selected_names)
+            )
+            await start_repo.delete_orphans()
             await self.session.commit()
 
             active = await campaign_repo.list_active_for_games(selected_names)
@@ -158,6 +168,30 @@ class ScanService:
 
         return parsed
 
+    @staticmethod
+    def _started_campaigns(
+        parsed: list[dict[str, Any]],
+        existing_status: dict[str, str],
+        selected_names: set[str],
+    ) -> list[dict[str, Any]]:
+        """Campaigns that became ACTIVE for a tracked game since the last scan."""
+        selected = {name.casefold() for name in selected_names}
+        started: list[dict[str, Any]] = []
+
+        for item in parsed:
+            if item["status"] != "ACTIVE":
+                continue
+            if existing_status.get(item["external_id"]) == "ACTIVE":
+                continue
+
+            game = item["external_id"].rsplit(":", 1)[0]
+            if game.casefold() not in selected:
+                continue
+
+            started.append(item)
+
+        return started
+
     async def _discover_streams(self, campaigns: list[Campaign]) -> list[dict[str, Any]]:
         by_game: dict[str, list[Campaign]] = {}
         for campaign in campaigns:
@@ -207,76 +241,114 @@ class ScanService:
         return list(found.values())
 
     async def _notify(self, streams: list[dict[str, Any]]) -> int:
-        if not streams or not self.telegram.configured:
+        start_repo = CampaignStartRepository(self.session)
+        pending_starts = await start_repo.pending()
+
+        if not streams and not pending_starts:
             return 0
-
-        progress_rows = await ProgressRepository(self.session).list()
-        scoped = bool(progress_rows)
-        active_campaign_ids = {
-            row.campaign_gql_id for row in progress_rows if row.campaign_gql_id
-        }
-
-        campaign_gql_by_id: dict[int, str] = {}
-        if scoped:
-            campaign_ids = {
-                campaign_id
-                for stream in streams
-                for campaign_id in stream["campaign_ids"]
-            }
-            campaigns = await CampaignRepository(self.session).by_ids(campaign_ids)
-            campaign_gql_by_id = {
-                campaign.id: campaign_gql_id_from_external_id(campaign.external_id)
-                for campaign in campaigns
-            }
+        if not self.telegram.configured:
+            return 0
 
         repo = NotificationRepository(self.session)
-        claimed: list[tuple[dict[str, Any], list[str]]] = []
 
-        for stream in streams:
-            if scoped:
-                campaign_names = [
-                    name
-                    for campaign_id, name in zip(
-                        stream["campaign_ids"], stream["campaign_names"]
-                    )
-                    if campaign_gql_by_id.get(campaign_id) in active_campaign_ids
-                ]
-                if not campaign_names:
-                    continue
-            else:
-                campaign_names = list(stream["campaign_names"])
-
-            dedupe_key = f"{stream['user_login'].casefold()}:{stream['game_id']}"
+        claimed_starts: list[tuple[Campaign, str]] = []
+        already_notified: set[str] = set()
+        for start, campaign in pending_starts:
+            dedupe_key = f"campaign-started:{campaign.external_id}"
             if await repo.claim(dedupe_key):
-                claimed.append((stream, campaign_names))
+                claimed_starts.append((campaign, dedupe_key))
+            else:
+                already_notified.add(start.external_id)
+        if already_notified:
+            await start_repo.delete(already_notified)
 
-        if not claimed:
+        claimed_streams: list[tuple[dict[str, Any], list[str], str]] = []
+        if streams:
+            progress_rows = await ProgressRepository(self.session).list()
+            scoped = bool(progress_rows)
+            active_campaign_ids = {
+                row.campaign_gql_id for row in progress_rows if row.campaign_gql_id
+            }
+
+            campaign_gql_by_id: dict[int, str] = {}
+            if scoped:
+                campaign_ids = {
+                    campaign_id
+                    for stream in streams
+                    for campaign_id in stream["campaign_ids"]
+                }
+                campaigns = await CampaignRepository(self.session).by_ids(campaign_ids)
+                campaign_gql_by_id = {
+                    campaign.id: campaign_gql_id_from_external_id(campaign.external_id)
+                    for campaign in campaigns
+                }
+
+            for stream in streams:
+                if scoped:
+                    campaign_names = [
+                        name
+                        for campaign_id, name in zip(
+                            stream["campaign_ids"], stream["campaign_names"]
+                        )
+                        if campaign_gql_by_id.get(campaign_id) in active_campaign_ids
+                    ]
+                    if not campaign_names:
+                        continue
+                else:
+                    campaign_names = list(stream["campaign_names"])
+
+                dedupe_key = f"{stream['user_login'].casefold()}:{stream['game_id']}"
+                if await repo.claim(dedupe_key):
+                    claimed_streams.append((stream, campaign_names, dedupe_key))
+
+        if not claimed_starts and not claimed_streams:
             return 0
 
-        noun = "stream" if len(claimed) == 1 else "streams"
-        lines = [f"Twitch Drops: {len(claimed)} eligible {noun} live"]
-        for stream, campaign_names in claimed[:10]:
-            campaign_text = (
-                f" ({', '.join(campaign_names)})" if campaign_names else ""
-            )
-            lines.append(
-                f"• {stream['game_name']} — {stream['user_name']}: "
-                f"{stream['title']}{campaign_text}"
-            )
-            lines.append(f"  {stream['url']}")
+        lines = ["Twitch Drops update"]
 
-        extra = len(claimed) - 10
-        if extra > 0:
-            lines.append(f"…and {extra} more")
+        if claimed_starts:
+            lines.append("New campaign:")
+            for campaign, _ in claimed_starts:
+                game = campaign.external_id.rsplit(":", 1)[0]
+                line = f"• {game} — {campaign.name}"
+                if campaign.ends_at:
+                    line += f" (ends {campaign.ends_at})"
+                lines.append(line)
+                if campaign.details_url:
+                    lines.append(f"  {campaign.details_url}")
+
+        if claimed_streams:
+            if claimed_starts:
+                lines.append("")
+            noun = "stream" if len(claimed_streams) == 1 else "streams"
+            lines.append(f"Live now ({len(claimed_streams)} {noun}):")
+            for stream, campaign_names, _ in claimed_streams[:10]:
+                campaign_text = (
+                    f" ({', '.join(campaign_names)})" if campaign_names else ""
+                )
+                lines.append(
+                    f"• {stream['game_name']} — {stream['user_name']}: "
+                    f"{stream['title']}{campaign_text}"
+                )
+                lines.append(f"  {stream['url']}")
+
+            extra = len(claimed_streams) - 10
+            if extra > 0:
+                lines.append(f"…and {extra} more")
 
         try:
             await self.telegram.send("\n".join(lines))
         except ProviderError as exc:
             logger.warning("Telegram notification failed: %s", exc)
-            for stream, _ in claimed:
-                await repo.release(
-                    f"{stream['user_login'].casefold()}:{stream['game_id']}"
-                )
+            for _, dedupe_key in claimed_starts:
+                await repo.release(dedupe_key)
+            for _, _, dedupe_key in claimed_streams:
+                await repo.release(dedupe_key)
             return 0
 
-        return len(claimed)
+        if claimed_starts:
+            await start_repo.delete(
+                {campaign.external_id for campaign, _ in claimed_starts}
+            )
+
+        return len(claimed_starts) + len(claimed_streams)

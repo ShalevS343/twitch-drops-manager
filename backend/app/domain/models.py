@@ -140,6 +140,24 @@ class Notification(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class CampaignStart(Base):
+    """A campaign start waiting to be delivered to Telegram.
+
+    The row is created when a tracked game's campaign transitions to ACTIVE and
+    removed after a successful notification. If Telegram fails, the row stays and
+    the next scan retries; the ``notifications`` claim prevents duplicates.
+    """
+
+    __tablename__ = "campaign_starts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    external_id: Mapped[str] = mapped_column(String(512), unique=True, index=True)
+    detected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
+
 class TwitchProfile(Base):
     """Persisted Twitch display profile for the connected account.
 
