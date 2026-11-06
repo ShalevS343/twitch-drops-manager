@@ -98,3 +98,6 @@ export function useTwitchLogout() {
     },
   })
 }
+
+export type StatusQuery = ReturnType<typeof useStatus>
+export type TwitchStatusQuery = ReturnType<typeof useTwitchStatus>
