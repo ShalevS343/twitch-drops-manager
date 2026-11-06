@@ -39,8 +39,6 @@ Required updates:
 
 ## 3. Product and safety rules
 
-- **Read-only Twitch**: never implement auto-claim, auto-watch, fake viewing, or
-  view-botting. This is a hard product/ToS boundary.
 - **No local user/account system**: the Twitch profile is read from Twitch and
   only the OAuth token/profile cache is persisted.
 - **Secrets**: never read, print, commit, or copy `.env` / `.env.save`. Never
