@@ -169,7 +169,7 @@ Latest inventory snapshot (replaced each progress sync).
 | `recorded_at` | datetime | |
 
 Composite index `ix_progress_snapshots_drop_recorded (drop_id, recorded_at)`.
-Pruned to the last 24h on every progress sync. Used for rate/ETA.
+Pruned to the last 24h on every progress sync. Used for the watch rate.
 
 ### `scan_runs`
 

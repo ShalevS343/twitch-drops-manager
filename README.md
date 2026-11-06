@@ -14,7 +14,7 @@ never automates watching.
 - **Live stream discovery** — Drops-enabled streams for your selected games via
   Twitch Helix.
 - **Personal progress** — read-only Twitch inventory via a user login: minutes
-  watched, percentages, claimed state, ETA from recent watch rate.
+  watched, percentages, remaining time, and claimed state.
 - **Watch queue** — live streams matched to your in-progress campaigns, ordered by
   urgency.
 - **Telegram alerts** — one digest per run, atomic dedupe: ready-to-claim drops,

@@ -129,7 +129,7 @@ are hash routes (`#/overview`, `#/campaigns`, `#/progress`, `#/watch-queue`,
 3. Query Twitch GQL `Inventory` (`dropCampaignsInProgress`).
 4. Flatten campaigns/drops into `drop_progress` rows (replacing the previous set).
 5. Insert `progress_snapshots`; prune older than 24h.
-6. Compute watch rate/ETA from snapshots in the last 2h.
+6. Compute the watch rate from snapshots in the last 2h.
 7. Build one digest of newly ready drops and 24h/2h deadline reminders; atomically
    claim each dedupe key before sending; release claims on failure.
 
