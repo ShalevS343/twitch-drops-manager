@@ -1,7 +1,9 @@
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 from sqlalchemy import event
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -24,16 +26,26 @@ def _ensure_sqlite_directory(url: str) -> None:
 
 _ensure_sqlite_directory(settings.database_url)
 
-engine = create_async_engine(settings.database_url, future=True)
+_is_sqlite = settings.database_url.startswith("sqlite")
+_connect_args = {"timeout": 30} if _is_sqlite else {}
+
+engine = create_async_engine(
+    settings.database_url,
+    future=True,
+    connect_args=_connect_args,
+)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-if settings.database_url.startswith("sqlite"):
+if _is_sqlite:
 
     @event.listens_for(engine.sync_engine, "connect")
-    def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+    def _configure_sqlite(dbapi_connection, _connection_record) -> None:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=5000")
         cursor.close()
 
 
@@ -45,5 +57,16 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 async def init_db() -> None:
     from app.domain import models  # noqa: F401
 
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    last_error: OperationalError | None = None
+
+    for attempt in range(10):
+        try:
+            async with engine.begin() as connection:
+                await connection.run_sync(Base.metadata.create_all)
+            return
+        except OperationalError as exc:
+            last_error = exc
+            await asyncio.sleep(0.5 * (attempt + 1))
+
+    if last_error is not None:
+        raise last_error

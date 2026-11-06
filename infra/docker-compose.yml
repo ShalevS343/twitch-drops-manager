@@ -1,5 +1,5 @@
 x-backend-env: &backend-env
-  DATABASE_URL: postgresql+asyncpg://drops:drops@db:5432/drops
+  DATABASE_URL: sqlite+aiosqlite:////data/drops.db
   TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID:-}
   TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET:-}
   TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
@@ -11,29 +11,14 @@ x-backend-env: &backend-env
   API_TOKEN: ${API_TOKEN:-}
 
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: drops
-      POSTGRES_USER: drops
-      POSTGRES_PASSWORD: drops
-    volumes:
-      - db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U drops"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   api:
     build:
       context: ../backend
     image: twitch-drops-backend:local
     environment:
       <<: *backend-env
-    depends_on:
-      db:
-        condition: service_healthy
+    volumes:
+      - drops_data:/data
     ports:
       - "8000:8000"
 
@@ -44,9 +29,9 @@ services:
     command: ["python", "-m", "app.worker.scheduler"]
     environment:
       <<: *backend-env
+    volumes:
+      - drops_data:/data
     depends_on:
-      db:
-        condition: service_healthy
       api:
         condition: service_started
 
@@ -59,6 +44,12 @@ services:
       - "8282:80"
     depends_on:
       - api
+    labels:
+      - homepage.group=Media
+      - homepage.name=Twitch Drops Manager
+      - homepage.icon=twitch.png
+      - homepage.href=http://100.115.65.82:8282
+      - homepage.description=Track Twitch Drops campaigns and live streams
 
 volumes:
-  db_data:
+  drops_data:

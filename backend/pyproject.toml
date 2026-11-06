@@ -10,11 +10,13 @@ dependencies = [
     "pydantic-settings>=2.3",
     "sqlalchemy[asyncio]>=2.0",
     "aiosqlite>=0.20",
-    "asyncpg>=0.29",
     "apscheduler>=3.10",
 ]
 
 [project.optional-dependencies]
+postgres = [
+    "asyncpg>=0.29",
+]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
