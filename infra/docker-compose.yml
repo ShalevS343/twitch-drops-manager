@@ -21,6 +21,11 @@ services:
       - drops_data:/data
     ports:
       - "8000:8000"
+    labels:
+      - kuma.enable=true
+      - kuma.name=Twitch Drops Manager API
+      - kuma.port=8000
+      - kuma.type=tcp
 
   worker:
     build:
