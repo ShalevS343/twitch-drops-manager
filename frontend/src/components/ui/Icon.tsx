@@ -24,151 +24,167 @@ export type IconName =
   | 'plus'
   | 'arrow-right'
 
+/**
+ * Custom solid/geometric icon set. Primary navigation icons are filled
+ * silhouettes; utility icons use square-capped strokes. Deliberately not a
+ * generic rounded outline set.
+ */
 const ICONS: Record<IconName, ReactNode> = {
-  home: (
-    <>
-      <path d="M3 10.5 12 3l9 7.5" />
-      <path d="M5 9.5V21h14V9.5" />
-      <path d="M9 21v-6h6v6" />
-    </>
-  ),
+  home: <path d="M12 2 2 10.2V22h8v-6h4v6h8V10.2L12 2Z" />,
   gift: (
     <>
-      <path d="M20 12v9H4v-9" />
-      <path d="M2 7h20v5H2z" />
-      <path d="M12 7v14" />
-      <path d="M12 7H7.5a2.5 2.5 0 1 1 0-5C11 2 12 7 12 7Z" />
-      <path d="M12 7h4.5a2.5 2.5 0 1 0 0-5C13 2 12 7 12 7Z" />
+      <path
+        fillRule="evenodd"
+        d="M2 8h20v5H2V8Zm2 5h16v10H4V13Zm6.75-5h2.5v15h-2.5V8Z"
+      />
+      <circle cx="8.6" cy="5.9" r="2.1" />
+      <circle cx="15.4" cy="5.9" r="2.1" />
     </>
   ),
   chart: (
     <>
-      <path d="M3 3v18h18" />
-      <path d="M7 16v-4" />
-      <path d="M12 16V8" />
-      <path d="M17 16v-7" />
+      <rect x="2" y="21" width="20" height="1.6" />
+      <rect x="3" y="12" width="4" height="7" />
+      <rect x="10" y="6" width="4" height="13" />
+      <rect x="17" y="9" width="4" height="10" />
     </>
   ),
-  play: (
-    <>
-      <path d="M8 5v14l11-7z" />
-    </>
-  ),
+  play: <path d="M7 4 21 12 7 20Z" />,
   radio: (
     <>
-      <path d="M4.9 19.1a10 10 0 0 1 0-14.2" />
-      <path d="M7.8 16.2a6 6 0 0 1 0-8.4" />
-      <circle cx="12" cy="12" r="2" />
-      <path d="M16.2 16.2a6 6 0 0 0 0-8.4" />
-      <path d="M19.1 19.1a10 10 0 0 0 0-14.2" />
+      <circle cx="12" cy="12" r="2.6" />
+      <g fill="none" stroke="currentColor">
+        <path d="M7.4 7.4a6.5 6.5 0 0 0 0 9.2" />
+        <path d="M16.6 7.4a6.5 6.5 0 0 1 0 9.2" />
+        <path d="M4.3 4.3a10.9 10.9 0 0 0 0 15.4" />
+        <path d="M19.7 4.3a10.9 10.9 0 0 1 0 15.4" />
+      </g>
     </>
   ),
   settings: (
     <>
-      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-      <circle cx="12" cy="12" r="3" />
+      <rect x="2" y="5" width="20" height="1.8" />
+      <rect x="14" y="2.9" width="4" height="6" />
+      <rect x="2" y="11.1" width="20" height="1.8" />
+      <rect x="6" y="9" width="4" height="6" />
+      <rect x="2" y="17.2" width="20" height="1.8" />
+      <rect x="15" y="15.1" width="4" height="6" />
     </>
   ),
   user: (
     <>
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 21a8 8 0 0 1 16 0" />
+      <circle cx="12" cy="7.4" r="4" />
+      <path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7H4Z" />
     </>
   ),
   scan: (
     <>
-      <circle cx="11" cy="11" r="7" />
-      <path d="m21 21-4.3-4.3" />
-      <path d="M8 11h6" />
+      <path
+        fillRule="evenodd"
+        d="M10.5 2.6a7.6 7.6 0 1 0 0 15.2 7.6 7.6 0 0 0 0-15.2Zm0 2.3a5.3 5.3 0 1 1 0 10.6 5.3 5.3 0 0 1 0-10.6Z"
+      />
+      <path d="M16.1 14.6 22 20.5l-1.5 1.5-5.9-5.9 1.5-1.5Z" />
     </>
   ),
   refresh: (
-    <>
-      <path d="M20 11a8 8 0 1 0-2.3 6.4" />
-      <path d="M20 4v7h-7" />
-    </>
+    <g fill="none" stroke="currentColor">
+      <path d="M20 12a8 8 0 1 1-2.4-5.7" />
+      <path d="M20 3.2V9h-5.8" />
+    </g>
   ),
   search: (
     <>
-      <circle cx="11" cy="11" r="7" />
-      <path d="m21 21-4.3-4.3" />
+      <path
+        fillRule="evenodd"
+        d="M10.5 2.6a7.6 7.6 0 1 0 0 15.2 7.6 7.6 0 0 0 0-15.2Zm0 2.3a5.3 5.3 0 1 1 0 10.6 5.3 5.3 0 0 1 0-10.6Z"
+      />
+      <path d="M16.1 14.6 22 20.5l-1.5 1.5-5.9-5.9 1.5-1.5Z" />
     </>
   ),
   external: (
-    <>
+    <g fill="none" stroke="currentColor">
       <path d="M14 3h7v7" />
-      <path d="M21 3l-9 9" />
-      <path d="M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" />
-    </>
+      <path d="M21 3l-9.5 9.5" />
+      <path d="M10 5H4.8A1.8 1.8 0 0 0 3 6.8v12.4A1.8 1.8 0 0 0 4.8 21h12.4a1.8 1.8 0 0 0 1.8-1.8V14" />
+    </g>
   ),
   link: (
-    <>
-      <path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.1 1.1" />
-      <path d="M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.1-1.1" />
-    </>
+    <g fill="none" stroke="currentColor">
+      <path d="M10 14a4.2 4.2 0 0 0 6 0l2.4-2.4a4.2 4.2 0 0 0-6-6L11.2 6.8" />
+      <path d="M14 10a4.2 4.2 0 0 0-6 0l-2.4 2.4a4.2 4.2 0 0 0 6 6l1.2-1.2" />
+    </g>
   ),
   check: (
-    <>
-      <path d="M20 6 9 17l-5-5" />
-    </>
+    <path
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      d="M20 6 9 17l-5-5"
+    />
   ),
   alert: (
-    <>
-      <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
-      <path d="M12 9v4" />
-      <path d="M12 17h.01" />
-    </>
+    <path
+      fillRule="evenodd"
+      d="M12 2 23 21H1L12 2Zm-1 7v6.5h2V9h-2Zm0 8.5V20h2v-2.5h-2Z"
+    />
   ),
   clock: (
     <>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
+      <path
+        fillRule="evenodd"
+        d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2.2a7.8 7.8 0 1 1 0 15.6 7.8 7.8 0 0 1 0-15.6Z"
+      />
+      <path d="M11 5.8h2v6.6l4.4 2.6-1 1.7-5.4-3.2V5.8Z" />
     </>
   ),
   inbox: (
-    <>
-      <path d="M4 4h16v16H4z" />
-      <path d="M4 14h5l2 3h2l2-3h5" />
-    </>
+    <g fill="none" stroke="currentColor">
+      <path d="M3.5 4.5h17v15h-17z" />
+      <path d="M3.5 13.5h5l1.8 2.7h3.4l1.8-2.7h5" />
+    </g>
   ),
   twitch: (
-    <>
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      <path d="M8 9v3" />
-      <path d="M16 9v3" />
-      <path d="M12 19v2" />
-    </>
+    <path
+      fillRule="evenodd"
+      d="M3 4h18v13h-7l-4 4v-4H3V4Zm4 3.8v3.4h2V7.8H7Zm8 0v3.4h2V7.8h-2Z"
+    />
   ),
   logout: (
-    <>
-      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-      <path d="m16 17 5-5-5-5" />
-      <path d="M21 12H9" />
-    </>
+    <g fill="none" stroke="currentColor">
+      <path d="M10 3H4.8A1.8 1.8 0 0 0 3 4.8v14.4A1.8 1.8 0 0 0 4.8 21H10" />
+      <path d="M15 7l5 5-5 5" />
+      <path d="M20 12H9" />
+    </g>
   ),
   sparkles: (
     <>
-      <path d="M12 3l1.7 4.8L18.5 9.5l-4.8 1.7L12 16l-1.7-4.8L5.5 9.5l4.8-1.7L12 3Z" />
-      <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z" />
+      <path d="M12 2l2.2 6.8L21 11l-6.8 2.2L12 20l-2.2-6.8L3 11l6.8-2.2L12 2Z" />
+      <path d="M19 14.8l1 2.6 2.6 1-2.6 1-1 2.6-1-2.6-2.6-1 2.6-1 1-2.6Z" />
     </>
   ),
   x: (
-    <>
-      <path d="M18 6 6 18" />
-      <path d="m6 6 12 12" />
-    </>
+    <path
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      d="M18 6 6 18M6 6l12 12"
+    />
   ),
   plus: (
-    <>
-      <path d="M12 5v14" />
-      <path d="M5 12h14" />
-    </>
+    <path
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.4"
+      d="M12 4v16M4 12h16"
+    />
   ),
   'arrow-right': (
-    <>
-      <path d="M5 12h14" />
-      <path d="m13 6 6 6-6 6" />
-    </>
+    <path
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      d="M4 11h14M12 4l7 7-7 7"
+    />
   ),
 }
 
@@ -179,18 +195,18 @@ interface IconProps {
   strokeWidth?: number
 }
 
-export function Icon({ name, size = 18, className, strokeWidth = 1.8 }: IconProps) {
+export function Icon({ name, size = 18, className, strokeWidth = 2 }: IconProps) {
   return (
     <svg
       className={className}
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
+      fill="currentColor"
+      stroke="none"
       strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      strokeLinecap="square"
+      strokeLinejoin="miter"
       aria-hidden="true"
       focusable="false"
     >
