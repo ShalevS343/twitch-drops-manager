@@ -183,7 +183,10 @@ class ProgressService:
         if not claimed:
             return 0
 
-        message = "\n".join(["Twitch Drops update", *(line for _, line in claimed)])
+        lines = ["Twitch Drops update", *(line for _, line in claimed)]
+        if any(key.startswith("drop-ready:") for key, _ in claimed):
+            lines.append("Claim: https://www.twitch.tv/drops/inventory")
+        message = "\n".join(lines)
 
         try:
             await self.telegram.send(message)

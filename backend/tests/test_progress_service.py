@@ -114,6 +114,7 @@ async def test_progress_sync_persists_drops_and_notifies_once():
         assert first.notified_count == 1
         assert len(telegram.messages) == 1
         assert "First Drop" in telegram.messages[0]
+        assert "https://www.twitch.tv/drops/inventory" in telegram.messages[0]
 
         total = await session.scalar(select(func.count()).select_from(DropProgress))
         assert total == 2
