@@ -10,6 +10,7 @@ import {
   useTwitchLogout,
   useTwitchStatus,
 } from '../hooks/useApi'
+import { endsSoon, formatEta, formatRemaining } from '../lib/format'
 
 function formatEnd(value: string | null): string {
   if (!value) return 'Unknown'
@@ -28,10 +29,18 @@ function ProgressCard({ campaign }: { campaign: ProgressCampaign }) {
         <span className="badge">
           {campaign.claimed_count}/{campaign.total_count} claimed
         </span>
+        {endsSoon(campaign.campaign_ends_at) && (
+          <span className="badge ending-soon">Ends soon</span>
+        )}
       </header>
 
       <h3>{campaign.campaign_name}</h3>
-      <p className="muted">Ends: {formatEnd(campaign.campaign_ends_at)}</p>
+      <p className="muted">
+        Ends: {formatEnd(campaign.campaign_ends_at)}
+        {campaign.eta_minutes !== null && (
+          <> · {formatEta(campaign.eta_minutes)} left</>
+        )}
+      </p>
 
       <ul className="progress-drops">
         {campaign.drops.map((drop) => (
@@ -54,6 +63,13 @@ function ProgressCard({ campaign }: { campaign: ProgressCampaign }) {
             >
               <span style={{ width: `${drop.percent}%` }} />
             </div>
+
+            <p className="progress-drop-eta muted">
+              {formatRemaining(drop.remaining_minutes)} left
+              {drop.rate_minutes_per_hour !== null && drop.eta_minutes !== null && (
+                <> · {formatEta(drop.eta_minutes)} at current pace</>
+              )}
+            </p>
 
             <div className="progress-drop-meta">
               {drop.is_claimed && <span className="badge claimed">Claimed</span>}

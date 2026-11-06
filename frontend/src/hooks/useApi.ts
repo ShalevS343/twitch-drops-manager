@@ -58,6 +58,14 @@ export function useProgress() {
   })
 }
 
+export function useWatchQueue() {
+  return useQuery({
+    queryKey: ['watch-queue'],
+    queryFn: api.watchQueue,
+    refetchInterval: 30_000,
+  })
+}
+
 export function useTwitchStatus() {
   return useQuery({
     queryKey: ['twitch-status'],
@@ -73,6 +81,7 @@ export function useRefreshProgress() {
     mutationFn: api.refreshProgress,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['progress'] })
+      queryClient.invalidateQueries({ queryKey: ['watch-queue'] })
       queryClient.invalidateQueries({ queryKey: ['twitch-status'] })
       queryClient.invalidateQueries({ queryKey: ['status'] })
     },

@@ -372,3 +372,45 @@ button:disabled {
   background: #374151;
   color: #9ca3af;
 }
+
+.card .badge.ending-soon {
+  background: #b45309;
+  color: #ffedd5;
+}
+
+.progress-drop-eta {
+  margin: 7px 0 0;
+  font-size: 0.82rem;
+}
+
+.watch-queue-campaigns {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+  display: grid;
+  gap: 8px;
+}
+
+.watch-queue-chip {
+  padding: 10px;
+  border-radius: 8px;
+  background: #111827;
+}
+
+.watch-queue-chip-head {
+  margin-bottom: 5px;
+  font-size: 0.92rem;
+}
+
+.watch-queue-chip-next {
+  display: block;
+  color: #e5e7eb;
+  font-size: 0.88rem;
+}
+
+.watch-queue-chip-meta {
+  display: block;
+  margin-top: 4px;
+  color: #9ca3af;
+  font-size: 0.78rem;
+}
