@@ -197,3 +197,21 @@ timer; the user explicitly clicks **Start manual session**. Stream ids change on
 every scan, so reconciliation matches `user_login` + `campaign_id` first. The
 feature is single-user and single-watcher by design; a future pool would need a
 new table/schema.
+
+## ADR-016 — Stream alerts follow campaign starts
+
+**Context:** scan-level stream discovery can produce a stream digest on every scan
+even when nothing changed about the user's campaigns, which is noisy.
+
+**Decision:** only claim and send stream alerts when the same scan also has a
+pending campaign start for the stream's game. If a campaign started, include live
+streams for that game, scoped to in-progress campaigns plus the just-started
+campaign. Stream dedupe keys include the start campaign's external id
+(`stream-alert:{campaign_external_id}:{user_login}:{game_id}`), so a channel can
+be announced again when a later campaign starts.
+
+**Consequences:** no standalone “Live now” messages; stream alerts always arrive
+in the “New campaign” digest. A game with a start but no eligible stream sends
+only the campaign line. The `notifications` ledger keeps one key per
+start-event/channel pair. When Telegram fails, both the start and stream claims are
+released and the start row remains for retry.

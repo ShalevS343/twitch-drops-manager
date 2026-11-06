@@ -18,8 +18,9 @@ never automates watching.
 - **Watch queue** — live streams matched to your in-progress campaigns, ordered by
   urgency.
 - **Telegram alerts** — one digest per run, atomic dedupe: ready-to-claim drops,
-  campaign deadline reminders (24h/2h), newly eligible streams, and campaign
-  starts for tracked games (including games with no current campaign).
+  campaign deadline reminders (24h/2h), and campaign starts for tracked games
+  (including games with no current campaign). Live streams are included only
+  when a tracked game starts a campaign; there is no standalone stream digest.
 - **Track any game** — add a game by name in Settings even if it is not in the
   catalog; get notified when its next campaign becomes active.
 - **Manual watch sessions** — start one campaign at a time, open the real stream,

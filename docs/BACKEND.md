@@ -39,7 +39,7 @@ app/
     watch_focus_service.py  single focused-watcher state + auto-move
     factory.py            cached providers + service builders
   worker/scheduler.py     APScheduler worker entry point
-tests/                    pytest suite (68 tests)
+tests/                    pytest suite (70 tests)
 ```
 
 ## Startup (`main.py`)
@@ -96,13 +96,18 @@ See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
 6. Match streams to active campaigns using `allow` (channel allowlist when
    `isEnabled`).
 7. Replace the `streams`/`stream_campaign_matches` tables.
-8. Notify in one digest:
+8. Notify in one digest **gated on a campaign start**:
    - pending campaign starts for selected games;
-   - live streams (when `drop_progress` has rows, only streams matching an
-     in-progress campaign; otherwise all selected-game matches).
-   Each event is claimed atomically (`campaign-started:*` or
-   `{user_login}:{game_id}`). On Telegram failure all claims are released and
-   pending starts remain for the next scan; on success start rows are deleted.
+   - live streams only for games that have a newly started campaign. Streams are
+     scoped to in-progress campaigns, plus the campaign that just started (so a
+     new campaign can be announced before the next progress sync).
+   If there is no pending campaign start, no stream digest is sent. Stream keys
+   include the start event:
+   `stream-alert:{start_campaign_external_id}:{user_login}:{game_id}`, so the
+   same channel can be announced again for a later campaign. Each event is
+   claimed atomically with `campaign-started:*` / `stream-alert:*`. On Telegram
+   failure all claims are released and pending starts remain for the next scan;
+   on success start rows are deleted.
 9. Write a `ScanRun` (`ok`, error, counts).
 
 ## Progress service
@@ -220,10 +225,10 @@ Repositories wrap SQLAlchemy. Notable choices:
 
 ## Tests
 
-`backend/tests` (68 tests):
+`backend/tests` (70 tests):
 
 - parsing/inventory
-- scan service (catalog, streams, scoped alerts, campaign starts, retry)
+- scan service (catalog, streams, campaign-start-gated alerts, retry)
 - progress service (watch rate, digests, deadline windows, retry)
 - notifications (claim/release/duplicate)
 - watch queue (filtering/sorting/next drop)

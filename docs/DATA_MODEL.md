@@ -88,7 +88,9 @@ Keys in use:
 - `campaign-ending:{campaign_gql_id}:24h`
 - `campaign-ending:{campaign_gql_id}:2h`
 - `campaign-started:{campaign_external_id}` for campaign-start digests
-- `{user_login}:{game_id}` for stream digests
+- `stream-alert:{start_campaign_external_id}:{user_login}:{game_id}` for stream
+  digests (only claimed alongside a campaign start; a later campaign uses a new
+  key)
 
 `NotificationRepository.claim()` inserts inside a SAVEPOINT; the unique constraint
 makes cross-process dedupe atomic. `release()` removes a claim after a send failure.

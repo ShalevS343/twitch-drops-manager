@@ -152,6 +152,7 @@ backup; keep a copy of the current file first. See [DATA_MODEL.md](DATA_MODEL.md
 | Cold load ~800ms on `/twitch/status` | first profile fetch before P0/warm-up | On current code the request is non-blocking; profile appears next poll |
 | No live streams | no selected games / no eligible streams / Helix creds missing | Check Settings, `/status`, worker logs |
 | Telegram messages missing | token/chat id missing or wrong | Settings → Test Telegram; check worker logs |
+| Stream alerts missing | stream alerts are only sent with a campaign start | expected; wait for a tracked game’s `ACTIVE` transition or check the scan digest |
 | Duplicate Telegram messages | older build before atomic dedupe | Deploy current `main` (digests + atomic claim) |
 | Kuma monitor missing | labels absent on running container / `kuma-sync` down | Recreate containers with labels; check `kuma-sync` logs |
 | UI shows old assets | browser cache / `index.html` cache | Hard refresh; `index.html` is `no-cache`, hashed assets immutable |

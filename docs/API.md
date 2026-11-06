@@ -174,11 +174,14 @@ Errors: `400` provider not configured, `502` upstream failure. The scan is also
 recorded in `scan_runs`.
 
 `notified_count` counts successfully delivered campaign-start and live-stream
-events; both are combined into one digest per scan. A campaign start is detected
-when a selected game's campaign transitions from any non-`ACTIVE` state to
-`ACTIVE`, including a brand-new campaign after the previous one ended. Delivery
-failures leave the start pending for the next scan; the notification claim
-prevents duplicates.
+events; both are combined into one digest per scan. Stream events are only
+included when the same scan also has a campaign start for that game — there is no
+standalone stream digest. A campaign start is detected when a selected game's
+campaign transitions from any non-`ACTIVE` state to `ACTIVE`, including a
+brand-new campaign after the previous one ended. Delivery failures leave the
+start pending for the next scan; the notification claim prevents duplicates.
+Stream dedupe keys include the campaign-start event, so the same channel can be
+announced again for a later campaign.
 
 `GET /scans/latest` → `ScanRunOut`; `404` if no scan has run.
 

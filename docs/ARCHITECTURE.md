@@ -123,7 +123,9 @@ are hash routes (`#/overview`, `#/campaigns`, `#/progress`, `#/watch-queue`,
 4. For each selected game with a Twitch game id, Helix returns live streams.
 5. Streams are matched to active campaigns (respecting channel allowlists) and
    inserted; old stream rows are replaced.
-6. New eligible streams are claimed/deduped and sent as **one Telegram digest**.
+6. Campaign starts and streams are sent as **one Telegram digest**, but only when
+   a tracked game has a newly started campaign. Stream dedupe keys include the
+   start event, so later campaigns can notify again.
 7. A `ScanRun` row records counts and errors.
 
 ### Progress sync
