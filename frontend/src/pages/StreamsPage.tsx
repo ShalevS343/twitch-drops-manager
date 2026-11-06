@@ -4,14 +4,17 @@ import { StreamCard } from '../components/StreamCard'
 import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Icon } from '../components/ui/Icon'
+import { PerGameSelect } from '../components/ui/PerGameSelect'
 import { LoadingState } from '../components/ui/Spinner'
 import { useStreams } from '../hooks/useApi'
+import { groupByGame, limitPerGame } from '../lib/streamGroups'
 
 export function StreamsPage() {
   const streamsQuery = useStreams()
   const [search, setSearch] = useState('')
   const [game, setGame] = useState('all')
   const [language, setLanguage] = useState('all')
+  const [perGame, setPerGame] = useState(5)
 
   const streams = streamsQuery.data ?? []
 
@@ -44,6 +47,15 @@ export function StreamsPage() {
       return matchesSearch && matchesGame && matchesLanguage
     })
   }, [game, language, search, streams])
+
+  const visible = useMemo(
+    () => limitPerGame(filtered, (stream) => stream.game.name, perGame),
+    [filtered, perGame],
+  )
+  const groups = useMemo(
+    () => groupByGame(visible, (stream) => stream.game.name),
+    [visible],
+  )
 
   const hasFilters = Boolean(search.trim()) || game !== 'all' || language !== 'all'
 
@@ -95,6 +107,8 @@ export function StreamsPage() {
           </select>
         </label>
 
+        <PerGameSelect value={perGame} onChange={setPerGame} />
+
         {hasFilters && (
           <button type="button" className="btn btn-ghost" onClick={clearFilters}>
             <Icon name="x" size={14} />
@@ -108,8 +122,11 @@ export function StreamsPage() {
           <Badge tone="live" dot>
             Live
           </Badge>{' '}
-          Showing <strong>{filtered.length}</strong> of{' '}
+          Showing <strong>{visible.length}</strong> of{' '}
           <strong>{streams.length}</strong> streams
+          {perGame > 0 && (
+            <span className="muted"> · top {perGame} per game</span>
+          )}
         </span>
         {hasFilters && <Badge tone="accent">Filtered</Badge>}
       </div>
@@ -154,10 +171,22 @@ export function StreamsPage() {
         </div>
       )}
 
-      {filtered.length > 0 && (
-        <div className="stream-grid">
-          {filtered.map((stream) => (
-            <StreamCard key={stream.id} stream={stream} />
+      {groups.length > 0 && (
+        <div className="game-groups">
+          {groups.map((group) => (
+            <section className="game-group" key={group.game}>
+              <div className="game-group-head">
+                <h3>{group.game}</h3>
+                <span className="game-group-count">
+                  {group.items.length} shown
+                </span>
+              </div>
+              <div className="stream-grid">
+                {group.items.map((stream) => (
+                  <StreamCard key={stream.id} stream={stream} />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}

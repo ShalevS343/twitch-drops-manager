@@ -14,6 +14,21 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## 2026-11-06
 
+### Manual watch sessions + per-game limits
+
+- Watch queue can start one browser-local watch session for a chosen
+  campaign/stream: opens the real Twitch stream, tracks elapsed time, and shows
+  progress against the campaign's remaining watch minutes.
+- Added pause/resume/stop, persistence in `localStorage` across refreshes, and
+  cross-tab sync. Only one session can exist.
+- Added campaign-level “Next up” suggestions (most urgent first, best live
+  stream) with an explicit **Switch** action; nothing auto-plays or advances.
+- The timer is local only: no playback control, heartbeats, or simulated viewing.
+- Watch queue and Live streams now group by game and show at most **5 per game**
+  by default, with a 5/10/20/All selector and client-side filtering.
+- Fixed horizontal page drift on mobile and made only the actual active stream
+  show the “Current session” badge.
+
 ### Game tracking + campaign-start alerts
 
 - Games can now be tracked by name even when they are absent from the drop

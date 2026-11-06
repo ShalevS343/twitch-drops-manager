@@ -16,17 +16,21 @@ frontend/src/
     ProgressCard.tsx
     StreamCard.tsx
     WatchQueueCard.tsx
+    WatchSessionPanel.tsx    active manual session, timer, next-up handoff
     TwitchConnect.tsx        reusable authorize/paste flow + hook
     GameSelector.tsx
     ui/                      Avatar, Badge, EmptyState, Icon, PageHeader,
-                             Spinner, StatCard, TabNav
+                             PerGameSelect, Spinner, StatCard, TabNav
   hooks/
     useApi.ts                TanStack Query hooks + query result types
     useTab.ts                hash routing with canonicalization
+    useWatchSession.ts       localStorage-backed manual watch timer
   lib/
     campaigns.ts             phase/percent helpers
     format.ts                date/time/ETA formatters
+    streamGroups.ts          per-game limiting/grouping helpers
     tabs.ts                  tab ids + metadata
+    watchQueue.ts            campaign-level "next up" suggestions
   pages/
     OverviewPage.tsx
     CampaignsPage.tsx
@@ -48,8 +52,8 @@ Hash routes, default `#/overview`; invalid hashes are normalized:
 | `#/overview` | Overview | Stats, needs attention, queue preview, campaign progress |
 | `#/campaigns` | Campaigns | Catalog with search/game/status filters |
 | `#/progress` | Progress | Personal drop progress, ETA, ready-to-claim |
-| `#/watch-queue` | Watch queue | Urgency-sorted eligible live streams |
-| `#/streams` | Streams | All live matched streams with filters |
+| `#/watch-queue` | Watch queue | Urgency-sorted eligible streams, grouped by game, top 5 per game by default |
+| `#/streams` | Streams | All matched live streams, filtered/grouped, top 5 per game by default |
 | `#/settings` | Settings | Games (including track-by-name), actions, Twitch connection, system info |
 | `#/profile` | Profile | Twitch account/profile, reconnect/disconnect |
 
@@ -140,6 +144,8 @@ Borders, spacing, and a larger type scale carry the hierarchy.
   single-column cards, hidden button labels, full-width search/add-game row.
 - Focus states use a 2px violet outline; skip link, aria labels, `aria-live`
   toast, and keyboard-navigable tabs are preserved.
+- Horizontal overflow is clipped at the page level (`html`/`body`
+  `overflow-x: clip`); the mobile tab bar scrolls inside its own container.
 
 ## Game tracking
 
@@ -149,6 +155,33 @@ it to the selection. Saving calls `PUT /games`; the backend creates a `Game` row
 if it does not exist, so a game can be tracked before it has a campaign. The scan
 then alerts when a campaign for that game becomes active. Changes are local until
 **Save selection** is clicked.
+
+## Manual watch sessions
+
+The Watch queue can start one **local** session for a chosen stream/campaign pair.
+It opens the real Twitch stream in a new tab and records elapsed time in
+`localStorage` under `tdm.watch-session.v1`; refreshing the page keeps the timer.
+Only one session can exist at a time.
+
+- The timer can be paused/resumed and stopped. It survives navigation and is
+  synced across tabs through the `storage` event.
+- `targetMinutes` comes from the campaign’s remaining watch time. When elapsed
+  time reaches the target, the panel shows **Target reached** plus up to three
+  campaign-level “Next up” suggestions (most urgent campaign first, best live
+  stream per campaign). Switching is an explicit click — nothing auto-plays or
+  auto-advances.
+- The panel never controls Twitch playback, sends watch heartbeats, or simulates
+  viewing. This is a manual convenience only; the read-only product boundary
+  still applies.
+- Session data is local to the browser and is not persisted to the backend.
+
+## Live list limits
+
+Both `Watch queue` and `Streams` group cards by game and show at most **5 streams
+per game** by default. The `Per game` selector changes the cap to 5, 10, 20, or
+All. Limiting happens client-side after filtering, so search still sees every
+loaded stream. Group order follows the original sorted order (urgency for the
+watch queue, viewers for Streams).
 
 ## Build / dev
 

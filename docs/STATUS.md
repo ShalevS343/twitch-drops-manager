@@ -9,8 +9,9 @@ violet UI merged in `77bfc75`.
 ### Repository
 
 - `main` includes: P0 performance work, tabbed dashboard, Twitch profile/settings,
-  Telegram dedupe/digests, game tracking by name, campaign-start alerts, and the
-  violet high-contrast UI (circular logo/favicon).
+  Telegram dedupe/digests, game tracking by name, campaign-start alerts, manual
+  watch sessions, top-5-per-game live lists, and the violet high-contrast UI
+  (circular logo/favicon).
 - Backend tests: **58 passed**; ruff clean.
 - Frontend: `npm run build` passes; visually verified with headless screenshots
   (desktop + mobile) against live data.
@@ -18,8 +19,11 @@ violet UI merged in `77bfc75`.
   tracked before it has a campaign. Scans alert when a selected game's campaign
   becomes `ACTIVE`, including `UPCOMING` → `ACTIVE` and the next campaign after a
   previous one ended. Failed Telegram sends retry via `campaign_starts`.
-- Docs: API, data model, backend, frontend, changelog, and this file updated for
-  game tracking and the violet UI pass.
+- Manual watch sessions are frontend-only: one local timer, persisted in
+  `localStorage`, with next-campaign suggestions. No playback control or fake
+  viewing. Watch queue/streams are grouped by game and capped at 5 by default.
+- Docs: API, data model, backend, frontend, decisions, changelog, and this file
+  updated for game tracking, manual sessions, and the violet UI pass.
 
 ### Live deployment (verify before assuming)
 
@@ -31,9 +35,10 @@ The Portainer stack `twitch-drops-manager` was last observed running a build fro
 - It does include the tabbed UI, Twitch profile, and Telegram digest hotfix
 
 **The live stack is behind `main`.** A redeploy is required to get P0 performance,
-the violet UI, the circular favicon, game tracking/campaign-start alerts, and the
-latest docs. The DB volume persists; `campaign_starts` is created automatically by
-`create_all`.
+the violet UI, the circular favicon, game tracking/campaign-start alerts, manual
+watch sessions, the per-game live caps, and the latest docs. The DB volume
+persists; `campaign_starts` is created automatically by `create_all`. Manual watch
+sessions are browser-local and need no migration.
 
 ## Pending work
 
@@ -45,6 +50,8 @@ latest docs. The DB volume persists; `campaign_starts` is created automatically 
    - `/watch-queue` p50 (~20 ms on the host; gzip via nginx)
    - UI violet theme + circular favicon
    - Settings → Games “Track a game by name” creates a tracked row
+   - Watch queue: one manual session, timer persists on refresh, top 5 per game
+   - Live streams: game groups + Per game selector
    - Kuma monitors for 8282/8000
 4. **P1 performance** (planned): per-endpoint response cache + ETag, `/dashboard`
    bootstrap endpoint, combined `/status` queries. Goal: initial load <50 ms.
@@ -68,6 +75,8 @@ latest docs. The DB volume persists; `campaign_starts` is created automatically 
 - **Sunkwi limit**: 1 request/300s; cache covers normal operation, a very cold
   cache during a 429 can still surface a provider error.
 - **Telegram token exposure**: pre-fix logs contained the bot token; rotate it.
+- **Manual timer is advisory**: it is wall-clock, browser-local, and can overstate
+  elapsed time if left running; use pause/stop. It never verifies playback.
 - **Portainer drift**: manual `docker compose` runs use the same project name;
   Portainer may show the stack as out-of-sync until its next redeploy.
 - `.env` / `.env.save` are local and untracked; never commit them.

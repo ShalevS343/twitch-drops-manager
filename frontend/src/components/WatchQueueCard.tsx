@@ -1,19 +1,41 @@
-import type { WatchQueueItem } from '../api/types'
+import type { WatchQueueCampaign, WatchQueueItem } from '../api/types'
 import { endsSoon, formatEta, formatRemaining, formatTimeUntil } from '../lib/format'
 import { Badge } from './ui/Badge'
 import { Icon } from './ui/Icon'
 
-export function WatchQueueCard({ item }: { item: WatchQueueItem }) {
+interface WatchQueueCardProps {
+  item: WatchQueueItem
+  onWatch: (stream: WatchQueueItem, campaign: WatchQueueCampaign) => void
+  activeCampaignId: string | null
+  activeStreamId: number | null
+  sessionActive: boolean
+}
+
+export function WatchQueueCard({
+  item,
+  onWatch,
+  activeCampaignId,
+  activeStreamId,
+  sessionActive,
+}: WatchQueueCardProps) {
   const hasEndingSoon = item.campaigns.some((campaign) => endsSoon(campaign.ends_at))
+  const isActiveStream =
+    item.stream_id === activeStreamId &&
+    item.campaigns.some((campaign) => campaign.campaign_id === activeCampaignId)
 
   return (
-    <article className="card queue-card">
+    <article className={`card queue-card${isActiveStream ? ' active' : ''}`}>
       <header className="card-head">
         <div className="badge-row">
           <Badge>{item.game_name || 'Unknown game'}</Badge>
           <Badge tone="live" dot>
             Live
           </Badge>
+          {isActiveStream && (
+            <Badge tone="accent" dot>
+              Current session
+            </Badge>
+          )}
           {hasEndingSoon && (
             <Badge tone="warning" dot>
               Ending soon
@@ -37,6 +59,9 @@ export function WatchQueueCard({ item }: { item: WatchQueueItem }) {
         {item.campaigns.map((campaign) => {
           const remainingMinutes =
             campaign.next_drop_remaining_minutes ?? campaign.remaining_minutes
+          const isActive =
+            isActiveStream && campaign.campaign_id === activeCampaignId
+          const canWatch = remainingMinutes > 0
 
           return (
             <li className="queue-campaign" key={campaign.campaign_id}>
@@ -55,6 +80,34 @@ export function WatchQueueCard({ item }: { item: WatchQueueItem }) {
                 {formatRemaining(remainingMinutes)} left · ETA{' '}
                 {formatEta(campaign.eta_minutes)}
               </span>
+              <div className="queue-campaign-actions">
+                {isActive ? (
+                  <Badge tone="accent" dot>
+                    Watching now
+                  </Badge>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={() => onWatch(item, campaign)}
+                    disabled={sessionActive || !canWatch}
+                    title={
+                      sessionActive
+                        ? 'Stop the current session first'
+                        : canWatch
+                          ? 'Start a local manual watch timer'
+                          : 'No watch time left in this campaign'
+                    }
+                  >
+                    <Icon name="play" size={13} />
+                    {sessionActive
+                      ? 'Session active'
+                      : canWatch
+                        ? 'Watch campaign'
+                        : 'Complete'}
+                  </button>
+                )}
+              </div>
             </li>
           )
         })}
@@ -62,13 +115,13 @@ export function WatchQueueCard({ item }: { item: WatchQueueItem }) {
 
       <div className="card-footer">
         <a
-          className="btn btn-primary btn-sm"
+          className="btn btn-ghost btn-sm"
           href={item.url}
           target="_blank"
           rel="noreferrer"
         >
-          <Icon name="play" size={14} />
-          Watch
+          <Icon name="external" size={14} />
+          Open stream
         </a>
       </div>
     </article>
