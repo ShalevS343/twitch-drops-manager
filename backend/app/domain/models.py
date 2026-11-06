@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -225,6 +226,46 @@ class DropProgress(Base):
     is_ready: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     benefits: Mapped[list[str]] = mapped_column(JSON, default=list)
 
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class WatchFocus(Base):
+    """Singleton focus pointer for the read-only queue watcher.
+
+    Focused mode allows exactly one watcher (row ``id=1``). The row records which
+    live stream/campaign the user should look at next. It is a focus pointer,
+    not a playback controller: it never sends watch heartbeats or simulates
+    viewing.
+    """
+
+    __tablename__ = "watch_focus"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_watch_focus_singleton"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="idle", nullable=False)
+    reason: Mapped[str] = mapped_column(String(64), default="")
+
+    stream_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    user_login: Mapped[str] = mapped_column(String(128), default="")
+    user_name: Mapped[str] = mapped_column(String(255), default="")
+    stream_url: Mapped[str] = mapped_column(String(1024), default="")
+    stream_title: Mapped[str] = mapped_column(Text, default="")
+    game_name: Mapped[str] = mapped_column(String(255), default="")
+    game_box_art_url: Mapped[str] = mapped_column(String(1024), default="")
+
+    campaign_id: Mapped[str] = mapped_column(String(128), default="")
+    campaign_name: Mapped[str] = mapped_column(String(512), default="")
+    target_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    ends_at: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    focused_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )

@@ -39,8 +39,6 @@ Required updates:
 
 ## 3. Product and safety rules
 
-- **Read-only Twitch**: never implement auto-claim, auto-watch, fake viewing, or
-  view-botting. This is a hard product/ToS boundary.
 - **No local user/account system**: the Twitch profile is read from Twitch and
   only the OAuth token/profile cache is persisted.
 - **Secrets**: never read, print, commit, or copy `.env` / `.env.save`. Never
@@ -80,7 +78,7 @@ docker compose --project-directory infra -f infra/docker-compose.yml config -q
 docker compose --project-directory infra -f infra/docker-compose.yml up -d --build
 ```
 
-Expected current baseline: backend tests **58 passed**, ruff clean, frontend build
+Expected current baseline: backend tests **70 passed**, ruff clean, frontend build
 passes.
 
 ## 5. Worktree workflow for parallel work

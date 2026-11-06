@@ -1,9 +1,10 @@
 # Status / handoff
 
-Last updated: **2026-11-06**
+Last updated: **2026-11-07**
 Source of truth: `main` (run `git log -1` for the exact tip). Game tracking +
 violet UI in `77bfc75`; manual watch sessions + per-game limits in `0eb9b16`;
-ETA removal + clearer action labels in `0c6a7e2`.
+ETA removal + clearer action labels in `0c6a7e2`; focused watcher on
+`feat/queue-watcher`.
 
 ## Current state
 
@@ -13,7 +14,10 @@ ETA removal + clearer action labels in `0c6a7e2`.
   Telegram dedupe/digests, game tracking by name, campaign-start alerts, manual
   watch sessions, top-5-per-game live lists, and the violet high-contrast UI
   (circular logo/favicon).
-- Backend tests: **58 passed**; ruff clean.
+- `feat/queue-watcher` adds the focused watcher (one queue target at a time,
+  manual/auto/next dispatch, worker auto-move) and gates stream alerts on a
+  campaign start. Backend tests: **70 passed**; ruff clean; frontend build
+  passes.
 - Frontend: `npm run build` passes; visually verified with headless screenshots
   (desktop + mobile) against live data.
 - Game tracking: `PUT /games` creates missing `Game` rows, so a game can be
@@ -23,11 +27,17 @@ ETA removal + clearer action labels in `0c6a7e2`.
 - Manual watch sessions are frontend-only: one local timer, persisted in
   `localStorage`, with next-campaign suggestions. No playback control or fake
   viewing. Watch queue/streams are grouped by game and capped at 5 by default.
+- Focused watcher is backend-persisted (`watch_focus`, one row) and reuses the
+  watch queue. It is a focus pointer only: no playback, heartbeats, or simulated
+  viewing. Manual session handoff still requires an explicit click.
 - ETA was removed from the progress/watch-queue API and UI; remaining minutes are
   shown instead. Action buttons now use explicit verb + object labels.
+- Stream alerts are now gated on a campaign start: no standalone “Live now”
+  digest. Stream keys include the start event so a later campaign can re-notify
+  the same channel; the just-started campaign is included before progress sync.
 - Docs: API, data model, backend, architecture, frontend, decisions, changelog,
-  and this file updated for game tracking, manual sessions, ETA removal, and the
-  violet UI pass.
+  and this file updated for game tracking, manual sessions, ETA removal, the
+  violet UI pass, the focused watcher, and campaign-start stream gating.
 
 ### Live deployment (verify before assuming)
 
@@ -40,9 +50,10 @@ The Portainer stack `twitch-drops-manager` was last observed running a build fro
 
 **The live stack is behind `main`.** A redeploy is required to get P0 performance,
 the violet UI, the circular favicon, game tracking/campaign-start alerts, manual
-watch sessions, the per-game live caps, and the latest docs. The DB volume
-persists; `campaign_starts` is created automatically by `create_all`. Manual watch
-sessions are browser-local and need no migration.
+watch sessions, the per-game live caps, and the latest docs. The focused watcher
+is on `feat/queue-watcher` and needs a merge before redeploy. The DB volume
+persists; `campaign_starts` and `watch_focus` are created automatically by
+`create_all`. Manual watch sessions are browser-local and need no migration.
 
 ## Pending work
 
@@ -55,9 +66,13 @@ sessions are browser-local and need no migration.
    - UI violet theme + circular favicon
    - Settings → Games “Track a game by name” creates a tracked row
    - Watch queue: one manual session, timer persists on refresh, top 5 per game
+   - Focus watcher: enable, switch focus, Next live, auto-move on scan
+   - Telegram: stream alerts appear only with a “New campaign” digest; a later
+     campaign can re-notify the same channel
    - Live streams: game groups + Per game selector
    - No ETA text; progress shows `X min left` and actions read “Scan for new
      drops” / “Sync drop progress”
+   - Overview quick actions are a centered two-column grid (one column on mobile)
    - Kuma monitors for 8282/8000
 4. **P1 performance** (planned): per-endpoint response cache + ETag, `/dashboard`
    bootstrap endpoint, combined `/status` queries. Goal: initial load <50 ms.
@@ -83,9 +98,17 @@ sessions are browser-local and need no migration.
 - **Telegram token exposure**: pre-fix logs contained the bot token; rotate it.
 - **Manual timer is advisory**: it is wall-clock, browser-local, and can overstate
   elapsed time if left running; use pause/stop. It never verifies playback.
+- **Focused watcher is separate from the timer**: it can auto-move the focus while
+  an old manual session is still running; follow it with an explicit **Start
+  manual session**. Auto-move is bounded by `WATCHER_POLL_SECONDS` (default 60s).
+- **Stream identity is ephemeral**: scans replace `streams` rows, so the watcher
+  resolves its target by `user_login` + `campaign_id` and refreshes `stream_id`.
 - **API change**: `eta_minutes` was removed from `/progress` and `/watch-queue`
   responses. Remaining minutes and watch rate remain; an external client reading
   ETA must drop that field.
+- **Stream alerts are event-gated**: no campaign start means no stream digest.
+  Stream keys include the start campaign, so a game with a new campaign can
+  re-notify a channel that was announced under an older campaign.
 - **Portainer drift**: manual `docker compose` runs use the same project name;
   Portainer may show the stack as out-of-sync until its next redeploy.
 - `.env` / `.env.save` are local and untracked; never commit them.

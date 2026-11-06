@@ -9,7 +9,9 @@ import type {
   TwitchConnect,
   TwitchConnectResult,
   TwitchUserStatus,
+  WatchFocusInput,
   WatchQueueItem,
+  WatchState,
 } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
@@ -54,6 +56,18 @@ export const api = {
   progress: () => request<ProgressCampaign[]>('/progress'),
   refreshProgress: () => request<ProgressRefresh>('/progress/refresh', { method: 'POST' }),
   watchQueue: () => request<WatchQueueItem[]>('/watch-queue'),
+  watcher: () => request<WatchState>('/watcher'),
+  setWatcherEnabled: (enabled: boolean) =>
+    request<WatchState>('/watcher', {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    }),
+  focusWatcher: (input: WatchFocusInput) =>
+    request<WatchState>('/watcher/focus', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  stopWatcher: () => request<WatchState>('/watcher', { method: 'DELETE' }),
   twitchStatus: () => request<TwitchUserStatus>('/twitch/status'),
   twitchConnectUrl: () => request<TwitchConnect>('/twitch/connect'),
   twitchConnect: (redirectUrl: string) =>

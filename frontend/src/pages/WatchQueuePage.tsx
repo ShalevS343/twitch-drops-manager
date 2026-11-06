@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 
-import type { WatchQueueCampaign, WatchQueueItem } from '../api/types'
+import type { WatchFocus, WatchQueueCampaign, WatchQueueItem } from '../api/types'
+import { WatchFocusPanel } from '../components/WatchFocusPanel'
 import { WatchQueueCard } from '../components/WatchQueueCard'
 import { WatchSessionPanel } from '../components/WatchSessionPanel'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -64,6 +65,25 @@ export function WatchQueuePage() {
     startSession(suggestion.stream, suggestion.campaign)
   }
 
+  function handleStartFocus(focus: WatchFocus) {
+    if (session || focus.stream_id === null) {
+      return
+    }
+
+    watch.start({
+      streamId: focus.stream_id,
+      userLogin: focus.user_login,
+      userName: focus.user_name,
+      streamUrl: focus.stream_url,
+      streamTitle: focus.stream_title,
+      gameName: focus.game_name,
+      campaignId: focus.campaign_id,
+      campaignName: focus.campaign_name,
+      targetMinutes: focus.target_minutes,
+    })
+    openStream(focus.stream_url)
+  }
+
   return (
     <div className="page">
       <div className="section-head">
@@ -88,6 +108,11 @@ export function WatchQueuePage() {
           </a>
         </div>
       </div>
+
+      <WatchFocusPanel
+        sessionActive={session !== null}
+        onStartSession={handleStartFocus}
+      />
 
       {session && (
         <WatchSessionPanel

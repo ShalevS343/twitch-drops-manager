@@ -23,6 +23,7 @@ export type IconName =
   | 'x'
   | 'plus'
   | 'arrow-right'
+  | 'target'
 
 /**
  * Custom solid/geometric icon set. Primary navigation icons are filled
@@ -185,6 +186,19 @@ const ICONS: Record<IconName, ReactNode> = {
       strokeWidth="2.2"
       d="M4 11h14M12 4l7 7-7 7"
     />
+  ),
+  target: (
+    <>
+      <path
+        fillRule="evenodd"
+        d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2.4a7.6 7.6 0 1 1 0 15.2 7.6 7.6 0 0 1 0-15.2Z"
+      />
+      <path
+        fillRule="evenodd"
+        d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm0 2.4a2.6 2.6 0 1 1 0 5.2 2.6 2.6 0 0 1 0-5.2Z"
+      />
+      <circle cx="12" cy="12" r="1.4" />
+    </>
   ),
 }
 

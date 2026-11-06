@@ -244,7 +244,9 @@ class ScanService:
         start_repo = CampaignStartRepository(self.session)
         pending_starts = await start_repo.pending()
 
-        if not streams and not pending_starts:
+        # Stream alerts are tied to a campaign-start event: without a new
+        # campaign there is no stream digest, even if new streams appeared.
+        if not pending_starts:
             return 0
         if not self.telegram.configured:
             return 0
@@ -261,6 +263,19 @@ class ScanService:
                 already_notified.add(start.external_id)
         if already_notified:
             await start_repo.delete(already_notified)
+
+        # Nothing new to announce (the starts were already delivered); do not
+        # send a standalone stream digest.
+        if not claimed_starts:
+            return 0
+
+        started_game_ids = {campaign.game_id for campaign, _ in claimed_starts}
+        started_campaign_ids = {campaign.id for campaign, _ in claimed_starts}
+        start_key_by_game: dict[int, str] = {}
+        for campaign, _ in claimed_starts:
+            current = start_key_by_game.get(campaign.game_id)
+            if current is None or campaign.external_id < current:
+                start_key_by_game[campaign.game_id] = campaign.external_id
 
         claimed_streams: list[tuple[dict[str, Any], list[str], str]] = []
         if streams:
@@ -284,6 +299,9 @@ class ScanService:
                 }
 
             for stream in streams:
+                if stream["game_id"] not in started_game_ids:
+                    continue
+
                 if scoped:
                     campaign_names = [
                         name
@@ -292,34 +310,44 @@ class ScanService:
                         )
                         if campaign_gql_by_id.get(campaign_id) in active_campaign_ids
                     ]
+                    # A just-started campaign may not be in drop_progress yet.
+                    campaign_names.extend(
+                        name
+                        for campaign_id, name in zip(
+                            stream["campaign_ids"], stream["campaign_names"]
+                        )
+                        if campaign_id in started_campaign_ids
+                    )
+                    campaign_names = list(dict.fromkeys(campaign_names))
                     if not campaign_names:
                         continue
                 else:
                     campaign_names = list(stream["campaign_names"])
 
-                dedupe_key = f"{stream['user_login'].casefold()}:{stream['game_id']}"
+                # Key by the campaign-start event so a later campaign for the
+                # same game can notify the same channel again.
+                start_key = start_key_by_game[stream["game_id"]]
+                dedupe_key = (
+                    f"stream-alert:{start_key}:"
+                    f"{stream['user_login'].casefold()}:{stream['game_id']}"
+                )
                 if await repo.claim(dedupe_key):
                     claimed_streams.append((stream, campaign_names, dedupe_key))
 
-        if not claimed_starts and not claimed_streams:
-            return 0
-
         lines = ["Twitch Drops update"]
 
-        if claimed_starts:
-            lines.append("New campaign:")
-            for campaign, _ in claimed_starts:
-                game = campaign.external_id.rsplit(":", 1)[0]
-                line = f"• {game} — {campaign.name}"
-                if campaign.ends_at:
-                    line += f" (ends {campaign.ends_at})"
-                lines.append(line)
-                if campaign.details_url:
-                    lines.append(f"  {campaign.details_url}")
+        lines.append("New campaign:")
+        for campaign, _ in claimed_starts:
+            game = campaign.external_id.rsplit(":", 1)[0]
+            line = f"• {game} — {campaign.name}"
+            if campaign.ends_at:
+                line += f" (ends {campaign.ends_at})"
+            lines.append(line)
+            if campaign.details_url:
+                lines.append(f"  {campaign.details_url}")
 
         if claimed_streams:
-            if claimed_starts:
-                lines.append("")
+            lines.append("")
             noun = "stream" if len(claimed_streams) == 1 else "streams"
             lines.append(f"Live now ({len(claimed_streams)} {noun}):")
             for stream, campaign_names, _ in claimed_streams[:10]:
@@ -346,9 +374,8 @@ class ScanService:
                 await repo.release(dedupe_key)
             return 0
 
-        if claimed_starts:
-            await start_repo.delete(
-                {campaign.external_id for campaign, _ in claimed_starts}
-            )
+        await start_repo.delete(
+            {campaign.external_id for campaign, _ in claimed_starts}
+        )
 
         return len(claimed_starts) + len(claimed_streams)

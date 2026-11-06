@@ -12,7 +12,7 @@ app/
     deps.py               session/service/provider dependencies
     v1/
       health.py status.py games.py campaigns.py streams.py
-      scans.py notifications.py progress.py watch_queue.py router.py
+      scans.py notifications.py progress.py watch_queue.py watcher.py router.py
   core/
     config.py             pydantic-settings env configuration
     db.py                 async engine, session factory, SQLite pragmas, init_db
@@ -30,14 +30,16 @@ app/
     telegram.py           Bot API send
   repositories/
     campaigns.py games.py streams.py notifications.py progress.py
-    campaign_starts.py scans.py twitch_auth.py twitch_profile.py
+    campaign_starts.py scans.py twitch_auth.py twitch_profile.py watch_focus.py
   services/
     scan_service.py       catalog + streams + campaign-start alerts
     progress_service.py   inventory + snapshots + ready/deadline alerts
     progress_metrics.py   remaining-time and watch-rate calculations
+    watch_queue_service.py  shared queue builder + candidate selection
+    watch_focus_service.py  single focused-watcher state + auto-move
     factory.py            cached providers + service builders
   worker/scheduler.py     APScheduler worker entry point
-tests/                    pytest suite (58 tests)
+tests/                    pytest suite (70 tests)
 ```
 
 ## Startup (`main.py`)
@@ -72,6 +74,7 @@ tests/                    pytest suite (58 tests)
 | `telegram_bot_token` / `chat_id` | empty | Notifications |
 | `poll_seconds` | 900 | Scan interval, min `min_poll_seconds` |
 | `progress_poll_seconds` | 300 | Progress interval, min `min_progress_poll_seconds` |
+| `watcher_poll_seconds` | 60 | Focus auto-move interval, min `min_watcher_poll_seconds` |
 | `default_games` | `Rust,Minecraft` | First-run whitelist |
 
 See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
@@ -93,13 +96,18 @@ See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
 6. Match streams to active campaigns using `allow` (channel allowlist when
    `isEnabled`).
 7. Replace the `streams`/`stream_campaign_matches` tables.
-8. Notify in one digest:
+8. Notify in one digest **gated on a campaign start**:
    - pending campaign starts for selected games;
-   - live streams (when `drop_progress` has rows, only streams matching an
-     in-progress campaign; otherwise all selected-game matches).
-   Each event is claimed atomically (`campaign-started:*` or
-   `{user_login}:{game_id}`). On Telegram failure all claims are released and
-   pending starts remain for the next scan; on success start rows are deleted.
+   - live streams only for games that have a newly started campaign. Streams are
+     scoped to in-progress campaigns, plus the campaign that just started (so a
+     new campaign can be announced before the next progress sync).
+   If there is no pending campaign start, no stream digest is sent. Stream keys
+   include the start event:
+   `stream-alert:{start_campaign_external_id}:{user_login}:{game_id}`, so the
+   same channel can be announced again for a later campaign. Each event is
+   claimed atomically with `campaign-started:*` / `stream-alert:*`. On Telegram
+   failure all claims are released and pending starts remain for the next scan;
+   on success start rows are deleted.
 9. Write a `ScanRun` (`ok`, error, counts).
 
 ## Progress service
@@ -133,7 +141,8 @@ See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
 
 ## Watch queue
 
-`GET /watch-queue` (see `api/v1/watch_queue.py`):
+`GET /watch-queue` (see `api/v1/watch_queue.py` and
+`services/watch_queue_service.py`):
 
 - Load `drop_progress` + snapshots.
 - One flat SQL join for streams → matches → campaigns → games (no full ORM
@@ -142,6 +151,27 @@ See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
   `external_id`; prefer `DropProgress` name/end date, fall back to `campaigns`.
 - Sort by earliest campaign end, then most remaining work, then viewers.
 - Next drop = unclaimed drop with the smallest positive remaining minutes.
+- `find_candidate()` is shared with the focused watcher to pick the next
+  dispatchable stream/campaign in queue order.
+
+## Focused watcher
+
+`services/watch_focus_service.py` manages the singleton `watch_focus` row and is
+the only writer of focused mode:
+
+- `GET /watcher` returns the state + up to 8 dispatchable candidates (the current
+  focus is excluded).
+- Enabling auto-selects the most urgent live candidate; disabling clears the
+  focus. There is at most **one** watcher (`max_watchers: 1`).
+- `POST /watcher/focus` supports `manual` (stream + campaign), `auto` (optional
+  campaign filter), and `next` (exclude the current stream).
+- `reconcile()` runs every `WATCHER_POLL_SECONDS` in the worker. It resolves the
+  stored focus by `user_login` + `campaign_id` (stream rows are recreated each
+  scan), refreshes the snapshot, and moves to the next candidate with
+  `reason=auto-move` if the current live/campaign left the queue. If nothing is
+  eligible it sets `status=waiting`.
+- This is a focus pointer only: no playback control, no watch heartbeats, no
+  simulated viewing.
 
 ## Providers
 
@@ -195,13 +225,14 @@ Repositories wrap SQLAlchemy. Notable choices:
 
 ## Tests
 
-`backend/tests` (58 tests):
+`backend/tests` (70 tests):
 
 - parsing/inventory
-- scan service (catalog, streams, scoped alerts, campaign starts, retry)
+- scan service (catalog, streams, campaign-start-gated alerts, retry)
 - progress service (watch rate, digests, deadline windows, retry)
 - notifications (claim/release/duplicate)
 - watch queue (filtering/sorting/next drop)
+- focused watcher (singleton, manual/auto/next, auto-move, waiting)
 - streams API, status API, DB/index creation, models (deferred raw)
 
 Run:

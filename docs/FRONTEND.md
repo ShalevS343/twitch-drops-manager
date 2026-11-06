@@ -15,6 +15,7 @@ frontend/src/
     CampaignCard.tsx
     ProgressCard.tsx
     StreamCard.tsx
+    WatchFocusPanel.tsx     single focused watcher, dispatch/next/stop
     WatchQueueCard.tsx
     WatchSessionPanel.tsx    active manual session, timer, next-up handoff
     TwitchConnect.tsx        reusable authorize/paste flow + hook
@@ -69,8 +70,9 @@ TanStack Query; all requests go through `api/client.ts`:
 - `useCampaigns()`, `useStreams()`, `useGames()` — on demand/shared
 - `useProgress()` — 60s
 - `useWatchQueue()` — 30s
-- Mutations: save games, scan, refresh progress, test Telegram, Twitch connect,
-  disconnect.
+- `useWatcher()` — 15s
+- Mutations: save games, scan, refresh progress, test Telegram, watcher
+  enable/focus/next/stop, Twitch connect, disconnect.
 
 Invalidation: scan refreshes all queries; game save refreshes games/campaigns/
 status; progress refresh refreshes progress/watch queue/twitch/status; logout
@@ -126,6 +128,8 @@ Borders, spacing, and a larger type scale carry the hierarchy.
   reserved for numeric/technical data.
 - Badges and chips are rectangular (3px radius), sentence case, sans-serif.
 - Buttons are solid rectangles; primary is Twitch violet with white text.
+- Overview quick actions use a two-column grid of equal-width buttons with
+  centered icon + label; one column at ≤640px.
 - Cards/panels use 1px borders and 20–22px padding; no shadows.
 - Progress bars are 8px, square, solid violet/green/gray.
 - The brand mark, favicon, empty-state icon, connect icon, and avatars are
@@ -159,6 +163,27 @@ it to the selection. Saving calls `PUT /games`; the backend creates a `Game` row
 if it does not exist, so a game can be tracked before it has a campaign. The scan
 then alerts when a campaign for that game becomes active. Changes are local until
 **Save selection** is clicked.
+
+## Focused watcher
+
+The Watch queue page starts with a **Focus watcher** panel. Focused mode keeps
+exactly one live target selected from the queue:
+
+- **Enable focused mode** auto-picks the most urgent live campaign. The panel
+  shows the focused channel, campaign, remaining watch minutes, and reason.
+- **Next live** dispatches the watcher to another live stream (the current one is
+  excluded). **Focus** on any candidate in the list changes the target manually.
+- The backend worker re-checks the queue every `WATCHER_POLL_SECONDS`; if the
+  focused live goes offline or its campaign runs out of time, the focus moves to
+  the next live and the panel shows the new target. **Stop watcher** clears it.
+- **Start manual session** hands the focused target to the existing local timer
+  and opens the real stream. The watcher never auto-starts a session.
+- The watcher is a focus pointer only. It does not play, control, or simulate
+  viewing and sends no watch heartbeats.
+
+The watcher and the manual session are independent: the watcher can move to a new
+live while the timer is still on the previous one, so the UI requires an explicit
+**Start manual session** click to follow it.
 
 ## Manual watch sessions
 

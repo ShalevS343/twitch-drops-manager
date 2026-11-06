@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -88,6 +89,8 @@ class StatusOut(BaseModel):
     min_poll_seconds: int = 300
     progress_poll_seconds: int = 300
     min_progress_poll_seconds: int = 60
+    watcher_poll_seconds: int = 60
+    min_watcher_poll_seconds: int = 30
     drops_api_keyed: bool = False
 
 
@@ -142,6 +145,69 @@ class WatchQueueItemOut(BaseModel):
     game_name: str
     game_box_art_url: str
     campaigns: list[WatchQueueCampaignOut] = Field(default_factory=list)
+
+
+class WatchCandidateOut(BaseModel):
+    """One dispatchable live stream/campaign pair for focused mode."""
+
+    stream_id: int
+    user_login: str
+    user_name: str
+    stream_url: str
+    stream_title: str
+    game_name: str = ""
+    game_box_art_url: str = ""
+    viewers: int = 0
+    campaign_id: str
+    campaign_name: str
+    target_minutes: int = 0
+    ends_at: str | None = None
+
+
+class WatchFocusOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    stream_id: int | None = None
+    user_login: str = ""
+    user_name: str = ""
+    stream_url: str = ""
+    stream_title: str = ""
+    game_name: str = ""
+    game_box_art_url: str = ""
+    campaign_id: str = ""
+    campaign_name: str = ""
+    target_minutes: int = 0
+    ends_at: str | None = None
+    reason: str = ""
+    focused_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class WatchStateOut(BaseModel):
+    enabled: bool = False
+    status: Literal["idle", "focused", "waiting"] = "idle"
+    max_watchers: int = 1
+    auto_move: bool = True
+    focus: WatchFocusOut | None = None
+    candidates: list[WatchCandidateOut] = Field(default_factory=list)
+    updated_at: datetime | None = None
+
+
+class WatchFocusIn(BaseModel):
+    """Dispatch the single watcher.
+
+    ``manual`` requires ``stream_id`` + ``campaign_id``; ``auto`` picks the most
+    urgent live candidate; ``next`` picks another live stream than the current
+    focus.
+    """
+
+    stream_id: int | None = None
+    campaign_id: str | None = None
+    strategy: Literal["manual", "auto", "next"] = "manual"
+
+
+class WatchToggleIn(BaseModel):
+    enabled: bool
 
 
 class ProgressRefreshOut(BaseModel):

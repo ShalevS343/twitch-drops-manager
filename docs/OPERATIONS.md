@@ -34,6 +34,7 @@ Production runs on the Raspberry Pi under **Portainer** as stack
 | `DEFAULT_GAMES` | optional | `Rust,Minecraft` | First-run whitelist |
 | `POLL_SECONDS` | optional | `900` | Scan interval (min 300) |
 | `PROGRESS_POLL_SECONDS` | optional | `300` | Progress interval (min 60) |
+| `WATCHER_POLL_SECONDS` | optional | `60` | Focused-watcher auto-move interval (min 30) |
 | `CORS_ORIGINS` | optional | `http://localhost:5173` | Comma-separated |
 | `API_TOKEN` | optional | empty | Require `X-API-Token` on mutations |
 | `TWITCH_DEVICE_CLIENT_ID` | optional | built-in first-party client | Advanced progress login override |
@@ -104,7 +105,9 @@ not appear in logs. Rotate the Telegram token if an older log ever exposed it.
 | Twitch GQL | internal API; profile cached 10 min in memory, profile persisted in SQLite; token shared across processes |
 | Telegram | Bot API; notifications are digests, atomically deduped |
 
-The worker cadence (scan 15m, progress 5m) stays well below the catalog window.
+The worker cadence (scan 15m, progress 5m, watcher 1m) stays well below the
+catalog window. The watcher interval only re-reads SQLite; it makes no external
+requests.
 
 ## Backups
 
@@ -137,7 +140,8 @@ backup; keep a copy of the current file first. See [DATA_MODEL.md](DATA_MODEL.md
 - Revoke the Twitch app authorization at Twitch → Settings → Connections if
   needed; then reconnect in the app.
 - Read-only boundary: the app never claims drops or automates watching. Do not
-  add such behavior.
+  add such behavior. The focused watcher is a queue focus pointer only; it never
+  plays streams or sends watch heartbeats.
 
 ## Troubleshooting
 
@@ -148,6 +152,7 @@ backup; keep a copy of the current file first. See [DATA_MODEL.md](DATA_MODEL.md
 | Cold load ~800ms on `/twitch/status` | first profile fetch before P0/warm-up | On current code the request is non-blocking; profile appears next poll |
 | No live streams | no selected games / no eligible streams / Helix creds missing | Check Settings, `/status`, worker logs |
 | Telegram messages missing | token/chat id missing or wrong | Settings → Test Telegram; check worker logs |
+| Stream alerts missing | stream alerts are only sent with a campaign start | expected; wait for a tracked game’s `ACTIVE` transition or check the scan digest |
 | Duplicate Telegram messages | older build before atomic dedupe | Deploy current `main` (digests + atomic claim) |
 | Kuma monitor missing | labels absent on running container / `kuma-sync` down | Recreate containers with labels; check `kuma-sync` logs |
 | UI shows old assets | browser cache / `index.html` cache | Hard refresh; `index.html` is `no-cache`, hashed assets immutable |

@@ -6,7 +6,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.config import get_settings
 from app.core.db import SessionLocal, engine, init_db
 from app.core.logging import configure_logging
-from app.services.factory import build_progress_service, build_scan_service
+from app.services.factory import (
+    build_progress_service,
+    build_scan_service,
+    build_watch_focus_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +45,23 @@ async def run_progress() -> None:
             logger.exception("Progress sync failed")
 
 
+async def run_watcher() -> None:
+    async with SessionLocal() as session:
+        try:
+            state = await build_watch_focus_service(session).reconcile()
+            if state.enabled:
+                focus = state.focus
+                logger.info(
+                    "Watcher reconcile: status=%s target=%s campaign=%s reason=%s",
+                    state.status,
+                    focus.user_login if focus else "-",
+                    focus.campaign_id if focus else "-",
+                    focus.reason if focus else "-",
+                )
+        except Exception:
+            logger.exception("Watcher reconcile failed")
+
+
 async def main() -> None:
     configure_logging()
     await init_db()
@@ -65,15 +86,25 @@ async def main() -> None:
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        run_watcher,
+        "interval",
+        seconds=settings.watcher_interval_seconds,
+        id="watcher",
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.start()
     logger.info(
-        "Scan worker started (scan=%ss, progress=%ss)",
+        "Scan worker started (scan=%ss, progress=%ss, watcher=%ss)",
         interval,
         settings.progress_interval_seconds,
+        settings.watcher_interval_seconds,
     )
 
     await run_scan()
     await run_progress()
+    await run_watcher()
 
     try:
         await asyncio.Event().wait()

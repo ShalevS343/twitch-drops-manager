@@ -32,6 +32,10 @@ port 8000). Interactive OpenAPI: `http://<host>:8000/docs`.
 | GET | `/progress` | — | Personal drop progress |
 | POST | `/progress/refresh` | token | Sync Twitch inventory now |
 | GET | `/watch-queue` | — | Live streams for in-progress campaigns |
+| GET | `/watcher` | — | Focused watcher state + dispatchable candidates |
+| PATCH | `/watcher` | token | Enable/disable focused mode |
+| POST | `/watcher/focus` | token | Manually focus, auto-pick, or move to next live |
+| DELETE | `/watcher` | token | Stop the focused watcher |
 | GET | `/twitch/status` | — | Connected account/profile state |
 | GET | `/twitch/connect` | — | Implicit-login authorize URL |
 | POST | `/twitch/connect` | token | Accept pasted redirect URL/token |
@@ -82,6 +86,8 @@ port 8000). Interactive OpenAPI: `http://<host>:8000/docs`.
   "min_poll_seconds": 300,
   "progress_poll_seconds": 300,
   "min_progress_poll_seconds": 60,
+  "watcher_poll_seconds": 60,
+  "min_watcher_poll_seconds": 30,
   "drops_api_keyed": true
 }
 ```
@@ -168,11 +174,14 @@ Errors: `400` provider not configured, `502` upstream failure. The scan is also
 recorded in `scan_runs`.
 
 `notified_count` counts successfully delivered campaign-start and live-stream
-events; both are combined into one digest per scan. A campaign start is detected
-when a selected game's campaign transitions from any non-`ACTIVE` state to
-`ACTIVE`, including a brand-new campaign after the previous one ended. Delivery
-failures leave the start pending for the next scan; the notification claim
-prevents duplicates.
+events; both are combined into one digest per scan. Stream events are only
+included when the same scan also has a campaign start for that game — there is no
+standalone stream digest. A campaign start is detected when a selected game's
+campaign transitions from any non-`ACTIVE` state to `ACTIVE`, including a
+brand-new campaign after the previous one ended. Delivery failures leave the
+start pending for the next scan; the notification claim prevents duplicates.
+Stream dedupe keys include the campaign-start event, so the same channel can be
+announced again for a later campaign.
 
 `GET /scans/latest` → `ScanRunOut`; `404` if no scan has run.
 
@@ -249,6 +258,85 @@ Errors: `400` Twitch not connected/expired, `502` GQL/provider failure.
 ```
 
 Returns `[]` when Twitch is not connected or no campaign is in progress.
+
+## Focused watcher
+
+Exactly one watcher can be focused at a time (`max_watchers: 1`). The watcher is
+a **queue focus pointer**: it selects one live stream/campaign from the watch
+queue and follows it. It never plays a stream, sends watch heartbeats, or
+simulates viewing.
+
+`GET /watcher` → `WatchStateOut`
+
+```json
+{
+  "enabled": true,
+  "status": "focused",
+  "max_watchers": 1,
+  "auto_move": true,
+  "focus": {
+    "stream_id": 1,
+    "user_login": "warthunder_esports",
+    "user_name": "WarThunder_Esports",
+    "stream_url": "https://www.twitch.tv/warthunder_esports",
+    "stream_title": "WTCS Pro League Grand Finals 2026 | Day 7",
+    "game_name": "War Thunder",
+    "game_box_art_url": "https://...",
+    "campaign_id": "3df8df9c-...",
+    "campaign_name": "WTCS Pro Grand Finals",
+    "target_minutes": 1260,
+    "ends_at": "2026-11-12T09:59:59.999Z",
+    "reason": "auto",
+    "focused_at": "2026-11-06T21:00:00",
+    "updated_at": "2026-11-06T21:00:00"
+  },
+  "candidates": [{
+    "stream_id": 2,
+    "user_login": "another_channel",
+    "user_name": "Another_Channel",
+    "stream_url": "https://www.twitch.tv/another_channel",
+    "stream_title": "...",
+    "game_name": "War Thunder",
+    "game_box_art_url": "https://...",
+    "viewers": 1200,
+    "campaign_id": "3df8df9c-...",
+    "campaign_name": "WTCS Pro Grand Finals",
+    "target_minutes": 1260,
+    "ends_at": "2026-11-12T09:59:59.999Z"
+  }],
+  "updated_at": "2026-11-06T21:00:00"
+}
+```
+
+`status` is `idle` (disabled), `focused` (one target selected), or `waiting`
+(enabled but no eligible live stream). `candidates` excludes the current focus
+and is capped at 8.
+
+`PATCH /watcher` (token)
+
+```json
+{ "enabled": true }
+```
+
+Enabling auto-selects the most urgent live candidate; disabling clears the focus.
+When enabled, the worker re-checks the queue every `WATCHER_POLL_SECONDS` and
+moves the focus to the next live stream if the current one goes offline or its
+campaign runs out of watch time.
+
+`POST /watcher/focus` (token)
+
+```json
+{ "stream_id": 2, "campaign_id": "3df8df9c-...", "strategy": "manual" }
+```
+
+- `manual` — both ids are required; the stream/campaign must be in the queue with
+  remaining watch time. Replaces the current focus (still one watcher).
+- `auto` — picks the most urgent candidate; optional `campaign_id` narrows it.
+- `next` — picks another live stream than the current focus; keeps the current
+  target with `reason: "next-unavailable"` when no alternative exists.
+
+Invalid/expired targets return `400`. `DELETE /watcher` (token) disables focused
+mode and clears the target (same as `PATCH {"enabled": false}`).
 
 ## Twitch connection
 

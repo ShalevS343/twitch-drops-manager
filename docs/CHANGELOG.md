@@ -12,7 +12,41 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   Portainer stack.
 - Rotate the Telegram bot token if it appeared in pre-fix logs.
 
+## 2026-11-07
+
+### Stream alerts gated on campaign starts
+
+- Stream notifications are now sent only when a tracked game has a newly started
+  campaign in the same scan. Scans with no campaign start send no standalone
+  “Live now” digest.
+- Stream dedupe keys include the start event
+  (`stream-alert:{campaign_external_id}:{user_login}:{game_id}`), so the same
+  channel can be announced again for a later campaign.
+- Streams for the just-started campaign are included even before the next
+  progress sync; other streams remain scoped to in-progress campaigns.
+- Added regression tests for no-start suppression, start-without-progress, and
+  re-notification on a later campaign. Backend suite: **70 passed**.
+
+### UI — quick actions alignment
+
+- Overview quick actions now use a two-column grid with equal-width,
+  center-aligned buttons; collapses to one column at ≤640px.
+
 ## 2026-11-06
+
+### Focused watcher (single focus pointer)
+
+- Added a persisted **focused watcher** over the watch queue: one live
+  stream/campaign target at a time (`watch_focus` singleton row, `max_watchers=1`).
+- Enable focused mode to auto-pick the most urgent live campaign, manually focus
+  any candidate, or click **Next live** to move the watcher to another stream.
+- A worker job re-checks every `WATCHER_POLL_SECONDS` (default 60s) and moves the
+  focus with `reason=auto-move` when the current live goes offline or its campaign
+  runs out of watch time; otherwise it waits.
+- Added `GET/PATCH/DELETE /watcher` and `POST /watcher/focus`; the UI panel on
+  Watch queue can hand the focus to the existing manual session timer.
+- The watcher is a focus pointer only: it never plays/controls streams, sends
+  watch heartbeats, or simulates viewing. Backend suite: **68 passed**.
 
 ### Clearer action labels + ETA removal
 
