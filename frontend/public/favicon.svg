@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Twitch Drops Manager">
-  <rect width="64" height="64" rx="14" fill="#9146ff"/>
+  <rect width="64" height="64" rx="6" fill="#f2a600"/>
   <g
     transform="translate(8 8) scale(2)"
     fill="none"
-    stroke="#ffffff"
+    stroke="#151001"
     stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
+    stroke-linecap="square"
+    stroke-linejoin="miter"
   >
     <path d="M20 12v9H4v-9" />
     <path d="M2 7h20v5H2z" />
