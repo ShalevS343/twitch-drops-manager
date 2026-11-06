@@ -128,6 +128,56 @@ class Notification(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class TwitchAuth(Base):
+    """User-level Twitch OAuth tokens used to read the drops inventory."""
+
+    __tablename__ = "twitch_auth"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), default="")
+    login: Mapped[str] = mapped_column(String(128), default="")
+    access_token: Mapped[str] = mapped_column(Text, default="")
+    refresh_token: Mapped[str] = mapped_column(Text, default="")
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class DropProgress(Base):
+    """Latest known progress for a drop in one of the user's in-progress campaigns."""
+
+    __tablename__ = "drop_progress"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    drop_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    drop_name: Mapped[str] = mapped_column(String(255), default="")
+    drop_instance_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    campaign_gql_id: Mapped[str] = mapped_column(String(128), index=True, default="")
+    campaign_name: Mapped[str] = mapped_column(String(512), default="")
+    campaign_ends_at: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    game_name: Mapped[str] = mapped_column(String(255), default="")
+    game_box_art_url: Mapped[str] = mapped_column(String(1024), default="")
+
+    starts_at: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    ends_at: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    required_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    current_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    is_claimed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_ready: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    benefits: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+
 class ScanRun(Base):
     __tablename__ = "scan_runs"
 

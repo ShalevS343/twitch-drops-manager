@@ -60,6 +60,8 @@ export interface Status {
   stream_count: number
   last_scan: ScanRun | null
   last_error: string | null
+  twitch_user_connected: boolean
+  twitch_login: string | null
 }
 
 export interface ScanResult {
@@ -67,4 +69,53 @@ export interface ScanResult {
   campaign_count: number
   stream_count: number
   notified_count: number
+}
+
+export interface ProgressDrop {
+  drop_id: string
+  drop_name: string
+  required_minutes: number
+  current_minutes: number
+  percent: number
+  is_claimed: boolean
+  is_ready: boolean
+  starts_at: string | null
+  ends_at: string | null
+  benefits: string[]
+}
+
+export interface ProgressCampaign {
+  campaign_id: string
+  campaign_name: string
+  game_name: string
+  game_box_art_url: string
+  campaign_ends_at: string | null
+  claimed_count: number
+  total_count: number
+  drops: ProgressDrop[]
+}
+
+export interface ProgressRefresh {
+  connected: boolean
+  campaign_count: number
+  drop_count: number
+  notified_count: number
+}
+
+export interface TwitchUserStatus {
+  connected: boolean
+  login: string | null
+  user_id: string | null
+  expires_at: string | null
+}
+
+export interface TwitchConnect {
+  authorize_url: string
+  redirect_uri: string
+}
+
+export interface TwitchConnectResult {
+  connected: boolean
+  login: string | null
+  message: string | null
 }

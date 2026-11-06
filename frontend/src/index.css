@@ -282,3 +282,93 @@ button:disabled {
   grid-column: 1 / -1;
   color: #cbd5e1;
 }
+
+.device-box {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid #374151;
+  border-radius: 10px;
+  background: #111827;
+}
+
+.connect-steps {
+  margin: 0 0 10px;
+  padding-left: 22px;
+  display: grid;
+  gap: 6px;
+}
+
+.redirect-input {
+  width: 100%;
+  margin: 4px 0 10px;
+  padding: 10px 12px;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  background: #111827;
+  color: #f9fafb;
+  font: 0.85rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+}
+
+.progress-drops {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.progress-drops li {
+  padding: 10px;
+  border-radius: 8px;
+  background: #111827;
+}
+
+.progress-drop-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+  font-size: 0.92rem;
+}
+
+.progress-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #374151;
+}
+
+.progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #6441a5;
+  transition: width 0.3s ease;
+}
+
+.progress-bar.ready > span {
+  background: #22c55e;
+}
+
+.progress-bar.claimed > span {
+  background: #4b5563;
+}
+
+.progress-drop-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.card .badge.ready {
+  background: #166534;
+  color: #dcfce7;
+}
+
+.card .badge.claimed {
+  background: #374151;
+  color: #9ca3af;
+}

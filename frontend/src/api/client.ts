@@ -1,4 +1,15 @@
-import type { Campaign, Game, ScanResult, Status, Stream } from './types'
+import type {
+  Campaign,
+  Game,
+  ProgressCampaign,
+  ProgressRefresh,
+  ScanResult,
+  Status,
+  Stream,
+  TwitchConnect,
+  TwitchConnectResult,
+  TwitchUserStatus,
+} from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
@@ -39,4 +50,15 @@ export const api = {
     }),
   scan: () => request<ScanResult>('/scans', { method: 'POST' }),
   testTelegram: () => request<{ sent: boolean }>('/notifications/test', { method: 'POST' }),
+  progress: () => request<ProgressCampaign[]>('/progress'),
+  refreshProgress: () => request<ProgressRefresh>('/progress/refresh', { method: 'POST' }),
+  twitchStatus: () => request<TwitchUserStatus>('/twitch/status'),
+  twitchConnectUrl: () => request<TwitchConnect>('/twitch/connect'),
+  twitchConnect: (redirectUrl: string) =>
+    request<TwitchConnectResult>('/twitch/connect', {
+      method: 'POST',
+      body: JSON.stringify({ redirect_url: redirectUrl }),
+    }),
+  twitchLogout: () =>
+    request<{ disconnected: boolean }>('/twitch/logout', { method: 'POST' }),
 }

@@ -49,3 +49,43 @@ export function useScan() {
 export function useTestTelegram() {
   return useMutation({ mutationFn: api.testTelegram })
 }
+
+export function useProgress() {
+  return useQuery({
+    queryKey: ['progress'],
+    queryFn: api.progress,
+    refetchInterval: 60_000,
+  })
+}
+
+export function useTwitchStatus() {
+  return useQuery({
+    queryKey: ['twitch-status'],
+    queryFn: api.twitchStatus,
+    refetchInterval: 60_000,
+  })
+}
+
+export function useRefreshProgress() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: api.refreshProgress,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['progress'] })
+      queryClient.invalidateQueries({ queryKey: ['twitch-status'] })
+      queryClient.invalidateQueries({ queryKey: ['status'] })
+    },
+  })
+}
+
+export function useTwitchLogout() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: api.twitchLogout,
+    onSuccess: () => {
+      queryClient.invalidateQueries()
+    },
+  })
+}

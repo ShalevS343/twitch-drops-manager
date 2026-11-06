@@ -7,6 +7,7 @@ from app.domain.models import Campaign, Game, Stream
 from app.domain.schemas import ScanRunOut, StatusOut
 from app.repositories.games import GameRepository
 from app.repositories.scans import ScanRunRepository
+from app.repositories.twitch_auth import TwitchAuthRepository
 from app.services.factory import get_telegram_provider, get_twitch_provider
 
 router = APIRouter()
@@ -29,6 +30,7 @@ async def status(session: SessionDep) -> StatusOut:
         .where(Game.selected.is_(True), Stream.live.is_(True))
     )
     latest = await ScanRunRepository(session).latest()
+    auth = await TwitchAuthRepository(session).get()
 
     return StatusOut(
         app=get_settings().app_name,
@@ -39,4 +41,6 @@ async def status(session: SessionDep) -> StatusOut:
         stream_count=int(stream_count or 0),
         last_scan=ScanRunOut.model_validate(latest) if latest else None,
         last_error=latest.error if latest and not latest.ok else None,
+        twitch_user_connected=auth is not None,
+        twitch_login=(auth.login or None) if auth else None,
     )

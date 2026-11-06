@@ -103,3 +103,76 @@ def campaign_matches_stream(allow: Any, user_login: str) -> bool:
             allowed.add(str(name).casefold())
 
     return user_login.casefold() in allowed
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def parse_inventory(campaigns: list[Any]) -> list[dict[str, Any]]:
+    """Flatten Twitch's ``dropCampaignsInProgress`` into per-drop progress rows."""
+    rows: list[dict[str, Any]] = []
+
+    for campaign in campaigns:
+        if not isinstance(campaign, dict):
+            continue
+
+        game = campaign.get("game") if isinstance(campaign.get("game"), dict) else {}
+        drops = campaign.get("timeBasedDrops")
+        if not isinstance(drops, list):
+            continue
+
+        for drop in drops:
+            if not isinstance(drop, dict):
+                continue
+
+            drop_id = str(drop.get("id") or "")
+            if not drop_id:
+                continue
+
+            own = drop.get("self") if isinstance(drop.get("self"), dict) else {}
+            required = _as_int(drop.get("requiredMinutesWatched"))
+            current = _as_int(own.get("currentMinutesWatched"))
+            claimed = bool(own.get("isClaimed"))
+
+            # Twitch reports inconsistent minutes for claimed drops; treat them
+            # as complete so the UI doesn't show a claimed drop at 40%.
+            if claimed:
+                current = required
+
+            benefits: list[str] = []
+            edges = drop.get("benefitEdges")
+            if isinstance(edges, list):
+                for edge in edges:
+                    if not isinstance(edge, dict):
+                        continue
+                    benefit = edge.get("benefit")
+                    if isinstance(benefit, dict) and benefit.get("name"):
+                        benefits.append(str(benefit["name"]))
+
+            rows.append(
+                {
+                    "drop_id": drop_id,
+                    "drop_name": str(drop.get("name") or "Drop"),
+                    "drop_instance_id": own.get("dropInstanceID") or None,
+                    "campaign_gql_id": str(campaign.get("id") or ""),
+                    "campaign_name": str(campaign.get("name") or "Unknown campaign"),
+                    "campaign_ends_at": (
+                        str(campaign.get("endAt")) if campaign.get("endAt") else None
+                    ),
+                    "game_name": str(game.get("displayName") or game.get("name") or ""),
+                    "game_box_art_url": str(game.get("boxArtURL") or ""),
+                    "starts_at": str(drop.get("startAt")) if drop.get("startAt") else None,
+                    "ends_at": str(drop.get("endAt")) if drop.get("endAt") else None,
+                    "required_minutes": required,
+                    "current_minutes": current,
+                    "is_claimed": claimed,
+                    "is_ready": required > 0 and current >= required and not claimed,
+                    "benefits": benefits,
+                }
+            )
+
+    return rows

@@ -6,7 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.config import get_settings
 from app.core.db import SessionLocal, engine, init_db
 from app.core.logging import configure_logging
-from app.services.factory import build_scan_service
+from app.services.factory import build_progress_service, build_scan_service
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,21 @@ async def run_scan() -> None:
             logger.exception("Scheduled scan failed")
 
 
+async def run_progress() -> None:
+    async with SessionLocal() as session:
+        try:
+            result = await build_progress_service(session).run()
+            if result.connected:
+                logger.info(
+                    "Progress sync: %d campaigns, %d drops, %d notifications",
+                    result.campaign_count,
+                    result.drop_count,
+                    result.notified_count,
+                )
+        except Exception:
+            logger.exception("Progress sync failed")
+
+
 async def main() -> None:
     configure_logging()
     await init_db()
@@ -42,10 +57,23 @@ async def main() -> None:
         max_instances=1,
         coalesce=True,
     )
+    scheduler.add_job(
+        run_progress,
+        "interval",
+        seconds=settings.progress_interval_seconds,
+        id="progress",
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.start()
-    logger.info("Scan worker started (interval=%ss)", interval)
+    logger.info(
+        "Scan worker started (scan=%ss, progress=%ss)",
+        interval,
+        settings.progress_interval_seconds,
+    )
 
     await run_scan()
+    await run_progress()
 
     try:
         await asyncio.Event().wait()
