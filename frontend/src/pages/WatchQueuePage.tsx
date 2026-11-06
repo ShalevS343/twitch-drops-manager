@@ -83,7 +83,7 @@ export function WatchQueuePage() {
         <div className="inline-actions">
           <PerGameSelect value={perGame} onChange={setPerGame} />
           <a className="btn btn-ghost btn-sm" href="#/streams">
-            Browse all streams
+            View all live streams
             <Icon name="arrow-right" size={13} />
           </a>
         </div>
@@ -137,7 +137,7 @@ export function WatchQueuePage() {
               <div className="inline-actions">
                 <a className="btn btn-primary" href="#/streams">
                   <Icon name="radio" size={16} />
-                  Browse live streams
+                  View live streams
                 </a>
                 <a className="btn btn-secondary" href="#/overview">
                   Back to overview

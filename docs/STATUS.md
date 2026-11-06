@@ -22,8 +22,11 @@ violet UI in `77bfc75`; manual watch sessions + per-game limits in `0eb9b16`.
 - Manual watch sessions are frontend-only: one local timer, persisted in
   `localStorage`, with next-campaign suggestions. No playback control or fake
   viewing. Watch queue/streams are grouped by game and capped at 5 by default.
-- Docs: API, data model, backend, frontend, decisions, changelog, and this file
-  updated for game tracking, manual sessions, and the violet UI pass.
+- ETA was removed from the progress/watch-queue API and UI; remaining minutes are
+  shown instead. Action buttons now use explicit verb + object labels.
+- Docs: API, data model, backend, architecture, frontend, decisions, changelog,
+  and this file updated for game tracking, manual sessions, ETA removal, and the
+  violet UI pass.
 
 ### Live deployment (verify before assuming)
 
@@ -52,6 +55,8 @@ sessions are browser-local and need no migration.
    - Settings → Games “Track a game by name” creates a tracked row
    - Watch queue: one manual session, timer persists on refresh, top 5 per game
    - Live streams: game groups + Per game selector
+   - No ETA text; progress shows `X min left` and actions read “Scan for new
+     drops” / “Sync drop progress”
    - Kuma monitors for 8282/8000
 4. **P1 performance** (planned): per-endpoint response cache + ETag, `/dashboard`
    bootstrap endpoint, combined `/status` queries. Goal: initial load <50 ms.
@@ -77,6 +82,9 @@ sessions are browser-local and need no migration.
 - **Telegram token exposure**: pre-fix logs contained the bot token; rotate it.
 - **Manual timer is advisory**: it is wall-clock, browser-local, and can overstate
   elapsed time if left running; use pause/stop. It never verifies playback.
+- **API change**: `eta_minutes` was removed from `/progress` and `/watch-queue`
+  responses. Remaining minutes and watch rate remain; an external client reading
+  ETA must drop that field.
 - **Portainer drift**: manual `docker compose` runs use the same project name;
   Portainer may show the stack as out-of-sync until its next redeploy.
 - `.env` / `.env.save` are local and untracked; never commit them.

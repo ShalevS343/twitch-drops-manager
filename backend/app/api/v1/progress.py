@@ -195,7 +195,6 @@ def _group_progress(
                 benefits=row.benefits or [],
                 remaining_minutes=metrics.remaining_minutes,
                 rate_minutes_per_hour=metrics.rate_minutes_per_hour,
-                eta_minutes=metrics.eta_minutes,
             )
         )
 
@@ -205,12 +204,6 @@ def _group_progress(
 
         unclaimed = [drop for drop in campaign.drops if not drop.is_claimed]
         campaign.remaining_minutes = sum(drop.remaining_minutes for drop in unclaimed)
-        etas = [drop.eta_minutes for drop in unclaimed]
-        campaign.eta_minutes = (
-            sum(eta for eta in etas if eta is not None)
-            if all(eta is not None for eta in etas)
-            else None
-        )
 
     return sorted(
         grouped.values(), key=lambda item: (item.game_name.lower(), item.campaign_name.lower())

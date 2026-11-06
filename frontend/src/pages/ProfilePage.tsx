@@ -77,7 +77,7 @@ export function ProfilePage({ twitch }: Props) {
                   disabled={connect.starting}
                 >
                   <Icon name="twitch" size={16} />
-                  {connect.starting ? 'Starting…' : 'Reconnect'}
+                  {connect.starting ? 'Starting…' : 'Reconnect Twitch'}
                 </button>
                 <button
                   className="btn btn-danger"
@@ -85,7 +85,7 @@ export function ProfilePage({ twitch }: Props) {
                   disabled={logout.isPending}
                 >
                   <Icon name="logout" size={16} />
-                  {logout.isPending ? 'Disconnecting…' : 'Disconnect'}
+                  {logout.isPending ? 'Disconnecting…' : 'Disconnect Twitch'}
                 </button>
               </div>
             </div>
@@ -150,7 +150,7 @@ export function ProfilePage({ twitch }: Props) {
                 </div>
                 <h2>Connect your Twitch account</h2>
                 <p className="profile-login">
-                  Sign in to see your drop progress, ETAs, and ready-to-claim status.
+                  Sign in to see your drop progress and ready-to-claim status.
                 </p>
               </div>
               <div className="profile-actions">

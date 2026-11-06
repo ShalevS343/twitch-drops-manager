@@ -149,7 +149,7 @@ export function StreamsPage() {
             action={
               <a className="btn btn-secondary" href="#/settings">
                 <Icon name="settings" size={16} />
-                Manage games
+                Manage tracked games
               </a>
             }
           />

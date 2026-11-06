@@ -27,7 +27,7 @@ frontend/src/
     useWatchSession.ts       localStorage-backed manual watch timer
   lib/
     campaigns.ts             phase/percent helpers
-    format.ts                date/time/ETA formatters
+    format.ts                date/time/remaining formatters
     streamGroups.ts          per-game limiting/grouping helpers
     tabs.ts                  tab ids + metadata
     watchQueue.ts            campaign-level "next up" suggestions
@@ -51,7 +51,7 @@ Hash routes, default `#/overview`; invalid hashes are normalized:
 |---|---|---|
 | `#/overview` | Overview | Stats, needs attention, queue preview, campaign progress |
 | `#/campaigns` | Campaigns | Catalog with search/game/status filters |
-| `#/progress` | Progress | Personal drop progress, ETA, ready-to-claim |
+| `#/progress` | Progress | Personal drop progress and ready-to-claim status |
 | `#/watch-queue` | Watch queue | Urgency-sorted eligible streams, grouped by game, top 5 per game by default |
 | `#/streams` | Streams | All matched live streams, filtered/grouped, top 5 per game by default |
 | `#/settings` | Settings | Games (including track-by-name), actions, Twitch connection, system info |
@@ -134,6 +134,10 @@ Borders, spacing, and a larger type scale carry the hierarchy.
   icons are silhouettes; utilities use square-capped strokes). Do not swap in a
   generic outline icon library.
 - Headings use the sans display face; data uses mono with tabular numbers.
+- Action labels state both the verb and the object, and avoid bare “Scan now” or
+  “Refresh”: use “Scan for new drops”, “Sync drop progress”, “Send test message”,
+  “Start watch timer”, “Open stream on Twitch”. Loading labels use the same verb
+  (“Scanning…”, “Syncing…”, “Sending…”).
 
 ## Layout / responsive
 

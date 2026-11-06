@@ -1,5 +1,5 @@
 import type { ProgressCampaign } from '../api/types'
-import { endsSoon, formatDateTime, formatEta, formatRemaining } from '../lib/format'
+import { endsSoon, formatDateTime, formatRemaining } from '../lib/format'
 import { Badge } from './ui/Badge'
 import { Icon } from './ui/Icon'
 
@@ -37,12 +37,6 @@ export function ProgressCard({ campaign }: { campaign: ProgressCampaign }) {
         <p className="card-meta">
           <Icon name="clock" size={14} />
           Ends {formatDateTime(campaign.campaign_ends_at)}
-          {campaign.eta_minutes !== null && (
-            <span className="meta-sep">·</span>
-          )}
-          {campaign.eta_minutes !== null && (
-            <span>{formatEta(campaign.eta_minutes)} at current pace</span>
-          )}
         </p>
       </div>
 
@@ -78,12 +72,6 @@ export function ProgressCard({ campaign }: { campaign: ProgressCampaign }) {
 
               <p className="progress-drop-eta">
                 {formatRemaining(drop.remaining_minutes)} left
-                {drop.rate_minutes_per_hour !== null && drop.eta_minutes !== null && (
-                  <>
-                    <span className="meta-sep">·</span>
-                    {formatEta(drop.eta_minutes)} at current pace
-                  </>
-                )}
               </p>
 
               <div className="progress-drop-meta">
@@ -111,7 +99,7 @@ export function ProgressCard({ campaign }: { campaign: ProgressCampaign }) {
             rel="noreferrer"
           >
             <Icon name="external" size={14} />
-            Open Twitch inventory
+            Open Drops inventory
           </a>
         </div>
       )}

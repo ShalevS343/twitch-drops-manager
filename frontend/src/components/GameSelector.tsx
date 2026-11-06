@@ -179,7 +179,7 @@ export function GameSelector({ games, isLoading }: Props) {
           disabled={!newGame.trim()}
         >
           <Icon name="plus" size={14} />
-          Track game
+          Track this game
         </button>
       </div>
       <p className="muted small">
@@ -201,7 +201,7 @@ export function GameSelector({ games, isLoading }: Props) {
         </label>
         {search && (
           <button type="button" className="btn btn-secondary" onClick={() => setSearch('')}>
-            Clear
+            Clear search
           </button>
         )}
       </div>
@@ -246,7 +246,7 @@ export function GameSelector({ games, isLoading }: Props) {
           onClick={saveSelection}
           disabled={!dirty || save.isPending}
         >
-          {save.isPending ? 'Saving…' : 'Save selection'}
+          {save.isPending ? 'Saving…' : 'Save tracked games'}
         </button>
         {dirty && <span className="muted small">Unsaved changes</span>}
         {save.error && <span className="error small">{save.error.message}</span>}

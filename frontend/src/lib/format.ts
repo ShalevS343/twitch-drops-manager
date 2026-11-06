@@ -24,11 +24,6 @@ export function formatClock(milliseconds: number): string {
     : `${minutes}:${pad(seconds)}`
 }
 
-export function formatEta(minutes: number | null): string {
-  if (minutes === null) return '—'
-  return `~${formatDuration(minutes)}`
-}
-
 export function formatRemaining(minutes: number): string {
   return `${Math.max(0, Math.round(minutes))} min`
 }

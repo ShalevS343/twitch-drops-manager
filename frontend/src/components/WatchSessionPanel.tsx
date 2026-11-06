@@ -69,7 +69,7 @@ export function WatchSessionPanel({
           rel="noreferrer"
         >
           <Icon name="play" size={14} />
-          Open stream
+          Open stream on Twitch
         </a>
       </div>
 
@@ -116,11 +116,11 @@ export function WatchSessionPanel({
           onClick={isRunning ? onPause : onResume}
         >
           <Icon name={isRunning ? 'clock' : 'play'} size={15} />
-          {isRunning ? 'Pause timer' : 'Resume timer'}
+          {isRunning ? 'Pause watch timer' : 'Resume watch timer'}
         </button>
         <button type="button" className="btn btn-ghost" onClick={onStop}>
           <Icon name="x" size={15} />
-          Stop session
+          Stop watch timer
         </button>
         {complete && suggestions.length > 0 && (
           <button
@@ -129,7 +129,7 @@ export function WatchSessionPanel({
             onClick={() => onSwitch(suggestions[0])}
           >
             <Icon name="arrow-right" size={15} />
-            Stop &amp; start next
+            Stop timer &amp; start next
           </button>
         )}
       </div>
@@ -158,7 +158,7 @@ export function WatchSessionPanel({
                   className="btn btn-secondary btn-sm"
                   onClick={() => onSwitch(suggestion)}
                 >
-                  Switch
+                  Switch campaign
                   <Icon name="arrow-right" size={13} />
                 </button>
               </li>
