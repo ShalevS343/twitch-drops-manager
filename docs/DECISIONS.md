@@ -145,3 +145,34 @@ numeric/technical values.
 **Consequences:** better contrast and readability on desktop and mobile. New UI
 work must use the current `:root` tokens; do not reintroduce amber or micro
 uppercase/mono labels.
+
+## ADR-013 — Manual watch sessions only
+
+**Context:** the watch queue makes it easy to find the right stream, but tracking
+how long you have actually been watching is manual. Automating playback or
+simulated viewing would cross the read-only/ToS boundary.
+
+**Decision:** add a browser-local session timer. Starting a session stores the
+stream/campaign and a timestamp in `localStorage`, opens the real stream in a new
+tab, and shows elapsed time against the campaign’s remaining watch minutes. It
+supports pause/resume/stop and at most one session. On target, the UI suggests
+the next campaign but requires an explicit switch. No playback control, watch
+heartbeats, or fake viewing events are sent.
+
+**Consequences:** the timer is a convenience, not proof of viewing; it can
+overstate elapsed time if left running after you stop watching, which is why the
+UI requires manual pause/stop. State is per-browser, not synced to the backend.
+
+## ADR-014 — Top-N per game in live lists
+
+**Context:** scans can match hundreds of live streams, making the queue and
+streams pages long and hard to scan.
+
+**Decision:** group live cards by game and show at most 5 per game by default,
+with a 5/10/20/All selector. Limiting is client-side after filtering so search
+still sees the full loaded set. Group order preserves the page’s sort (urgency or
+viewers).
+
+**Consequences:** the default view stays short without changing backend
+contracts. Selecting All restores the complete list; future server-side limits
+would need a total-count contract to keep the “showing X of Y” copy accurate.

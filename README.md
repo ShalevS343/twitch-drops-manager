@@ -22,6 +22,11 @@ never automates watching.
   starts for tracked games (including games with no current campaign).
 - **Track any game** — add a game by name in Settings even if it is not in the
   catalog; get notified when its next campaign becomes active.
+- **Manual watch sessions** — start one campaign at a time, open the real stream,
+  and track elapsed time locally. The timer never controls playback or simulates
+  viewing.
+- **Top 5 per game** — watch queue and live streams group by game and show the
+  top 5 by default, with a 5/10/20/All selector.
 - **Tabbed dashboard** — Overview, Campaigns, Progress, Watch queue, Streams,
   Settings, and a Twitch profile page. High-contrast violet design, responsive.
 - **Rate-limit resilient** — the public catalog is cached to disk and served during
