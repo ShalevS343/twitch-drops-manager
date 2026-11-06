@@ -227,65 +227,7 @@ class FlakyTelegram:
 
 
 @pytest.mark.asyncio
-async def test_scan_alerts_only_for_in_progress_campaigns():
-    engine, factory = await _scan_session()
-
-    async with factory() as session:
-        await _seed_campaign(session, status="UPCOMING")
-        session.add(
-            DropProgress(
-                drop_id="drop-1",
-                campaign_gql_id="1",
-                campaign_name="Rust Drops",
-                game_name="Rust",
-            )
-        )
-        await session.commit()
-
-        telegram = RecordingTelegram()
-        result = await _run_scan(session, telegram)
-
-        assert result.notified_count == 2
-        assert len(telegram.messages) == 1
-        assert "Rust Drops" in telegram.messages[0]
-        assert "Live now (1 stream)" in telegram.messages[0]
-        assert "Minecraft Drops" not in telegram.messages[0]
-
-    await engine.dispose()
-
-
-@pytest.mark.asyncio
-async def test_scan_includes_stream_for_just_started_campaign_before_progress_sync():
-    engine, factory = await _scan_session()
-
-    async with factory() as session:
-        await _seed_campaign(session, status="UPCOMING")
-        session.add(
-            DropProgress(
-                drop_id="drop-1",
-                campaign_gql_id="2",
-                campaign_name="Minecraft Drops",
-                game_name="Minecraft",
-            )
-        )
-        await session.commit()
-
-        telegram = RecordingTelegram()
-        result = await _run_scan(session, telegram)
-
-        # drop_progress has a different campaign, but the just-started Rust
-        # campaign is still eligible for the stream digest.
-        assert result.notified_count == 2
-        assert len(telegram.messages) == 1
-        assert "New campaign:" in telegram.messages[0]
-        assert "Live now (1 stream)" in telegram.messages[0]
-        assert "Rust Drops" in telegram.messages[0]
-
-    await engine.dispose()
-
-
-@pytest.mark.asyncio
-async def test_scan_digests_multiple_new_streams_once():
+async def test_scan_does_not_notify_new_streams():
     engine, factory = await _scan_session()
 
     async with factory() as session:
@@ -300,33 +242,17 @@ async def test_scan_digests_multiple_new_streams_once():
         )
 
         first = await service.run()
-        assert first.notified_count == 4  # campaign start + 3 streams
+        assert first.notified_count == 1  # campaign start only
         assert len(telegram.messages) == 1
         message = telegram.messages[0]
-        assert "Live now (3 streams)" in message
+        assert "New campaign:" in message
+        assert "Live now" not in message
         for login in ("alpha", "beta", "gamma"):
-            assert login in message.lower()
+            assert login not in message.lower()
 
         second = await service.run()
         assert second.notified_count == 0
         assert len(telegram.messages) == 1
-
-    await engine.dispose()
-
-
-@pytest.mark.asyncio
-async def test_scan_keeps_selected_game_alerts_without_progress_rows():
-    engine, factory = await _scan_session()
-
-    async with factory() as session:
-        await _seed_campaign(session, status="UPCOMING")
-        telegram = RecordingTelegram()
-        result = await _run_scan(session, telegram)
-
-        assert result.notified_count == 2
-        assert len(telegram.messages) == 1
-        assert "Rust Drops" in telegram.messages[0]
-        assert "Live now (1 stream)" in telegram.messages[0]
 
     await engine.dispose()
 
@@ -358,40 +284,6 @@ async def test_scan_does_not_notify_streams_without_a_campaign_start():
 
 
 @pytest.mark.asyncio
-async def test_stream_alerts_repeat_for_a_later_campaign_start():
-    engine, factory = await _scan_session()
-
-    async with factory() as session:
-        sunkwi = FakeSunkwi(payload())
-        telegram = RecordingTelegram()
-        service = ScanService(
-            session=session,
-            settings=Settings(default_games="Rust", _env_file=None),
-            sunkwi=sunkwi,
-            twitch=FakeTwitch(),
-            telegram=telegram,
-        )
-
-        first = await service.run()
-        assert first.notified_count == 2
-        assert len(telegram.messages) == 1
-
-        # A second campaign for the same game must notify the same stream again.
-        later_payload = payload()
-        later_payload["games"][0]["campaigns"][0]["id"] = 2
-        later_payload["games"][0]["campaigns"][0]["name"] = "Rust Drops 2"
-        sunkwi.payload = later_payload
-
-        second = await service.run()
-        assert second.notified_count == 2
-        assert len(telegram.messages) == 2
-        assert "Rust Drops 2" in telegram.messages[1]
-        assert "Live now (1 stream)" in telegram.messages[1]
-
-    await engine.dispose()
-
-
-@pytest.mark.asyncio
 async def test_scan_notifies_when_campaign_starts():
     engine, factory = await _scan_session()
 
@@ -399,11 +291,12 @@ async def test_scan_notifies_when_campaign_starts():
         telegram = RecordingTelegram()
         result = await _run_scan(session, telegram)
 
-        assert result.notified_count == 2  # campaign start + live stream
+        assert result.notified_count == 1  # campaign start only
         assert len(telegram.messages) == 1
         message = telegram.messages[0]
         assert "New campaign:" in message
         assert "Rust Drops" in message
+        assert "Live now" not in message
 
         starts = await session.scalar(select(func.count()).select_from(CampaignStart))
         assert starts == 0
@@ -438,9 +331,10 @@ async def test_scan_notifies_when_upcoming_campaign_becomes_active():
 
         result = await service.run()
 
-        assert result.notified_count == 2
+        assert result.notified_count == 1
         assert "New campaign:" in telegram.messages[0]
         assert "WT Campaign" in telegram.messages[0]
+        assert "Live now" not in telegram.messages[0]
 
     await engine.dispose()
 
@@ -464,9 +358,10 @@ async def test_scan_notifies_for_game_added_by_name():
 
         result = await service.run()
 
-        assert result.notified_count == 2
+        assert result.notified_count == 1
         assert "New campaign:" in telegram.messages[0]
         assert "War Thunder" in telegram.messages[0]
+        assert "Live now" not in telegram.messages[0]
 
         game = await session.scalar(
             select(Game).where(Game.name == "War Thunder")
@@ -535,7 +430,7 @@ async def test_scan_retries_campaign_start_after_send_failure():
         assert starts == 1
 
         second = await service.run()
-        assert second.notified_count == 2
+        assert second.notified_count == 1
         assert len(telegram.messages) == 1
         assert "New campaign:" in telegram.messages[0]
         starts = await session.scalar(select(func.count()).select_from(CampaignStart))

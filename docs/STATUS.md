@@ -15,9 +15,10 @@ campaign-start stream gating in `5e3937e`.
   watch sessions, top-5-per-game live lists, and the violet high-contrast UI
   (circular logo/favicon).
 - `main` includes the focused watcher (one queue target at a time,
-  manual/auto/next dispatch, worker auto-move) and gates stream alerts on a
-  campaign start. Backend tests: **70 passed**; ruff clean; frontend build
-  passes.
+  manual/auto/next dispatch, offline/completion alerts), sends only campaign-start
+  Telegram notifications (no new-live spam), and calculates campaign remaining
+  time from the largest open drop. Backend tests: **69 passed**; ruff clean;
+  frontend build passes.
 - Frontend: `npm run build` passes; visually verified with headless screenshots
   (desktop + mobile) against live data.
 - Game tracking: `PUT /games` creates missing `Game` rows, so a game can be
@@ -28,16 +29,22 @@ campaign-start stream gating in `5e3937e`.
   `localStorage`, with next-campaign suggestions. No playback control or fake
   viewing. Watch queue/streams are grouped by game and capped at 5 by default.
 - Focused watcher is backend-persisted (`watch_focus`, one row) and reuses the
-  watch queue. It is a focus pointer only: no playback, heartbeats, or simulated
-  viewing. Manual session handoff still requires an explicit click.
+  watch queue. It notifies when the focused live goes offline while the campaign
+  is open, and notifies + turns itself off when the campaign completes. It does
+  not auto-move or start a timer.
 - ETA was removed from the progress/watch-queue API and UI; remaining minutes are
   shown instead. Action buttons now use explicit verb + object labels.
-- Stream alerts are now gated on a campaign start: no standalone “Live now”
-  digest. Stream keys include the start event so a later campaign can re-notify
-  the same channel; the just-started campaign is included before progress sync.
+- Telegram no longer receives new-live-stream alerts at all. Notifications are
+  campaign starts plus focused-watcher offline/completion events.
+- Campaign remaining time is the maximum open drop requirement, not the sum:
+  a 1h + 2h campaign takes 2h. This applies to progress, watch queue, overview,
+  and the focused watcher target.
+- The UI no longer shows the “never plays/controls/simulates” or “never claims”
+  disclaimers; the underlying behavior is unchanged.
 - Docs: API, data model, backend, architecture, frontend, decisions, changelog,
   and this file updated for game tracking, manual sessions, ETA removal, the
-  violet UI pass, the focused watcher, and campaign-start stream gating.
+  violet UI pass, the focused watcher, Telegram alert changes, and campaign-time
+  math.
 
 ### Live deployment (verify before assuming)
 
@@ -66,9 +73,10 @@ are browser-local and need no migration.
    - UI violet theme + circular favicon
    - Settings → Games “Track a game by name” creates a tracked row
    - Watch queue: one manual session, timer persists on refresh, top 5 per game
-   - Focus watcher: enable, switch focus, Next live, auto-move on scan
-   - Telegram: stream alerts appear only with a “New campaign” digest; a later
-     campaign can re-notify the same channel
+   - Focus watcher: enable, switch focus, Next live, offline alert, completion
+     alert + focus off; no auto-move
+   - Telegram: campaign starts and focused-watcher alerts only; no new-live spam
+   - Campaign remaining time is the largest open drop (1h + 2h shows 2h)
    - Live streams: game groups + Per game selector
    - No ETA text; progress shows `X min left` and actions read “Scan for new
      drops” / “Sync drop progress”
@@ -98,17 +106,18 @@ are browser-local and need no migration.
 - **Telegram token exposure**: pre-fix logs contained the bot token; rotate it.
 - **Manual timer is advisory**: it is wall-clock, browser-local, and can overstate
   elapsed time if left running; use pause/stop. It never verifies playback.
-- **Focused watcher is separate from the timer**: it can auto-move the focus while
-  an old manual session is still running; follow it with an explicit **Start
-  manual session**. Auto-move is bounded by `WATCHER_POLL_SECONDS` (default 60s).
+- **Focused watcher does not auto-move**: an offline target stays in `offline`
+  state until the user picks another live or the campaign completes. Offline
+  notification is once per online session; completion turns focus off.
+- **No Telegram stream alerts**: the scan only notifies campaign starts; live
+  streams remain in the watch queue/streams UI.
 - **Stream identity is ephemeral**: scans replace `streams` rows, so the watcher
   resolves its target by `user_login` + `campaign_id` and refreshes `stream_id`.
 - **API change**: `eta_minutes` was removed from `/progress` and `/watch-queue`
   responses. Remaining minutes and watch rate remain; an external client reading
   ETA must drop that field.
-- **Stream alerts are event-gated**: no campaign start means no stream digest.
-  Stream keys include the start campaign, so a game with a new campaign can
-  re-notify a channel that was announced under an older campaign.
+- **No stream digest**: Telegram only receives campaign starts and focused
+  watcher events; the `/notifications` ledger still records those keys.
 - **Portainer drift**: manual `docker compose` runs use the same project name;
   Portainer may show the stack as out-of-sync until its next redeploy.
 - `.env` / `.env.save` are local and untracked; never commit them.

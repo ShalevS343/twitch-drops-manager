@@ -191,7 +191,9 @@ async def build_watch_queue(session: AsyncSession) -> list[WatchQueueItemOut]:
                 for summary in matched
             ],
         )
-        total_remaining = sum(summary.remaining_minutes for summary in matched)
+        total_remaining = max(
+            (summary.remaining_minutes for summary in matched), default=0
+        )
         keyed_items.append((_item_sort_key(item, total_remaining), item))
 
     keyed_items.sort(key=lambda pair: pair[0])

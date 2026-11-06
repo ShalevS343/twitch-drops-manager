@@ -173,15 +173,12 @@ Returns `CampaignOut[]`:
 Errors: `400` provider not configured, `502` upstream failure. The scan is also
 recorded in `scan_runs`.
 
-`notified_count` counts successfully delivered campaign-start and live-stream
-events; both are combined into one digest per scan. Stream events are only
-included when the same scan also has a campaign start for that game — there is no
-standalone stream digest. A campaign start is detected when a selected game's
-campaign transitions from any non-`ACTIVE` state to `ACTIVE`, including a
-brand-new campaign after the previous one ended. Delivery failures leave the
-start pending for the next scan; the notification claim prevents duplicates.
-Stream dedupe keys include the campaign-start event, so the same channel can be
-announced again for a later campaign.
+`notified_count` counts successfully delivered campaign-start events. New live
+streams are **not** sent to Telegram. A campaign start is detected when a
+selected game's campaign transitions from any non-`ACTIVE` state to `ACTIVE`,
+including a brand-new campaign after the previous one ended. Delivery failures
+leave the start pending for the next scan; the notification claim prevents
+duplicates.
 
 `GET /scans/latest` → `ScanRunOut`; `404` if no scan has run.
 
@@ -223,6 +220,10 @@ announced again for a later campaign.
 }]
 ```
 
+Campaign `remaining_minutes` is the **largest** remaining requirement among the
+campaign's unclaimed drops, not the sum. Drop requirements share the same watch
+time (a 1h drop + a 2h drop needs 2h total).
+
 `POST /progress/refresh` (token)
 
 ```json
@@ -258,6 +259,7 @@ Errors: `400` Twitch not connected/expired, `502` GQL/provider failure.
 ```
 
 Returns `[]` when Twitch is not connected or no campaign is in progress.
+Campaign `remaining_minutes` uses the same max-of-open-drops rule as `/progress`.
 
 ## Focused watcher
 
@@ -272,8 +274,9 @@ simulates viewing.
 {
   "enabled": true,
   "status": "focused",
+  "reason": "auto",
   "max_watchers": 1,
-  "auto_move": true,
+  "auto_move": false,
   "focus": {
     "stream_id": 1,
     "user_login": "warthunder_esports",
@@ -308,9 +311,11 @@ simulates viewing.
 }
 ```
 
-`status` is `idle` (disabled), `focused` (one target selected), or `waiting`
-(enabled but no eligible live stream). `candidates` excludes the current focus
-and is capped at 8.
+`status` is `idle` (disabled), `focused` (target online), `offline` (target left
+the queue while the campaign still has time), or `waiting` (enabled with no
+target). `reason` is the last state reason (`auto`, `manual`, `live`, `offline`,
+`completed`, …). `auto_move` is always `false`; the watcher does not move itself.
+`candidates` excludes the current focus and is capped at 8.
 
 `PATCH /watcher` (token)
 
@@ -319,9 +324,13 @@ and is capped at 8.
 ```
 
 Enabling auto-selects the most urgent live candidate; disabling clears the focus.
-When enabled, the worker re-checks the queue every `WATCHER_POLL_SECONDS` and
-moves the focus to the next live stream if the current one goes offline or its
-campaign runs out of watch time.
+When enabled, the worker re-checks the queue every `WATCHER_POLL_SECONDS`:
+
+- if the focused live goes offline while the campaign still has watch time, it
+  sends one offline Telegram notification per online session and sets
+  `status=offline`; the target is kept for a manual switch;
+- if the campaign completes, it sends one completion notification and turns
+  focused mode off (`status=idle`, `reason=completed`).
 
 `POST /watcher/focus` (token)
 
@@ -335,6 +344,7 @@ campaign runs out of watch time.
 - `next` — picks another live stream than the current focus; keeps the current
   target with `reason: "next-unavailable"` when no alternative exists.
 
+All strategies are user-initiated; none starts playback or a timer.
 Invalid/expired targets return `400`. `DELETE /watcher` (token) disables focused
 mode and clears the target (same as `PATCH {"enabled": false}`).
 

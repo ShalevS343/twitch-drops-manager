@@ -199,7 +199,8 @@ async def test_progress_api_computes_rate_from_snapshots():
 
         assert len(campaigns) == 1
         campaign = campaigns[0]
-        assert campaign.remaining_minutes == 90
+        # Drop requirements share watch time: max(60, 30) = 60, not 90.
+        assert campaign.remaining_minutes == 60
 
         drops = {drop.drop_id: drop for drop in campaign.drops}
         assert drops["drop-fast"].remaining_minutes == 60
@@ -209,6 +210,28 @@ async def test_progress_api_computes_rate_from_snapshots():
         assert drops["drop-quick"].rate_minutes_per_hour == pytest.approx(60.0)
 
         assert drops["drop-claimed"].remaining_minutes == 0
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_campaign_remaining_minutes_uses_the_largest_drop_not_the_sum():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        session.add_all(
+            [
+                _drop_row("drop-1h", required=60, current=0),
+                _drop_row("drop-2h", required=120, current=0),
+            ]
+        )
+        await session.commit()
+
+        campaigns = await list_progress(session)
+
+        assert len(campaigns) == 1
+        # Finishing both drops takes 2h, not 1h + 2h.
+        assert campaigns[0].remaining_minutes == 120
 
     await engine.dispose()
 

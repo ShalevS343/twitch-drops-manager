@@ -40,7 +40,7 @@ export function ProgressPage({ twitch }: Props) {
               <h2>Connect Twitch to see your drop progress</h2>
               <p>
                 Progress and ready-to-claim status come directly from your Twitch
-                account. This app never claims rewards for you.
+                account.
               </p>
             </div>
             <button

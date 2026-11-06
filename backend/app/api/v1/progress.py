@@ -203,7 +203,11 @@ def _group_progress(
         campaign.claimed_count = sum(1 for drop in campaign.drops if drop.is_claimed)
 
         unclaimed = [drop for drop in campaign.drops if not drop.is_claimed]
-        campaign.remaining_minutes = sum(drop.remaining_minutes for drop in unclaimed)
+        # Drops share the same watch time, so the campaign finishes when its
+        # largest remaining drop does — do not add the drop requirements.
+        campaign.remaining_minutes = max(
+            (drop.remaining_minutes for drop in unclaimed), default=0
+        )
 
     return sorted(
         grouped.values(), key=lambda item: (item.game_name.lower(), item.campaign_name.lower())

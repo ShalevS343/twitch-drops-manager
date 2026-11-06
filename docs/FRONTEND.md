@@ -173,17 +173,16 @@ exactly one live target selected from the queue:
   shows the focused channel, campaign, remaining watch minutes, and reason.
 - **Next live** dispatches the watcher to another live stream (the current one is
   excluded). **Focus** on any candidate in the list changes the target manually.
-- The backend worker re-checks the queue every `WATCHER_POLL_SECONDS`; if the
-  focused live goes offline or its campaign runs out of time, the focus moves to
-  the next live and the panel shows the new target. **Stop watcher** clears it.
-- **Start manual session** hands the focused target to the existing local timer
-  and opens the real stream. The watcher never auto-starts a session.
-- The watcher is a focus pointer only. It does not play, control, or simulate
-  viewing and sends no watch heartbeats.
+- The backend worker re-checks every `WATCHER_POLL_SECONDS`. If the focused live
+  goes offline while the campaign is still open, the panel switches to
+  **Live offline** and one Telegram notification is sent. If the campaign
+  completes, the watcher sends a completion notification and turns focused mode
+  off. The watcher does not auto-move and has no timer handoff.
+- **Stop watcher** clears the focus. Focus is independent of the manual watch
+  timer on the stream cards.
 
-The watcher and the manual session are independent: the watcher can move to a new
-live while the timer is still on the previous one, so the UI requires an explicit
-**Start manual session** click to follow it.
+The focus panel is monitor-only; it links to the stream but does not start a
+session.
 
 ## Manual watch sessions
 

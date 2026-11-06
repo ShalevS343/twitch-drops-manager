@@ -1,27 +1,29 @@
-import type { WatchCandidate, WatchFocus, WatchState } from '../api/types'
+import type { WatchCandidate, WatchState } from '../api/types'
 import { useFocusWatcher, useSetWatcherEnabled, useStopWatcher, useWatcher } from '../hooks/useApi'
 import { formatRemaining, formatTimeUntil } from '../lib/format'
 import { Badge } from './ui/Badge'
 import { Icon } from './ui/Icon'
 import { LoadingState } from './ui/Spinner'
 
-interface WatchFocusPanelProps {
-  sessionActive: boolean
-  onStartSession: (focus: WatchFocus) => void
-}
-
 function reasonCopy(state: WatchState): string | null {
+  if (state.status === 'offline') {
+    return 'This live went offline while the campaign still had time left. Pick another live or wait for it to return.'
+  }
   if (state.status === 'waiting') {
     return 'No eligible live stream is available right now. The watcher will pick one up when the queue refreshes.'
   }
 
   switch (state.focus?.reason) {
+    case 'live':
+      return 'Back online. The watcher will notify you if this live goes offline again.'
     case 'auto-move':
-      return 'The previous focused live left the queue, so the watcher moved to this one automatically.'
+      return 'The previous focused live left the queue, so the watcher moved to this one.'
     case 'auto':
       return 'Selected the most urgent live campaign in the queue.'
+    case 'next':
+      return 'Focused on the next available live stream.'
     case 'manual':
-      return 'Focus set manually. The watcher will move again if this live leaves the queue.'
+      return 'Focus set manually. The watcher will notify you if this live goes offline.'
     case 'next-unavailable':
       return 'No other live stream is available right now, so the current focus was kept.'
     case 'auto-unavailable':
@@ -37,10 +39,7 @@ function candidateLabel(candidate: WatchCandidate): string {
   } · ${formatRemaining(candidate.target_minutes)} left`
 }
 
-export function WatchFocusPanel({
-  sessionActive,
-  onStartSession,
-}: WatchFocusPanelProps) {
+export function WatchFocusPanel() {
   const watcher = useWatcher()
   const enable = useSetWatcherEnabled()
   const focus = useFocusWatcher()
@@ -51,7 +50,10 @@ export function WatchFocusPanel({
   const error =
     watcher.error ?? enable.error ?? focus.error ?? stop.error ?? null
   const enabled = state?.enabled ?? false
-  const focused = state?.status === 'focused' ? state.focus : null
+  const focused =
+    state?.status === 'focused' || state?.status === 'offline'
+      ? state.focus
+      : null
   const reason = state ? reasonCopy(state) : null
 
   function dispatch(candidate: WatchCandidate) {
@@ -72,7 +74,7 @@ export function WatchFocusPanel({
           </h2>
           <p>
             Keep one live target selected for the most urgent campaign. One
-            watcher at a time; switching focus moves the watcher, not playback.
+            watcher at a time; switching focus moves the watcher.
           </p>
         </div>
         <div className="inline-actions">
@@ -116,14 +118,19 @@ export function WatchFocusPanel({
           {enabled ? 'Focused mode' : 'Off'}
         </Badge>
         <Badge tone="muted">{state?.max_watchers ?? 1} watcher max</Badge>
-        {enabled && (
-          <Badge tone={state?.status === 'focused' ? 'success' : 'warning'} dot>
-            {state?.status === 'focused' ? 'Target locked' : 'Waiting for a live'}
+        {enabled && state?.status === 'focused' && (
+          <Badge tone="success" dot>
+            Target locked
           </Badge>
         )}
-        {enabled && state?.auto_move && (
-          <Badge tone="neutral">
-            <Icon name="refresh" size={11} /> Auto-move on
+        {enabled && state?.status === 'offline' && (
+          <Badge tone="warning" dot>
+            Live offline
+          </Badge>
+        )}
+        {enabled && state?.status === 'waiting' && (
+          <Badge tone="warning" dot>
+            Waiting for a live
           </Badge>
         )}
       </div>
@@ -140,9 +147,9 @@ export function WatchFocusPanel({
       {!watcher.isLoading && !error && !enabled && (
         <div className="watch-focus-empty">
           <p>
-            Focused mode lets the watcher follow one live stream at a time. It
-            only updates this target and the manual session handoff; it never
-            plays, controls, or simulates watching on Twitch.
+            {state?.reason === 'completed'
+              ? 'Focus mode ended because the campaign is complete.'
+              : 'Focused mode watches one live stream at a time and notifies you if it goes offline.'}
           </p>
         </div>
       )}
@@ -151,9 +158,15 @@ export function WatchFocusPanel({
         <div className="watch-focus-target">
           <div className="watch-focus-copy">
             <div className="badge-row">
-              <Badge tone="live" dot>
-                Live
-              </Badge>
+              {state?.status === 'offline' ? (
+                <Badge tone="warning" dot>
+                  Offline
+                </Badge>
+              ) : (
+                <Badge tone="live" dot>
+                  Live
+                </Badge>
+              )}
               <Badge>{focused.game_name || 'Unknown game'}</Badge>
             </div>
             <h3>{focused.user_name || focused.user_login}</h3>
@@ -184,20 +197,6 @@ export function WatchFocusPanel({
               <Icon name="external" size={13} />
               Open stream
             </a>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => onStartSession(focused)}
-              disabled={sessionActive}
-              title={
-                sessionActive
-                  ? 'Stop the current manual session first'
-                  : 'Start the local manual timer for this target'
-              }
-            >
-              <Icon name="play" size={13} />
-              {sessionActive ? 'Session active' : 'Start manual session'}
-            </button>
           </div>
         </div>
       )}
@@ -234,13 +233,6 @@ export function WatchFocusPanel({
         </div>
       )}
 
-      {enabled && (
-        <p className="watch-session-note">
-          <Icon name="alert" size={14} />
-          The watcher is a queue focus pointer only. It never sends watch
-          heartbeats, plays a stream, or simulates viewing.
-        </p>
-      )}
     </section>
   )
 }

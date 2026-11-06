@@ -9,7 +9,6 @@ from app.core.config import Settings
 from app.core.exceptions import NotConfiguredError, ProviderError
 from app.domain.models import Campaign, Game, ScanRun
 from app.domain.parsing import (
-    campaign_gql_id_from_external_id,
     campaign_matches_stream,
     campaigns_of,
     game_name,
@@ -23,7 +22,6 @@ from app.repositories.campaign_starts import CampaignStartRepository
 from app.repositories.campaigns import CampaignRepository
 from app.repositories.games import GameRepository
 from app.repositories.notifications import NotificationRepository
-from app.repositories.progress import ProgressRepository
 from app.repositories.streams import StreamRepository
 
 logger = logging.getLogger(__name__)
@@ -89,7 +87,7 @@ class ScanService:
             await StreamRepository(self.session).replace(streams)
             await self.session.commit()
 
-            notified = await self._notify(streams)
+            notified = await self._notify()
             await self.session.commit()
 
             self.session.add(
@@ -240,104 +238,33 @@ class ScanService:
 
         return list(found.values())
 
-    async def _notify(self, streams: list[dict[str, Any]]) -> int:
+    async def _notify(self) -> int:
         start_repo = CampaignStartRepository(self.session)
         pending_starts = await start_repo.pending()
 
-        # Stream alerts are tied to a campaign-start event: without a new
-        # campaign there is no stream digest, even if new streams appeared.
+        # Telegram notifications are campaign-start (and focused-watcher) only.
+        # New live streams are intentionally not sent.
         if not pending_starts:
             return 0
         if not self.telegram.configured:
             return 0
 
         repo = NotificationRepository(self.session)
-
-        claimed_starts: list[tuple[Campaign, str]] = []
+        claimed: list[tuple[Campaign, str]] = []
         already_notified: set[str] = set()
         for start, campaign in pending_starts:
             dedupe_key = f"campaign-started:{campaign.external_id}"
             if await repo.claim(dedupe_key):
-                claimed_starts.append((campaign, dedupe_key))
+                claimed.append((campaign, dedupe_key))
             else:
                 already_notified.add(start.external_id)
         if already_notified:
             await start_repo.delete(already_notified)
-
-        # Nothing new to announce (the starts were already delivered); do not
-        # send a standalone stream digest.
-        if not claimed_starts:
+        if not claimed:
             return 0
 
-        started_game_ids = {campaign.game_id for campaign, _ in claimed_starts}
-        started_campaign_ids = {campaign.id for campaign, _ in claimed_starts}
-        start_key_by_game: dict[int, str] = {}
-        for campaign, _ in claimed_starts:
-            current = start_key_by_game.get(campaign.game_id)
-            if current is None or campaign.external_id < current:
-                start_key_by_game[campaign.game_id] = campaign.external_id
-
-        claimed_streams: list[tuple[dict[str, Any], list[str], str]] = []
-        if streams:
-            progress_rows = await ProgressRepository(self.session).list()
-            scoped = bool(progress_rows)
-            active_campaign_ids = {
-                row.campaign_gql_id for row in progress_rows if row.campaign_gql_id
-            }
-
-            campaign_gql_by_id: dict[int, str] = {}
-            if scoped:
-                campaign_ids = {
-                    campaign_id
-                    for stream in streams
-                    for campaign_id in stream["campaign_ids"]
-                }
-                campaigns = await CampaignRepository(self.session).by_ids(campaign_ids)
-                campaign_gql_by_id = {
-                    campaign.id: campaign_gql_id_from_external_id(campaign.external_id)
-                    for campaign in campaigns
-                }
-
-            for stream in streams:
-                if stream["game_id"] not in started_game_ids:
-                    continue
-
-                if scoped:
-                    campaign_names = [
-                        name
-                        for campaign_id, name in zip(
-                            stream["campaign_ids"], stream["campaign_names"]
-                        )
-                        if campaign_gql_by_id.get(campaign_id) in active_campaign_ids
-                    ]
-                    # A just-started campaign may not be in drop_progress yet.
-                    campaign_names.extend(
-                        name
-                        for campaign_id, name in zip(
-                            stream["campaign_ids"], stream["campaign_names"]
-                        )
-                        if campaign_id in started_campaign_ids
-                    )
-                    campaign_names = list(dict.fromkeys(campaign_names))
-                    if not campaign_names:
-                        continue
-                else:
-                    campaign_names = list(stream["campaign_names"])
-
-                # Key by the campaign-start event so a later campaign for the
-                # same game can notify the same channel again.
-                start_key = start_key_by_game[stream["game_id"]]
-                dedupe_key = (
-                    f"stream-alert:{start_key}:"
-                    f"{stream['user_login'].casefold()}:{stream['game_id']}"
-                )
-                if await repo.claim(dedupe_key):
-                    claimed_streams.append((stream, campaign_names, dedupe_key))
-
-        lines = ["Twitch Drops update"]
-
-        lines.append("New campaign:")
-        for campaign, _ in claimed_starts:
+        lines = ["Twitch Drops update", "New campaign:"]
+        for campaign, _ in claimed:
             game = campaign.external_id.rsplit(":", 1)[0]
             line = f"• {game} — {campaign.name}"
             if campaign.ends_at:
@@ -346,36 +273,15 @@ class ScanService:
             if campaign.details_url:
                 lines.append(f"  {campaign.details_url}")
 
-        if claimed_streams:
-            lines.append("")
-            noun = "stream" if len(claimed_streams) == 1 else "streams"
-            lines.append(f"Live now ({len(claimed_streams)} {noun}):")
-            for stream, campaign_names, _ in claimed_streams[:10]:
-                campaign_text = (
-                    f" ({', '.join(campaign_names)})" if campaign_names else ""
-                )
-                lines.append(
-                    f"• {stream['game_name']} — {stream['user_name']}: "
-                    f"{stream['title']}{campaign_text}"
-                )
-                lines.append(f"  {stream['url']}")
-
-            extra = len(claimed_streams) - 10
-            if extra > 0:
-                lines.append(f"…and {extra} more")
-
         try:
             await self.telegram.send("\n".join(lines))
         except ProviderError as exc:
             logger.warning("Telegram notification failed: %s", exc)
-            for _, dedupe_key in claimed_starts:
-                await repo.release(dedupe_key)
-            for _, _, dedupe_key in claimed_streams:
+            for _, dedupe_key in claimed:
                 await repo.release(dedupe_key)
             return 0
 
         await start_repo.delete(
-            {campaign.external_id for campaign, _ in claimed_starts}
+            {campaign.external_id for campaign, _ in claimed}
         )
-
-        return len(claimed_starts) + len(claimed_streams)
+        return len(claimed)
