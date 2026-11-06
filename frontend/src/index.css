@@ -49,6 +49,7 @@
 
 html {
   background: var(--bg);
+  overflow-x: clip;
 }
 
 body {
@@ -58,6 +59,7 @@ body {
   font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.6;
+  overflow-x: clip;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -491,6 +493,13 @@ code {
   color: var(--accent-ink);
 }
 
+.btn-primary:disabled {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+  color: var(--muted);
+  opacity: 1;
+}
+
 .btn-secondary {
   border-color: var(--border-strong);
   background: var(--surface);
@@ -849,6 +858,38 @@ code {
   grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
 }
 
+.game-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.game-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.game-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.game-group-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.game-group-count {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
 .callout {
   display: flex;
   align-items: center;
@@ -1042,6 +1083,16 @@ code {
   background: transparent;
   color: var(--text);
   outline: none;
+}
+
+.per-game-field {
+  gap: 6px;
+  color: var(--muted);
+}
+
+.per-game-label {
+  font-size: 12.5px;
+  white-space: nowrap;
 }
 
 .search-row {
@@ -1365,6 +1416,149 @@ code {
   margin-top: 4px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.queue-campaign-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 9px;
+}
+
+.queue-card.active {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
+/* ------------------------------------------------------ manual watch session */
+
+.watch-session {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-left: 3px solid var(--accent);
+}
+
+.watch-session-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.watch-session-copy {
+  min-width: 0;
+}
+
+.watch-session-copy h2 {
+  margin: 7px 0 0;
+  font-size: 1.45rem;
+  line-height: 1.2;
+}
+
+.watch-session-timer {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.watch-session-clock {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.watch-session-target {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.watch-session-track {
+  height: 10px;
+  margin: 0;
+}
+
+.watch-session-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.watch-session-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--muted-2);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.watch-session-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.watch-session-actions {
+  margin-top: 0;
+}
+
+.watch-session-next {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.next-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.next-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.next-list li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.next-list strong {
+  font-size: 13.5px;
+}
+
+.next-list span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.next-list .btn {
+  flex: 0 0 auto;
 }
 
 /* ---------------------------------------------------------------- profile */
@@ -1991,5 +2185,18 @@ code {
   .callout {
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+
+  .watch-session-clock {
+    font-size: 2rem;
+  }
+
+  .next-list li {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .next-list .btn {
+    width: 100%;
   }
 }
