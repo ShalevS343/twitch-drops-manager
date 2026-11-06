@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -9,7 +10,6 @@ from app.api.deps import SessionDep
 from app.domain.models import DropProgress, ProgressSnapshot
 from app.domain.parsing import campaign_gql_id_from_external_id, parse_iso_datetime
 from app.domain.schemas import WatchQueueCampaignOut, WatchQueueItemOut
-from app.repositories.campaigns import CampaignRepository
 from app.repositories.progress import ProgressRepository
 from app.repositories.streams import StreamRepository
 from app.services.progress_metrics import RATE_WINDOW, campaign_totals, drop_metrics
@@ -122,11 +122,13 @@ async def list_watch_queue(session: SessionDep) -> list[WatchQueueItemOut]:
     for snapshot in snapshots:
         snapshots_by_drop.setdefault(snapshot.drop_id, []).append(snapshot)
 
+    rows = await StreamRepository(session).list_watch_queue_rows()
+
     db_campaigns: dict[str, tuple[str, str | None]] = {}
-    for campaign in await CampaignRepository(session).list_all():
-        gql_id = campaign_gql_id_from_external_id(campaign.external_id)
+    for row in rows:
+        gql_id = campaign_gql_id_from_external_id(row.external_id)
         if gql_id:
-            db_campaigns.setdefault(gql_id, (campaign.name, campaign.ends_at))
+            db_campaigns.setdefault(gql_id, (row.campaign_name, row.ends_at))
 
     summaries = _build_campaign_summaries(
         progress_rows, snapshots_by_drop, db_campaigns, now
@@ -134,36 +136,44 @@ async def list_watch_queue(session: SessionDep) -> list[WatchQueueItemOut]:
     if not summaries:
         return []
 
-    streams = await StreamRepository(session).list(live=True)
+    streams: dict[int, Any] = {}
+    campaign_ids_by_stream: dict[int, list[str]] = {}
+    seen_external_ids: dict[int, set[str]] = {}
     keyed_items: list[tuple[tuple[int, float, int, int], WatchQueueItemOut]] = []
 
-    for stream in streams:
-        campaign_ids: list[str] = []
-        for match in stream.matches:
-            campaign = match.campaign
-            if campaign is None:
-                continue
-            gql_id = campaign_gql_id_from_external_id(campaign.external_id)
-            if gql_id in summaries and gql_id not in campaign_ids:
-                campaign_ids.append(gql_id)
-
-        if not campaign_ids:
+    for row in rows:
+        gql_id = campaign_gql_id_from_external_id(row.external_id)
+        if gql_id not in summaries:
             continue
 
+        if row.stream_id not in streams:
+            streams[row.stream_id] = row
+            campaign_ids_by_stream[row.stream_id] = []
+            seen_external_ids[row.stream_id] = set()
+
+        if row.external_id in seen_external_ids[row.stream_id]:
+            continue
+        seen_external_ids[row.stream_id].add(row.external_id)
+
+        campaign_ids = campaign_ids_by_stream[row.stream_id]
+        if gql_id not in campaign_ids:
+            campaign_ids.append(gql_id)
+
+    for stream_id, campaign_ids in campaign_ids_by_stream.items():
+        stream = streams[stream_id]
         matched = [summaries[campaign_id] for campaign_id in campaign_ids]
         matched.sort(key=_campaign_sort_key)
 
-        game = stream.game
         item = WatchQueueItemOut(
-            stream_id=stream.id,
+            stream_id=stream.stream_id,
             user_login=stream.user_login,
             user_name=stream.user_name,
             title=stream.title,
             viewers=stream.viewers,
             language=stream.language,
             url=stream.url,
-            game_name=game.name if game is not None else "",
-            game_box_art_url=game.box_art_url if game is not None else "",
+            game_name=stream.game_name or "",
+            game_box_art_url=stream.game_box_art_url or "",
             campaigns=[
                 WatchQueueCampaignOut(
                     campaign_id=summary.campaign_id,
