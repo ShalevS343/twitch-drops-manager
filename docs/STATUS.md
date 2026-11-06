@@ -1,8 +1,8 @@
 # Status / handoff
 
 Last updated: **2026-11-06**
-Source of truth: `main` after merging `feat/track-games` (run `git log -1` for the
-exact tip).
+Source of truth: `main` (run `git log -1` for the exact tip). Game tracking +
+violet UI merged in `77bfc75`.
 
 ## Current state
 
