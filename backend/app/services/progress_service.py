@@ -1,4 +1,5 @@
 import logging
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -7,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.exceptions import NotConfiguredError, ProviderError
 from app.domain.models import TwitchAuth
-from app.domain.parsing import parse_inventory
+from app.domain.parsing import parse_inventory, parse_iso_datetime
 from app.providers.telegram import TelegramProvider
 from app.providers.twitch_user import TwitchUserProvider
 from app.repositories.notifications import NotificationRepository
@@ -17,6 +18,21 @@ from app.repositories.twitch_auth import TwitchAuthRepository
 logger = logging.getLogger(__name__)
 
 TOKEN_REFRESH_MARGIN = timedelta(minutes=5)
+SNAPSHOT_RETENTION = timedelta(hours=24)
+CAMPAIGN_REMINDER_WINDOWS = (
+    (timedelta(hours=24), "24h"),
+    (timedelta(hours=2), "2h"),
+)
+
+
+def _format_remaining(value: timedelta) -> str:
+    total_minutes = max(0, math.ceil(value.total_seconds() / 60))
+    hours, minutes = divmod(total_minutes, 60)
+    if hours and minutes:
+        return f"{hours}h {minutes}m"
+    if hours:
+        return f"{hours}h"
+    return f"{minutes}m"
 
 
 @dataclass
@@ -55,10 +71,15 @@ class ProgressService:
             campaigns = []
 
         rows = parse_inventory(campaigns)
-        await ProgressRepository(self.session).replace(rows)
+        now = datetime.now(timezone.utc)
+        repo = ProgressRepository(self.session)
+        await repo.replace(rows)
+        await repo.add_snapshots(rows)
+        await repo.prune_snapshots(now - SNAPSHOT_RETENTION)
         await self.session.commit()
 
         notified = await self._notify(rows)
+        notified += await self._notify_deadlines(rows)
         await self.session.commit()
 
         campaign_count = len(
@@ -137,5 +158,67 @@ class ProgressService:
 
             await repo.mark_sent(dedupe_key)
             sent += 1
+
+        return sent
+
+    async def _notify_deadlines(self, rows: list[dict]) -> int:
+        if not self.telegram.configured:
+            return 0
+
+        grouped: dict[str, list[dict]] = {}
+        for row in rows:
+            if row["is_claimed"]:
+                continue
+            campaign_id = row["campaign_gql_id"]
+            if not campaign_id:
+                continue
+            grouped.setdefault(campaign_id, []).append(row)
+
+        if not grouped:
+            return 0
+
+        now = datetime.now(timezone.utc)
+        repo = NotificationRepository(self.session)
+        sent = 0
+
+        for campaign_id, campaign_rows in grouped.items():
+            ends_at = parse_iso_datetime(campaign_rows[0].get("campaign_ends_at"))
+            if ends_at is None:
+                continue
+
+            remaining = ends_at - now
+            if remaining <= timedelta(0):
+                continue
+
+            total_remaining = sum(
+                max(0, int(row["required_minutes"]) - int(row["current_minutes"]))
+                for row in campaign_rows
+            )
+
+            for window, suffix in CAMPAIGN_REMINDER_WINDOWS:
+                if remaining > window:
+                    continue
+
+                dedupe_key = f"campaign-ending:{campaign_id}:{suffix}"
+                if await repo.exists(dedupe_key):
+                    continue
+
+                message = (
+                    "Twitch campaign ending soon!\n"
+                    f"Game: {campaign_rows[0]['game_name'] or 'Unknown'}\n"
+                    f"Campaign: {campaign_rows[0]['campaign_name']}\n"
+                    f"Ends in: {_format_remaining(remaining)}\n"
+                    f"Unclaimed drops: {len(campaign_rows)}\n"
+                    f"Remaining watch time: {total_remaining} min"
+                )
+
+                try:
+                    await self.telegram.send(message)
+                except ProviderError as exc:
+                    logger.warning("Telegram notification failed: %s", exc)
+                    continue
+
+                await repo.mark_sent(dedupe_key)
+                sent += 1
 
         return sent

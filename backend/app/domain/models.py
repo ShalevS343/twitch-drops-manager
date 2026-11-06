@@ -177,6 +177,16 @@ class DropProgress(Base):
     )
 
 
+class ProgressSnapshot(Base):
+    """A point-in-time reading used to estimate watch rate and ETA."""
+
+    __tablename__ = "progress_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    drop_id: Mapped[str] = mapped_column(String(128), index=True)
+    current_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 
 class ScanRun(Base):
     __tablename__ = "scan_runs"

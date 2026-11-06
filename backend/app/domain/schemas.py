@@ -101,6 +101,9 @@ class ProgressDropOut(BaseModel):
     starts_at: str | None = None
     ends_at: str | None = None
     benefits: list[str] = Field(default_factory=list)
+    remaining_minutes: int = 0
+    rate_minutes_per_hour: float | None = None
+    eta_minutes: int | None = None
 
 
 class ProgressCampaignOut(BaseModel):
@@ -112,6 +115,31 @@ class ProgressCampaignOut(BaseModel):
     claimed_count: int = 0
     total_count: int = 0
     drops: list[ProgressDropOut] = Field(default_factory=list)
+    remaining_minutes: int = 0
+    eta_minutes: int | None = None
+
+
+class WatchQueueCampaignOut(BaseModel):
+    campaign_id: str
+    campaign_name: str
+    ends_at: str | None = None
+    remaining_minutes: int = 0
+    eta_minutes: int | None = None
+    next_drop_name: str | None = None
+    next_drop_remaining_minutes: int | None = None
+
+
+class WatchQueueItemOut(BaseModel):
+    stream_id: int
+    user_login: str
+    user_name: str
+    title: str
+    viewers: int
+    language: str
+    url: str
+    game_name: str
+    game_box_art_url: str
+    campaigns: list[WatchQueueCampaignOut] = Field(default_factory=list)
 
 
 class ProgressRefreshOut(BaseModel):

@@ -9,6 +9,7 @@ from app.core.config import Settings
 from app.core.exceptions import NotConfiguredError, ProviderError
 from app.domain.models import Campaign, Game, ScanRun
 from app.domain.parsing import (
+    campaign_gql_id_from_external_id,
     campaign_matches_stream,
     campaigns_of,
     game_name,
@@ -21,6 +22,7 @@ from app.providers.twitch import TwitchProvider
 from app.repositories.campaigns import CampaignRepository
 from app.repositories.games import GameRepository
 from app.repositories.notifications import NotificationRepository
+from app.repositories.progress import ProgressRepository
 from app.repositories.streams import StreamRepository
 
 logger = logging.getLogger(__name__)
@@ -208,10 +210,42 @@ class ScanService:
         if not streams or not self.telegram.configured:
             return 0
 
+        progress_rows = await ProgressRepository(self.session).list()
+        scoped = bool(progress_rows)
+        active_campaign_ids = {
+            row.campaign_gql_id for row in progress_rows if row.campaign_gql_id
+        }
+
+        campaign_gql_by_id: dict[int, str] = {}
+        if scoped:
+            campaign_ids = {
+                campaign_id
+                for stream in streams
+                for campaign_id in stream["campaign_ids"]
+            }
+            campaigns = await CampaignRepository(self.session).by_ids(campaign_ids)
+            campaign_gql_by_id = {
+                campaign.id: campaign_gql_id_from_external_id(campaign.external_id)
+                for campaign in campaigns
+            }
+
         repo = NotificationRepository(self.session)
         sent = 0
 
         for stream in streams:
+            if scoped:
+                campaign_names = [
+                    name
+                    for campaign_id, name in zip(
+                        stream["campaign_ids"], stream["campaign_names"]
+                    )
+                    if campaign_gql_by_id.get(campaign_id) in active_campaign_ids
+                ]
+                if not campaign_names:
+                    continue
+            else:
+                campaign_names = list(stream["campaign_names"])
+
             dedupe_key = f"{stream['user_login'].casefold()}:{stream['game_id']}"
             if await repo.exists(dedupe_key):
                 continue
@@ -221,7 +255,7 @@ class ScanService:
                 f"Game: {stream['game_name']}\n"
                 f"Streamer: {stream['user_name']}\n"
                 f"Title: {stream['title']}\n"
-                f"Campaigns: {', '.join(stream['campaign_names'])}\n"
+                f"Campaigns: {', '.join(campaign_names)}\n"
                 f"{stream['url']}"
             )
 
