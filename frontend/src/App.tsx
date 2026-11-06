@@ -1,63 +1,242 @@
-import { CampaignCard } from './components/CampaignCard'
-import { GameSelector } from './components/GameSelector'
-import { ProgressPanel } from './components/ProgressPanel'
-import { StatusPanel } from './components/StatusPanel'
-import { StreamCard } from './components/StreamCard'
-import { WatchQueuePanel } from './components/WatchQueuePanel'
-import { useCampaigns, useGames, useStatus, useStreams } from './hooks/useApi'
+import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
+
+import { CampaignsPage } from './pages/CampaignsPage'
+import { OverviewPage } from './pages/OverviewPage'
+import { ProfilePage } from './pages/ProfilePage'
+import { ProgressPage } from './pages/ProgressPage'
+import { SettingsPage } from './pages/SettingsPage'
+import { StreamsPage } from './pages/StreamsPage'
+import { WatchQueuePage } from './pages/WatchQueuePage'
+import {
+  useRefreshProgress,
+  useScan,
+  useStatus,
+  useTwitchStatus,
+} from './hooks/useApi'
+import { useTab } from './hooks/useTab'
+import { TABS } from './lib/tabs'
+import { Avatar } from './components/ui/Avatar'
+import { Icon } from './components/ui/Icon'
+import { PageHeader } from './components/ui/PageHeader'
+import { TabNav } from './components/ui/TabNav'
+
+interface Toast {
+  tone: 'success' | 'danger'
+  message: string
+}
 
 export default function App() {
+  const { tab, navigate } = useTab()
   const status = useStatus()
-  const games = useGames()
-  const campaigns = useCampaigns()
-  const streams = useStreams()
+  const twitch = useTwitchStatus()
+  const scan = useScan()
+  const refresh = useRefreshProgress()
+
+  const [toast, setToast] = useState<Toast | null>(null)
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), 6000)
+    return () => window.clearTimeout(timer)
+  }, [toast])
+
+  const meta = TABS.find((item) => item.id === tab) ?? TABS[0]
+  const connected = twitch.data?.connected === true
+  const twitchName = twitch.data?.display_name || twitch.data?.login
+
+  async function handleScan() {
+    try {
+      const result = await scan.mutateAsync(undefined)
+      setToast({
+        tone: 'success',
+        message: `Scan complete — ${result.campaign_count} campaigns, ${result.stream_count} streams, ${result.notified_count} notifications.`,
+      })
+    } catch (err) {
+      setToast({
+        tone: 'danger',
+        message: err instanceof Error ? err.message : 'Scan failed',
+      })
+    }
+  }
+
+  async function handleRefresh() {
+    try {
+      const result = await refresh.mutateAsync(undefined)
+      setToast({
+        tone: 'success',
+        message: `Synced ${result.drop_count} drops from ${result.campaign_count} campaign(s).`,
+      })
+    } catch (err) {
+      setToast({
+        tone: 'danger',
+        message: err instanceof Error ? err.message : 'Could not refresh progress',
+      })
+    }
+  }
+
+  let page: ReactNode
+  switch (tab) {
+    case 'campaigns':
+      page = <CampaignsPage />
+      break
+    case 'progress':
+      page = <ProgressPage twitch={twitch} />
+      break
+    case 'watch-queue':
+      page = <WatchQueuePage />
+      break
+    case 'streams':
+      page = <StreamsPage />
+      break
+    case 'settings':
+      page = <SettingsPage status={status} twitch={twitch} />
+      break
+    case 'profile':
+      page = <ProfilePage twitch={twitch} />
+      break
+    case 'overview':
+    default:
+      page = <OverviewPage status={status} twitch={twitch} />
+      break
+  }
 
   return (
-    <main className="app">
-      <header>
-        <h1>Twitch Drops Manager</h1>
-        <p className="muted">Track active drops and live eligible streams.</p>
-      </header>
+    <>
+      <a className="skip-link" href="#main-content">
+        Skip to content
+      </a>
 
-      <StatusPanel status={status.data} isLoading={status.isLoading} error={status.error} />
+      <div className="app-shell">
+        <div className="main">
+          <header className="topbar">
+            <a
+              className="mobile-brand"
+              href="#/overview"
+              aria-label="Twitch Drops Manager overview"
+            >
+              <span className="brand-mark">
+                <Icon name="gift" size={18} />
+              </span>
+            </a>
 
-      <ProgressPanel />
+            <PageHeader title={meta.title} description={meta.subtitle} />
 
-      <WatchQueuePanel />
+            <div className="topbar-actions">
+              <a
+                className="mobile-connection"
+                href="#/profile"
+                aria-label={
+                  connected
+                    ? `Twitch connected as ${twitchName ?? 'unknown'}`
+                    : 'Connect Twitch'
+                }
+              >
+                <span className={`status-dot${connected ? ' online' : ''}`} />
+                <span>{connected ? twitchName || 'Connected' : 'Connect'}</span>
+              </a>
 
-      <GameSelector games={games.data ?? []} isLoading={games.isLoading} />
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleRefresh}
+                disabled={refresh.isPending || !connected}
+                title={connected ? 'Refresh drop progress' : 'Connect Twitch first'}
+                aria-label="Refresh progress"
+              >
+                <Icon name="refresh" size={16} />
+                <span className="btn-label">
+                  {refresh.isPending ? 'Refreshing…' : 'Refresh progress'}
+                </span>
+              </button>
 
-      <section>
-        <h2>
-          Campaigns <span className="muted">({campaigns.data?.length ?? 0})</span>
-        </h2>
-        {campaigns.isLoading && <p className="muted">Loading campaigns…</p>}
-        {campaigns.error && <p className="error">{campaigns.error.message}</p>}
-        {campaigns.data?.length === 0 && (
-          <p className="muted">No campaigns cached yet. Run a scan.</p>
-        )}
-        <div className="grid">
-          {campaigns.data?.map((campaign) => (
-            <CampaignCard key={campaign.id} campaign={campaign} />
-          ))}
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleScan}
+                disabled={scan.isPending}
+                aria-label="Scan now"
+              >
+                <Icon name="scan" size={16} />
+                <span className="btn-label">
+                  {scan.isPending ? 'Scanning…' : 'Scan now'}
+                </span>
+              </button>
+            </div>
+          </header>
+
+          <aside className="sidebar">
+            <a
+              className="brand"
+              href="#/overview"
+              aria-label="Twitch Drops Manager overview"
+            >
+              <span className="brand-mark">
+                <Icon name="gift" size={20} />
+              </span>
+              <span className="brand-copy">
+                <span className="brand-name">Drops Manager</span>
+                <span className="brand-sub">Twitch dashboard</span>
+              </span>
+            </a>
+
+            <div className="nav-section-label">Dashboard</div>
+            <TabNav tabs={TABS} active={tab} onNavigate={navigate} />
+
+            <div className="sidebar-footer">
+              <a className="connection-chip" href="#/profile">
+                {connected ? (
+                  <Avatar
+                    name={twitchName}
+                    src={twitch.data?.profile_image_url}
+                    size="sm"
+                  />
+                ) : (
+                  <span className="connection-icon" aria-hidden="true">
+                    <Icon name="twitch" size={16} />
+                  </span>
+                )}
+                <span className="connection-copy">
+                  <span className="connection-label">
+                    {connected ? twitchName || 'Twitch connected' : 'Twitch not connected'}
+                  </span>
+                  <span className="connection-sub">
+                    {connected ? 'Connected · Manage' : 'Connect account'}
+                  </span>
+                </span>
+                <span
+                  className={`status-dot${connected ? ' online' : ''}`}
+                  aria-hidden="true"
+                />
+              </a>
+            </div>
+          </aside>
+
+          <main id="main-content" className="content" tabIndex={-1}>
+            {page}
+          </main>
         </div>
-      </section>
+      </div>
 
-      <section>
-        <h2>
-          Live Streams <span className="muted">({streams.data?.length ?? 0})</span>
-        </h2>
-        {streams.isLoading && <p className="muted">Loading streams…</p>}
-        {streams.error && <p className="error">{streams.error.message}</p>}
-        {streams.data?.length === 0 && (
-          <p className="muted">No matching live streams right now.</p>
-        )}
-        <div className="grid">
-          {streams.data?.map((stream) => (
-            <StreamCard key={stream.id} stream={stream} />
-          ))}
+      {toast && (
+        <div className="toast-stack" aria-live="polite" aria-atomic="true">
+          <div className={`toast toast-${toast.tone}`} role="status">
+            <Icon
+              name={toast.tone === 'success' ? 'check' : 'alert'}
+              size={16}
+            />
+            <span className="toast-message">{toast.message}</span>
+            <button
+              type="button"
+              className="toast-close"
+              onClick={() => setToast(null)}
+              aria-label="Dismiss notification"
+            >
+              <Icon name="x" size={14} />
+            </button>
+          </div>
         </div>
-      </section>
-    </main>
+      )}
+    </>
   )
 }

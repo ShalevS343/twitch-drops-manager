@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 
 import type { Game } from '../api/types'
 import { useSaveGames } from '../hooks/useApi'
+import { EmptyState } from './ui/EmptyState'
+import { Icon } from './ui/Icon'
+import { LoadingState } from './ui/Spinner'
 
 interface Props {
   games: Game[]
@@ -83,25 +86,25 @@ export function GameSelector({ games, isLoading }: Props) {
   }
 
   if (isLoading) {
-    return (
-      <section className="panel">
-        <p className="muted">Loading games…</p>
-      </section>
-    )
+    return <LoadingState label="Loading games…" />
   }
 
   if (games.length === 0) {
     return (
-      <section className="panel">
-        <p className="muted">No games cached yet. Run a scan to load available games.</p>
-      </section>
+      <EmptyState
+        icon="gift"
+        title="No games cached yet"
+        message="Run a scan to load the games available for your Twitch account."
+        compact
+      />
     )
   }
 
   return (
-    <section className="panel">
-      <h2>Game whitelist</h2>
-      <p className="muted">Only campaigns for selected games are tracked and scanned.</p>
+    <div className="game-selector">
+      <p className="muted small">
+        Only campaigns for selected games are tracked and scanned.
+      </p>
 
       <div className="whitelist-selected">
         <div className="section-label">
@@ -127,10 +130,11 @@ export function GameSelector({ games, isLoading }: Props) {
                     )}
                     <button
                       type="button"
+                      className="chip-remove"
                       onClick={() => remove(name)}
                       aria-label={`Remove ${name} from whitelist`}
                     >
-                      ×
+                      <Icon name="x" size={12} />
                     </button>
                   </span>
                 )
@@ -140,16 +144,19 @@ export function GameSelector({ games, isLoading }: Props) {
       </div>
 
       <div className="search-row">
-        <input
-          className="search-input"
-          type="search"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search games…"
-          aria-label="Search games"
-        />
+        <label className="search-field">
+          <span className="sr-only">Search games</span>
+          <Icon name="search" size={16} />
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search games…"
+            aria-label="Search games"
+          />
+        </label>
         {search && (
-          <button type="button" className="secondary" onClick={() => setSearch('')}>
+          <button type="button" className="btn btn-secondary" onClick={() => setSearch('')}>
             Clear
           </button>
         )}
@@ -181,20 +188,26 @@ export function GameSelector({ games, isLoading }: Props) {
               <small className="muted">
                 {game.campaign_count} {game.campaign_count === 1 ? 'campaign' : 'campaigns'}
               </small>
-              <span className="add-mark">+</span>
+              <span className="add-mark" aria-hidden="true">
+                <Icon name="plus" size={12} />
+              </span>
             </button>
           ))
         )}
       </div>
 
       <div className="whitelist-footer">
-        <button onClick={saveSelection} disabled={!dirty || save.isPending}>
+        <button
+          className="btn btn-primary"
+          onClick={saveSelection}
+          disabled={!dirty || save.isPending}
+        >
           {save.isPending ? 'Saving…' : 'Save selection'}
         </button>
-        {dirty && <span className="muted">Unsaved changes</span>}
-        {save.error && <span className="error">{save.error.message}</span>}
-        {!dirty && save.isSuccess && <span className="success">Saved.</span>}
+        {dirty && <span className="muted small">Unsaved changes</span>}
+        {save.error && <span className="error small">{save.error.message}</span>}
+        {!dirty && save.isSuccess && <span className="success small">Saved.</span>}
       </div>
-    </section>
+    </div>
   )
 }
