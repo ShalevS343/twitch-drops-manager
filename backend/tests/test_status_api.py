@@ -5,7 +5,12 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.api.v1.progress import twitch_connect, twitch_status
+from app.api.v1.progress import (
+    _warm_up_profile_on_startup,
+    refresh_twitch_profile,
+    twitch_connect,
+    twitch_status,
+)
 from app.api.v1.status import status
 from app.core.config import Settings
 from app.core.db import Base
@@ -82,7 +87,7 @@ async def test_status_reports_unkeyed_when_api_key_missing(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_twitch_status_uses_profile_and_connected_at():
+async def test_twitch_status_returns_fallback_without_waiting_for_profile(monkeypatch):
     engine, factory = await _session()
     expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
     provider = FakeTwitchUserProvider(
@@ -90,6 +95,11 @@ async def test_twitch_status_uses_profile_and_connected_at():
             "displayName": "Viewer Name",
             "profileImageURL": "https://example.test/avatar.png",
         }
+    )
+    scheduled: list[tuple[str, object]] = []
+    monkeypatch.setattr(
+        "app.api.v1.progress.schedule_profile_refresh",
+        lambda user_id, provider=None: scheduled.append((user_id, provider)),
     )
 
     async with factory() as session:
@@ -108,16 +118,52 @@ async def test_twitch_status_uses_profile_and_connected_at():
         assert result.login == "viewer"
         assert result.user_id == "123"
         assert result.expires_at == expires_at
-        assert result.display_name == "Viewer Name"
-        assert result.profile_image_url == "https://example.test/avatar.png"
+        assert result.display_name == "viewer"
+        assert result.profile_image_url is None
         assert result.connected_at == auth.updated_at
-        assert provider.calls == [("token", "123")]
+        # The cold path must not await Twitch: it only schedules the refresh.
+        assert provider.calls == []
+        assert scheduled == [("123", provider)]
 
     await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_twitch_status_falls_back_when_profile_fails():
+async def test_refresh_twitch_profile_stores_profile_in_separate_session():
+    engine, factory = await _session()
+    provider = FakeTwitchUserProvider(
+        profile={
+            "displayName": "Viewer Name",
+            "profileImageURL": "https://example.test/avatar.png",
+        }
+    )
+
+    async with factory() as session:
+        await TwitchAuthRepository(session).save(
+            user_id="123",
+            login="viewer",
+            access_token="token",
+            refresh_token="refresh",
+            expires_at=None,
+        )
+        await session.commit()
+
+    await refresh_twitch_profile("123", provider, session_factory=factory)
+
+    async with factory() as session:
+        profile = await TwitchProfileRepository(session).get()
+        assert profile is not None
+        assert profile.user_id == "123"
+        assert profile.display_name == "Viewer Name"
+        assert profile.profile_image_url == "https://example.test/avatar.png"
+
+    assert provider.calls == [("token", "123")]
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_refresh_twitch_profile_stores_empty_row_on_failure():
     engine, factory = await _session()
     provider = FakeTwitchUserProvider(error=ProviderError("rate limited"))
 
@@ -131,24 +177,55 @@ async def test_twitch_status_falls_back_when_profile_fails():
         )
         await session.commit()
 
-        result = await twitch_status(session, provider)
+    await refresh_twitch_profile("123", provider, session_factory=factory)
 
-        assert result.connected is True
-        assert result.login == "viewer"
-        assert result.display_name == "viewer"
-        assert result.profile_image_url is None
-        assert result.connected_at is not None
-
-        # The failure is persisted as an empty profile so later status calls
-        # never retry Twitch GQL until the account is reconnected.
+    async with factory() as session:
         profile = await TwitchProfileRepository(session).get()
         assert profile is not None
+        assert profile.user_id == "123"
         assert profile.display_name == ""
         assert profile.profile_image_url == ""
 
-        second = await twitch_status(session, provider)
-        assert second.display_name == "viewer"
-        assert provider.calls == [("token", "123")]
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_startup_warmup_schedules_only_when_profile_is_missing(monkeypatch):
+    engine, factory = await _session()
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        "app.api.v1.progress.schedule_profile_refresh",
+        lambda user_id, provider=None: scheduled.append(user_id),
+    )
+
+    # No connection yet.
+    await _warm_up_profile_on_startup(session_factory=factory)
+    assert scheduled == []
+
+    async with factory() as session:
+        await TwitchAuthRepository(session).save(
+            user_id="123",
+            login="viewer",
+            access_token="token",
+            refresh_token="refresh",
+            expires_at=None,
+        )
+        await session.commit()
+
+    await _warm_up_profile_on_startup(session_factory=factory)
+    assert scheduled == ["123"]
+
+    async with factory() as session:
+        await TwitchProfileRepository(session).save(
+            user_id="123",
+            display_name="Viewer Name",
+            profile_image_url="https://example.test/avatar.png",
+            connected_at=datetime.now(timezone.utc),
+        )
+        await session.commit()
+
+    await _warm_up_profile_on_startup(session_factory=factory)
+    assert scheduled == ["123"]
 
     await engine.dispose()
 
