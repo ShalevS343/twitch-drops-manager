@@ -1,5 +1,4 @@
 import logging
-import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -19,20 +18,6 @@ logger = logging.getLogger(__name__)
 
 TOKEN_REFRESH_MARGIN = timedelta(minutes=5)
 SNAPSHOT_RETENTION = timedelta(hours=24)
-CAMPAIGN_REMINDER_WINDOWS = (
-    (timedelta(hours=24), "24h"),
-    (timedelta(hours=2), "2h"),
-)
-
-
-def _format_remaining(value: timedelta) -> str:
-    total_minutes = max(0, math.ceil(value.total_seconds() / 60))
-    hours, minutes = divmod(total_minutes, 60)
-    if hours and minutes:
-        return f"{hours}h {minutes}m"
-    if hours:
-        return f"{hours}h"
-    return f"{minutes}m"
 
 
 @dataclass
@@ -79,7 +64,6 @@ class ProgressService:
         await self.session.commit()
 
         notified = await self._notify(rows)
-        notified += await self._notify_deadlines(rows)
         await self.session.commit()
 
         campaign_count = len(
@@ -130,41 +114,23 @@ class ProgressService:
         if not self.telegram.configured:
             return 0
 
-        repo = NotificationRepository(self.session)
-        sent = 0
+        events: list[tuple[str, str]] = []
 
         for row in rows:
-            if not row["is_ready"]:
+            if not row["is_ready"] or row["is_claimed"]:
                 continue
-
-            dedupe_key = f"drop-ready:{row['drop_id']}"
-            if await repo.exists(dedupe_key):
-                continue
-
-            message = (
-                "Twitch drop ready to claim!\n"
-                f"Game: {row['game_name'] or 'Unknown'}\n"
-                f"Campaign: {row['campaign_name']}\n"
-                f"Drop: {row['drop_name']}\n"
-                f"Watched: {row['current_minutes']}/{row['required_minutes']} min\n"
-                "Claim it at https://www.twitch.tv/drops/inventory"
+            events.append(
+                (
+                    f"drop-ready:{row['drop_id']}",
+                    (
+                        "• Ready to claim: "
+                        f"{row['drop_name']} ({row['campaign_name']}, "
+                        f"{row['game_name'] or 'Unknown'})"
+                    ),
+                )
             )
 
-            try:
-                await self.telegram.send(message)
-            except ProviderError as exc:
-                logger.warning("Telegram notification failed: %s", exc)
-                continue
-
-            await repo.mark_sent(dedupe_key)
-            sent += 1
-
-        return sent
-
-    async def _notify_deadlines(self, rows: list[dict]) -> int:
-        if not self.telegram.configured:
-            return 0
-
+        now = datetime.now(timezone.utc)
         grouped: dict[str, list[dict]] = {}
         for row in rows:
             if row["is_claimed"]:
@@ -174,51 +140,57 @@ class ProgressService:
                 continue
             grouped.setdefault(campaign_id, []).append(row)
 
-        if not grouped:
-            return 0
-
-        now = datetime.now(timezone.utc)
-        repo = NotificationRepository(self.session)
-        sent = 0
-
         for campaign_id, campaign_rows in grouped.items():
             ends_at = parse_iso_datetime(campaign_rows[0].get("campaign_ends_at"))
             if ends_at is None:
                 continue
 
-            remaining = ends_at - now
-            if remaining <= timedelta(0):
+            hours_left = (ends_at - now).total_seconds() / 3600
+            if hours_left <= 0:
+                continue
+
+            # Send only the tightest applicable window per campaign per run.
+            if hours_left <= 2:
+                suffix = "2h"
+            elif hours_left <= 24:
+                suffix = "24h"
+            else:
                 continue
 
             total_remaining = sum(
                 max(0, int(row["required_minutes"]) - int(row["current_minutes"]))
                 for row in campaign_rows
             )
-
-            for window, suffix in CAMPAIGN_REMINDER_WINDOWS:
-                if remaining > window:
-                    continue
-
-                dedupe_key = f"campaign-ending:{campaign_id}:{suffix}"
-                if await repo.exists(dedupe_key):
-                    continue
-
-                message = (
-                    "Twitch campaign ending soon!\n"
-                    f"Game: {campaign_rows[0]['game_name'] or 'Unknown'}\n"
-                    f"Campaign: {campaign_rows[0]['campaign_name']}\n"
-                    f"Ends in: {_format_remaining(remaining)}\n"
-                    f"Unclaimed drops: {len(campaign_rows)}\n"
-                    f"Remaining watch time: {total_remaining} min"
+            events.append(
+                (
+                    f"campaign-ending:{campaign_id}:{suffix}",
+                    (
+                        f"• {campaign_rows[0]['campaign_name']} ends in ~{suffix}; "
+                        f"{len(campaign_rows)} drops left ({total_remaining} min)"
+                    ),
                 )
+            )
 
-                try:
-                    await self.telegram.send(message)
-                except ProviderError as exc:
-                    logger.warning("Telegram notification failed: %s", exc)
-                    continue
+        if not events:
+            return 0
 
-                await repo.mark_sent(dedupe_key)
-                sent += 1
+        repo = NotificationRepository(self.session)
+        claimed: list[tuple[str, str]] = []
+        for key, line in events:
+            if await repo.claim(key):
+                claimed.append((key, line))
 
-        return sent
+        if not claimed:
+            return 0
+
+        message = "\n".join(["Twitch Drops update", *(line for _, line in claimed)])
+
+        try:
+            await self.telegram.send(message)
+        except ProviderError as exc:
+            logger.warning("Telegram notification failed: %s", exc)
+            for key, _ in claimed:
+                await repo.release(key)
+            return 0
+
+        return len(claimed)
