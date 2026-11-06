@@ -82,6 +82,9 @@ export interface ProgressDrop {
   starts_at: string | null
   ends_at: string | null
   benefits: string[]
+  remaining_minutes: number
+  rate_minutes_per_hour: number | null
+  eta_minutes: number | null
 }
 
 export interface ProgressCampaign {
@@ -93,6 +96,31 @@ export interface ProgressCampaign {
   claimed_count: number
   total_count: number
   drops: ProgressDrop[]
+  remaining_minutes: number
+  eta_minutes: number | null
+}
+
+export interface WatchQueueCampaign {
+  campaign_id: string
+  campaign_name: string
+  ends_at: string | null
+  remaining_minutes: number
+  eta_minutes: number | null
+  next_drop_name: string | null
+  next_drop_remaining_minutes: number | null
+}
+
+export interface WatchQueueItem {
+  stream_id: number
+  user_login: string
+  user_name: string
+  title: string
+  viewers: number
+  language: string
+  url: string
+  game_name: string
+  game_box_art_url: string
+  campaigns: WatchQueueCampaign[]
 }
 
 export interface ProgressRefresh {

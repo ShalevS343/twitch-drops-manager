@@ -3,6 +3,7 @@ import { GameSelector } from './components/GameSelector'
 import { ProgressPanel } from './components/ProgressPanel'
 import { StatusPanel } from './components/StatusPanel'
 import { StreamCard } from './components/StreamCard'
+import { WatchQueuePanel } from './components/WatchQueuePanel'
 import { useCampaigns, useGames, useStatus, useStreams } from './hooks/useApi'
 
 export default function App() {
@@ -21,6 +22,8 @@ export default function App() {
       <StatusPanel status={status.data} isLoading={status.isLoading} error={status.error} />
 
       <ProgressPanel />
+
+      <WatchQueuePanel />
 
       <GameSelector games={games.data ?? []} isLoading={games.isLoading} />
 

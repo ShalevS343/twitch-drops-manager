@@ -9,6 +9,7 @@ import type {
   TwitchConnect,
   TwitchConnectResult,
   TwitchUserStatus,
+  WatchQueueItem,
 } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
@@ -52,6 +53,7 @@ export const api = {
   testTelegram: () => request<{ sent: boolean }>('/notifications/test', { method: 'POST' }),
   progress: () => request<ProgressCampaign[]>('/progress'),
   refreshProgress: () => request<ProgressRefresh>('/progress/refresh', { method: 'POST' }),
+  watchQueue: () => request<WatchQueueItem[]>('/watch-queue'),
   twitchStatus: () => request<TwitchUserStatus>('/twitch/status'),
   twitchConnectUrl: () => request<TwitchConnect>('/twitch/connect'),
   twitchConnect: (redirectUrl: string) =>
