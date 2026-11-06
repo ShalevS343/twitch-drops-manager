@@ -50,6 +50,10 @@ services:
       - homepage.icon=twitch.png
       - homepage.href=http://100.115.65.82:8282
       - homepage.description=Track Twitch Drops campaigns and live streams
+      - kuma.enable=true
+      - kuma.name=Twitch Drops Manager
+      - kuma.port=8282
+      - kuma.type=tcp
 
 volumes:
   drops_data:
