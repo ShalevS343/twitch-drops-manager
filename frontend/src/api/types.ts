@@ -62,6 +62,11 @@ export interface Status {
   last_error: string | null
   twitch_user_connected: boolean
   twitch_login: string | null
+  poll_seconds: number
+  min_poll_seconds: number
+  progress_poll_seconds: number
+  min_progress_poll_seconds: number
+  drops_api_keyed: boolean
 }
 
 export interface ScanResult {
@@ -135,6 +140,9 @@ export interface TwitchUserStatus {
   login: string | null
   user_id: string | null
   expires_at: string | null
+  display_name: string | null
+  profile_image_url: string | null
+  connected_at: string | null
 }
 
 export interface TwitchConnect {
