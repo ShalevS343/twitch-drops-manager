@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.deps import ProgressServiceDep, SessionDep, TwitchUserDep
 from app.core.exceptions import NotConfiguredError, ProviderError
 from app.core.security import require_api_token
-from app.domain.models import DropProgress
+from app.domain.models import DropProgress, ProgressSnapshot
 from app.domain.schemas import (
     ProgressCampaignOut,
     ProgressDropOut,
@@ -18,6 +18,7 @@ from app.domain.schemas import (
 from app.repositories.progress import ProgressRepository
 from app.repositories.twitch_auth import TwitchAuthRepository
 from app.services.factory import build_progress_service
+from app.services.progress_metrics import RATE_WINDOW, drop_metrics
 
 router = APIRouter()
 
@@ -30,7 +31,13 @@ def _percent(drop: DropProgress) -> int:
     return max(0, min(100, round(drop.current_minutes * 100 / drop.required_minutes)))
 
 
-def _group_progress(rows: list[DropProgress]) -> list[ProgressCampaignOut]:
+def _group_progress(
+    rows: list[DropProgress],
+    snapshots_by_drop: dict[str, list[ProgressSnapshot]] | None = None,
+    now: datetime | None = None,
+) -> list[ProgressCampaignOut]:
+    snapshots_by_drop = snapshots_by_drop or {}
+    now = now or datetime.now(timezone.utc)
     grouped: dict[str, ProgressCampaignOut] = {}
 
     for row in rows:
@@ -46,6 +53,7 @@ def _group_progress(rows: list[DropProgress]) -> list[ProgressCampaignOut]:
             )
             grouped[key] = campaign
 
+        metrics = drop_metrics(row, snapshots_by_drop.get(row.drop_id, []), now)
         campaign.drops.append(
             ProgressDropOut(
                 drop_id=row.drop_id,
@@ -58,12 +66,24 @@ def _group_progress(rows: list[DropProgress]) -> list[ProgressCampaignOut]:
                 starts_at=row.starts_at,
                 ends_at=row.ends_at,
                 benefits=row.benefits or [],
+                remaining_minutes=metrics.remaining_minutes,
+                rate_minutes_per_hour=metrics.rate_minutes_per_hour,
+                eta_minutes=metrics.eta_minutes,
             )
         )
 
     for campaign in grouped.values():
         campaign.total_count = len(campaign.drops)
         campaign.claimed_count = sum(1 for drop in campaign.drops if drop.is_claimed)
+
+        unclaimed = [drop for drop in campaign.drops if not drop.is_claimed]
+        campaign.remaining_minutes = sum(drop.remaining_minutes for drop in unclaimed)
+        etas = [drop.eta_minutes for drop in unclaimed]
+        campaign.eta_minutes = (
+            sum(eta for eta in etas if eta is not None)
+            if all(eta is not None for eta in etas)
+            else None
+        )
 
     return sorted(
         grouped.values(), key=lambda item: (item.game_name.lower(), item.campaign_name.lower())
@@ -72,8 +92,18 @@ def _group_progress(rows: list[DropProgress]) -> list[ProgressCampaignOut]:
 
 @router.get("/progress", response_model=list[ProgressCampaignOut])
 async def list_progress(session: SessionDep) -> list[ProgressCampaignOut]:
-    rows = await ProgressRepository(session).list()
-    return _group_progress(rows)
+    repo = ProgressRepository(session)
+    rows = await repo.list()
+    now = datetime.now(timezone.utc)
+    snapshots = await repo.snapshots_since(
+        now - RATE_WINDOW, [row.drop_id for row in rows]
+    )
+
+    snapshots_by_drop: dict[str, list[ProgressSnapshot]] = {}
+    for snapshot in snapshots:
+        snapshots_by_drop.setdefault(snapshot.drop_id, []).append(snapshot)
+
+    return _group_progress(rows, snapshots_by_drop, now)
 
 
 @router.post(

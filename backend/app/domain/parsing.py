@@ -1,4 +1,31 @@
+from datetime import datetime, timezone
 from typing import Any
+
+
+def parse_iso_datetime(value: Any) -> datetime | None:
+    """Parse an ISO-8601 timestamp, tolerating ``Z`` and naive values."""
+    if not isinstance(value, str):
+        return None
+
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith(("Z", "z")):
+        text = f"{text[:-1]}+00:00"
+
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def campaign_gql_id_from_external_id(external_id: str | None) -> str:
+    """Extract Twitch's campaign GQL id from ``f"{game}:{gql_id}"``."""
+    return (external_id or "").rsplit(":", 1)[-1]
 
 
 def game_name(game: dict[str, Any]) -> str:
