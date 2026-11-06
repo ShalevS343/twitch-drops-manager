@@ -48,7 +48,7 @@ export function StreamCard({ stream }: { stream: Stream }) {
           rel="noreferrer"
         >
           <Icon name="play" size={14} />
-          Open stream
+          Open stream on Twitch
         </a>
       </div>
     </article>

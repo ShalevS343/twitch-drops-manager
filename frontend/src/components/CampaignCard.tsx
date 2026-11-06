@@ -74,7 +74,7 @@ export function CampaignCard({ campaign }: { campaign: Campaign }) {
             rel="noreferrer"
           >
             <Icon name="external" size={14} />
-            Campaign details
+            View campaign on Twitch
           </a>
         </div>
       )}

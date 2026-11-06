@@ -231,7 +231,7 @@ class DropProgress(Base):
 
 
 class ProgressSnapshot(Base):
-    """A point-in-time reading used to estimate watch rate and ETA."""
+    """A point-in-time reading used to estimate the watch rate."""
 
     __tablename__ = "progress_snapshots"
     __table_args__ = (

@@ -12,7 +12,11 @@ from app.domain.parsing import campaign_gql_id_from_external_id, parse_iso_datet
 from app.domain.schemas import WatchQueueCampaignOut, WatchQueueItemOut
 from app.repositories.progress import ProgressRepository
 from app.repositories.streams import StreamRepository
-from app.services.progress_metrics import RATE_WINDOW, campaign_totals, drop_metrics
+from app.services.progress_metrics import (
+    RATE_WINDOW,
+    campaign_remaining_minutes,
+    drop_metrics,
+)
 
 router = APIRouter()
 
@@ -23,7 +27,6 @@ class _CampaignSummary:
     campaign_name: str
     ends_at: str | None
     remaining_minutes: int
-    eta_minutes: int | None
     next_drop_name: str | None
     next_drop_remaining_minutes: int | None
 
@@ -46,7 +49,7 @@ def _build_campaign_summaries(
             row.drop_id: drop_metrics(row, snapshots_by_drop.get(row.drop_id, []), now)
             for row in campaign_rows
         }
-        remaining, eta = campaign_totals(
+        remaining = campaign_remaining_minutes(
             (metrics[row.drop_id], row.is_claimed) for row in campaign_rows
         )
 
@@ -72,7 +75,6 @@ def _build_campaign_summaries(
             campaign_name=campaign_rows[0].campaign_name or db_name,
             ends_at=ends_at or db_ends_at,
             remaining_minutes=remaining,
-            eta_minutes=eta,
             next_drop_name=next_drop.drop_name if next_drop is not None else None,
             next_drop_remaining_minutes=(
                 metrics[next_drop.drop_id].remaining_minutes
@@ -180,7 +182,6 @@ async def list_watch_queue(session: SessionDep) -> list[WatchQueueItemOut]:
                     campaign_name=summary.campaign_name,
                     ends_at=summary.ends_at,
                     remaining_minutes=summary.remaining_minutes,
-                    eta_minutes=summary.eta_minutes,
                     next_drop_name=summary.next_drop_name,
                     next_drop_remaining_minutes=summary.next_drop_remaining_minutes,
                 )

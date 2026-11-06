@@ -1,5 +1,5 @@
 import type { WatchQueueCampaign, WatchQueueItem } from '../api/types'
-import { endsSoon, formatEta, formatRemaining, formatTimeUntil } from '../lib/format'
+import { endsSoon, formatRemaining, formatTimeUntil } from '../lib/format'
 import { Badge } from './ui/Badge'
 import { Icon } from './ui/Icon'
 
@@ -77,8 +77,7 @@ export function WatchQueueCard({
                   : 'No upcoming drop'}
               </span>
               <span className="queue-campaign-meta">
-                {formatRemaining(remainingMinutes)} left · ETA{' '}
-                {formatEta(campaign.eta_minutes)}
+                {formatRemaining(remainingMinutes)} left
               </span>
               <div className="queue-campaign-actions">
                 {isActive ? (
@@ -93,17 +92,17 @@ export function WatchQueueCard({
                     disabled={sessionActive || !canWatch}
                     title={
                       sessionActive
-                        ? 'Stop the current session first'
+                        ? 'Stop the current watch timer first'
                         : canWatch
-                          ? 'Start a local manual watch timer'
+                          ? 'Start a local manual watch timer for this campaign'
                           : 'No watch time left in this campaign'
                     }
                   >
                     <Icon name="play" size={13} />
                     {sessionActive
-                      ? 'Session active'
+                      ? 'Timer already running'
                       : canWatch
-                        ? 'Watch campaign'
+                        ? 'Start watch timer'
                         : 'Complete'}
                   </button>
                 )}
@@ -121,7 +120,7 @@ export function WatchQueueCard({
           rel="noreferrer"
         >
           <Icon name="external" size={14} />
-          Open stream
+          Open stream on Twitch
         </a>
       </div>
     </article>

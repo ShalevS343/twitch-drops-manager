@@ -70,7 +70,7 @@ export default function App() {
     } catch (err) {
       setToast({
         tone: 'danger',
-        message: err instanceof Error ? err.message : 'Could not refresh progress',
+        message: err instanceof Error ? err.message : 'Could not sync drop progress',
       })
     }
   }
@@ -148,12 +148,16 @@ export default function App() {
                 className="btn btn-secondary"
                 onClick={handleRefresh}
                 disabled={refresh.isPending || !connected}
-                title={connected ? 'Refresh drop progress' : 'Connect Twitch first'}
-                aria-label="Refresh progress"
+                title={
+                  connected
+                    ? 'Sync your Twitch drop progress'
+                    : 'Connect Twitch first'
+                }
+                aria-label="Sync drop progress from Twitch"
               >
                 <Icon name="refresh" size={16} />
                 <span className="btn-label">
-                  {refresh.isPending ? 'Refreshing…' : 'Refresh progress'}
+                  {refresh.isPending ? 'Syncing…' : 'Sync drop progress'}
                 </span>
               </button>
 
@@ -162,11 +166,12 @@ export default function App() {
                 className="btn btn-primary"
                 onClick={handleScan}
                 disabled={scan.isPending}
-                aria-label="Scan now"
+                title="Scan campaigns and live streams, then send new alerts"
+                aria-label="Scan campaigns and live streams"
               >
                 <Icon name="scan" size={16} />
                 <span className="btn-label">
-                  {scan.isPending ? 'Scanning…' : 'Scan now'}
+                  {scan.isPending ? 'Scanning…' : 'Scan for new drops'}
                 </span>
               </button>
             </div>

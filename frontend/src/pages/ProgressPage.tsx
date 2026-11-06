@@ -39,7 +39,7 @@ export function ProgressPage({ twitch }: Props) {
             <div className="connect-hero-copy">
               <h2>Connect Twitch to see your drop progress</h2>
               <p>
-                Progress, ETA, and ready-to-claim status come directly from your Twitch
+                Progress and ready-to-claim status come directly from your Twitch
                 account. This app never claims rewards for you.
               </p>
             </div>
@@ -78,7 +78,7 @@ export function ProgressPage({ twitch }: Props) {
               disabled={refresh.isPending}
             >
               <Icon name="refresh" size={16} />
-              {refresh.isPending ? 'Refreshing…' : 'Refresh progress'}
+              {refresh.isPending ? 'Syncing…' : 'Sync drop progress'}
             </button>
           </div>
 
@@ -112,7 +112,7 @@ export function ProgressPage({ twitch }: Props) {
               <EmptyState
                 icon="chart"
                 title="No drops in progress yet"
-                message="Start watching a Drops-enabled stream on Twitch, then refresh progress."
+                message="Start watching a Drops-enabled stream on Twitch, then sync your drop progress."
                 action={
                   <div className="inline-actions">
                     <button
@@ -121,7 +121,7 @@ export function ProgressPage({ twitch }: Props) {
                       disabled={refresh.isPending}
                     >
                       <Icon name="refresh" size={16} />
-                      Refresh progress
+                      {refresh.isPending ? 'Syncing…' : 'Sync drop progress'}
                     </button>
                     <a
                       className="btn btn-ghost"
@@ -129,7 +129,7 @@ export function ProgressPage({ twitch }: Props) {
                       target="_blank"
                       rel="noreferrer"
                     >
-                      Browse Twitch
+                      Browse Twitch directory
                       <Icon name="external" size={14} />
                     </a>
                   </div>

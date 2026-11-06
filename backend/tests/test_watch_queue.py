@@ -271,7 +271,7 @@ async def test_watch_queue_falls_back_to_flat_campaign_name_and_ends_at():
 
 
 @pytest.mark.asyncio
-async def test_watch_queue_includes_campaign_eta_from_snapshots():
+async def test_watch_queue_reports_campaign_remaining_minutes():
     engine, factory = await _session()
 
     async with factory() as session:
@@ -304,6 +304,5 @@ async def test_watch_queue_includes_campaign_eta_from_snapshots():
 
         assert len(items) == 1
         assert items[0].campaigns[0].remaining_minutes == 60
-        assert items[0].campaigns[0].eta_minutes == 120
 
     await engine.dispose()

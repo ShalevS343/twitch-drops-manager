@@ -161,7 +161,7 @@ def _drop_row(
 
 
 @pytest.mark.asyncio
-async def test_progress_api_computes_rate_and_eta_from_snapshots():
+async def test_progress_api_computes_rate_from_snapshots():
     engine, factory = await _session()
 
     async with factory() as session:
@@ -200,19 +200,15 @@ async def test_progress_api_computes_rate_and_eta_from_snapshots():
         assert len(campaigns) == 1
         campaign = campaigns[0]
         assert campaign.remaining_minutes == 90
-        assert campaign.eta_minutes == 150
 
         drops = {drop.drop_id: drop for drop in campaign.drops}
         assert drops["drop-fast"].remaining_minutes == 60
         assert drops["drop-fast"].rate_minutes_per_hour == pytest.approx(30.0)
-        assert drops["drop-fast"].eta_minutes == 120
 
         assert drops["drop-quick"].remaining_minutes == 30
         assert drops["drop-quick"].rate_minutes_per_hour == pytest.approx(60.0)
-        assert drops["drop-quick"].eta_minutes == 30
 
         assert drops["drop-claimed"].remaining_minutes == 0
-        assert drops["drop-claimed"].eta_minutes is None
 
     await engine.dispose()
 
@@ -243,8 +239,6 @@ async def test_progress_api_ignores_slow_watch_rate():
         drop = campaigns[0].drops[0]
         assert drop.remaining_minutes == 30
         assert drop.rate_minutes_per_hour is None
-        assert drop.eta_minutes is None
-        assert campaigns[0].eta_minutes is None
 
     await engine.dispose()
 

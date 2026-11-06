@@ -81,7 +81,7 @@ export function SettingsPage({ status, twitch }: Props) {
 
         <div className="action-grid">
           <article className="action-card">
-            <h3>Scan campaigns</h3>
+            <h3>Scan for new drops</h3>
             <p>Fetch campaigns, live streams, and notifications right now.</p>
             <button
               className="btn btn-primary"
@@ -89,7 +89,7 @@ export function SettingsPage({ status, twitch }: Props) {
               disabled={scan.isPending}
             >
               <Icon name="scan" size={16} />
-              {scan.isPending ? 'Scanning…' : 'Scan now'}
+              {scan.isPending ? 'Scanning…' : 'Scan for new drops'}
             </button>
             {scan.error && (
               <p className="alert alert-danger" role="alert">
@@ -109,16 +109,20 @@ export function SettingsPage({ status, twitch }: Props) {
           </article>
 
           <article className="action-card">
-            <h3>Refresh progress</h3>
-            <p>Sync drop progress, ETAs, and claim status from Twitch.</p>
+            <h3>Sync drop progress</h3>
+            <p>Sync drop progress and claim status from Twitch.</p>
             <button
               className="btn btn-secondary"
               onClick={() => refresh.mutate()}
               disabled={refresh.isPending || !connected}
-              title={connected ? undefined : 'Connect Twitch to refresh progress'}
+              title={
+                connected
+                  ? 'Sync your Twitch drop progress'
+                  : 'Connect Twitch to sync drop progress'
+              }
             >
               <Icon name="refresh" size={16} />
-              {refresh.isPending ? 'Refreshing…' : 'Refresh progress'}
+              {refresh.isPending ? 'Syncing…' : 'Sync drop progress'}
             </button>
             {!connected && (
               <p className="muted small">Connect Twitch to enable this action.</p>
@@ -141,7 +145,7 @@ export function SettingsPage({ status, twitch }: Props) {
           </article>
 
           <article className="action-card">
-            <h3>Test Telegram</h3>
+            <h3>Telegram test</h3>
             <p>Send a test notification to verify your Telegram configuration.</p>
             <button
               className="btn btn-secondary"
@@ -149,12 +153,12 @@ export function SettingsPage({ status, twitch }: Props) {
               disabled={testTelegram.isPending || !statusData?.telegram_configured}
               title={
                 statusData?.telegram_configured
-                  ? undefined
+                  ? 'Send a test message to Telegram'
                   : 'Telegram is not configured'
               }
             >
               <Icon name="link" size={16} />
-              {testTelegram.isPending ? 'Sending…' : 'Test Telegram'}
+              {testTelegram.isPending ? 'Sending…' : 'Send test message'}
             </button>
             {!statusData?.telegram_configured && !status.isLoading && (
               <p className="muted small">Telegram is not configured in .env.</p>
@@ -168,7 +172,7 @@ export function SettingsPage({ status, twitch }: Props) {
             {testTelegram.data && (
               <p className="alert alert-success" role="status">
                 <Icon name="check" size={15} />
-                <span>Telegram test sent.</span>
+                <span>Test message sent to Telegram.</span>
               </p>
             )}
           </article>
@@ -242,7 +246,7 @@ export function SettingsPage({ status, twitch }: Props) {
               {connect.starting
                 ? 'Starting…'
                 : connected
-                  ? 'Reconnect'
+                  ? 'Reconnect Twitch'
                   : 'Connect Twitch'}
             </button>
             {connected && (
@@ -252,7 +256,7 @@ export function SettingsPage({ status, twitch }: Props) {
                 disabled={logout.isPending}
               >
                 <Icon name="logout" size={16} />
-                {logout.isPending ? 'Disconnecting…' : 'Disconnect'}
+                {logout.isPending ? 'Disconnecting…' : 'Disconnect Twitch'}
               </button>
             )}
           </div>

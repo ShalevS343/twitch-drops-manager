@@ -12,7 +12,7 @@ import {
   inProgressDropCount,
   progressPercent,
 } from '../lib/campaigns'
-import { endsSoon, formatEta, formatTimeUntil } from '../lib/format'
+import { endsSoon, formatRemaining, formatTimeUntil } from '../lib/format'
 import type { ProgressCampaign } from '../api/types'
 import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -47,7 +47,7 @@ function MiniProgress({ campaign }: { campaign: ProgressCampaign }) {
         />
       </div>
       <div className="mini-progress-foot">
-        <span>{formatEta(campaign.eta_minutes)} ETA</span>
+        <span>{formatRemaining(campaign.remaining_minutes)} left</span>
         <span>{inProgressDropCount(campaign)} drops open</span>
       </div>
     </article>
@@ -91,11 +91,7 @@ export function OverviewPage({ status, twitch }: Props) {
 
   const hasAttention = readyDrops.length > 0 || endingCampaigns.length > 0
   const topProgress = [...progress]
-    .sort((a, b) => {
-      const aEta = a.eta_minutes ?? Number.POSITIVE_INFINITY
-      const bEta = b.eta_minutes ?? Number.POSITIVE_INFINITY
-      return aEta - bEta
-    })
+    .sort((a, b) => a.remaining_minutes - b.remaining_minutes)
     .slice(0, 3)
 
   return (
@@ -151,7 +147,7 @@ export function OverviewPage({ status, twitch }: Props) {
         <StatCard
           label="Ready to claim"
           value={progressQuery.isLoading ? '—' : readyCount}
-          hint={readyCount > 0 ? 'Open Twitch inventory' : 'Nothing waiting'}
+          hint={readyCount > 0 ? 'Open Drops inventory' : 'Nothing waiting'}
           icon="sparkles"
           tone={readyCount > 0 ? 'success' : 'warning'}
         />
@@ -194,7 +190,7 @@ export function OverviewPage({ status, twitch }: Props) {
                       target="_blank"
                       rel="noreferrer"
                     >
-                      Claim
+                      Claim on Twitch
                       <Icon name="external" size={13} />
                     </a>
                   </div>
@@ -215,7 +211,7 @@ export function OverviewPage({ status, twitch }: Props) {
                       Ending soon
                     </Badge>
                     <a className="btn btn-ghost btn-sm" href="#/progress">
-                      View
+                      View progress
                       <Icon name="arrow-right" size={13} />
                     </a>
                   </div>
@@ -242,7 +238,7 @@ export function OverviewPage({ status, twitch }: Props) {
               <p>Live streams that advance your open drops.</p>
             </div>
             <a className="btn btn-ghost btn-sm" href="#/watch-queue">
-              View queue
+              Open watch queue
               <Icon name="arrow-right" size={13} />
             </a>
           </div>
@@ -284,7 +280,7 @@ export function OverviewPage({ status, twitch }: Props) {
                           Live
                         </Badge>
                         <span className="queue-watch">
-                          Watch
+                          Open stream
                           <Icon name="external" size={13} />
                         </span>
                       </span>
@@ -306,7 +302,7 @@ export function OverviewPage({ status, twitch }: Props) {
               <p>A quick look at the campaigns closest to completion.</p>
             </div>
             <a className="btn btn-ghost btn-sm" href="#/progress">
-              All progress
+              View all progress
               <Icon name="arrow-right" size={13} />
             </a>
           </div>
@@ -319,7 +315,7 @@ export function OverviewPage({ status, twitch }: Props) {
               title="No drops in progress"
               message={
                 connected
-                  ? 'Start watching a Drops-enabled stream on Twitch and refresh progress.'
+                  ? 'Start watching a Drops-enabled stream on Twitch and sync your drop progress.'
                   : 'Connect Twitch to track your drop progress.'
               }
               compact
@@ -347,7 +343,7 @@ export function OverviewPage({ status, twitch }: Props) {
                 <Icon name="sparkles" size={18} />
                 Quick actions
               </h2>
-              <p>Run a scan or pull the latest drop progress.</p>
+              <p>Scan for campaigns and streams, or sync your drop progress.</p>
             </div>
           </div>
 
@@ -358,20 +354,24 @@ export function OverviewPage({ status, twitch }: Props) {
               disabled={scan.isPending}
             >
               <Icon name="scan" size={16} />
-              {scan.isPending ? 'Scanning…' : 'Scan now'}
+              {scan.isPending ? 'Scanning…' : 'Scan for new drops'}
             </button>
             <button
               className="btn btn-secondary"
               onClick={() => refresh.mutate()}
               disabled={refresh.isPending || !connected}
-              title={connected ? undefined : 'Connect Twitch to refresh progress'}
+              title={
+                connected
+                  ? 'Sync your Twitch drop progress'
+                  : 'Connect Twitch to sync drop progress'
+              }
             >
               <Icon name="refresh" size={16} />
-              {refresh.isPending ? 'Refreshing…' : 'Refresh progress'}
+              {refresh.isPending ? 'Syncing…' : 'Sync drop progress'}
             </button>
             <a className="btn btn-ghost" href="#/settings">
               <Icon name="settings" size={16} />
-              Manage games
+              Manage tracked games
             </a>
             <a
               className="btn btn-ghost"
@@ -380,13 +380,13 @@ export function OverviewPage({ status, twitch }: Props) {
               rel="noreferrer"
             >
               <Icon name="external" size={16} />
-              Twitch inventory
+              Open Drops inventory
             </a>
           </div>
 
           {!connected && !twitch.isLoading && (
             <p className="muted small">
-              Refresh progress is available after connecting Twitch.
+              Sync drop progress is available after connecting Twitch.
             </p>
           )}
 
