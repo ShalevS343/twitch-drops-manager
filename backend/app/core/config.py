@@ -2,6 +2,8 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_TWITCH_DEVICE_CLIENT_ID = "kd1unb4b3q4t58fwlpcbzcbnm76a8fp"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -28,9 +30,8 @@ class Settings(BaseSettings):
     # Public first-party Twitch client used only for the read-only drops
     # inventory. Twitch's GQL rejects tokens issued to third-party apps, so the
     # login must use Twitch's own Android client (same approach as
-    # TwitchDropsMiner). The user authorizes via Twitch's implicit login and
-    # pastes the resulting redirect URL back into the app.
-    twitch_device_client_id: str = "kd1unb4b3q4t58fwlpcbzcbnm76a8fp"
+    # TwitchDropsMiner). Leave the env var blank to use this default.
+    twitch_device_client_id: str = ""
     twitch_device_client_secret: str = ""
     twitch_oauth_redirect_uri: str = "https://www.twitch.tv/"
 
@@ -72,7 +73,12 @@ class Settings(BaseSettings):
         The implicit login and the GQL request must use the same client,
         because Twitch binds the access token to the client that issued it.
         """
-        return self.twitch_gql_client_id or self.twitch_device_client_id
+        return self.twitch_gql_client_id or self.device_client_id
+
+    @property
+    def device_client_id(self) -> str:
+        """Twitch first-party client used for the progress login (blank = default)."""
+        return self.twitch_device_client_id or DEFAULT_TWITCH_DEVICE_CLIENT_ID
 
 
 @lru_cache

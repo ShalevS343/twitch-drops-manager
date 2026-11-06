@@ -72,14 +72,14 @@ class TwitchUserProvider:
 
     @property
     def ready(self) -> bool:
-        return bool(self.settings.twitch_device_client_id)
+        return bool(self.settings.device_client_id)
 
     @property
     def authorize_url(self) -> str:
         """URL the user opens to grant read access (implicit grant flow)."""
         query = urllib.parse.urlencode(
             {
-                "client_id": self.settings.twitch_device_client_id,
+                "client_id": self.settings.device_client_id,
                 "redirect_uri": self.settings.twitch_oauth_redirect_uri,
                 "response_type": "token",
             }
@@ -128,7 +128,7 @@ class TwitchUserProvider:
         self._require_ready()
 
         data = {
-            "client_id": self.settings.twitch_device_client_id,
+            "client_id": self.settings.device_client_id,
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
         }
