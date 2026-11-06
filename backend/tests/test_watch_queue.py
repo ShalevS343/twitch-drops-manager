@@ -144,7 +144,8 @@ async def test_watch_queue_filters_in_progress_and_selects_next_drop():
         assert len(alpha.campaigns) == 1
         assert alpha.campaigns[0].campaign_id == "campaign-1"
         assert alpha.campaigns[0].campaign_name == "Campaign One"
-        assert alpha.campaigns[0].remaining_minutes == 90
+        # 60 remaining on drop-1 and 30 on drop-2 share watch time: max = 60.
+        assert alpha.campaigns[0].remaining_minutes == 60
         assert alpha.campaigns[0].next_drop_name == "drop-2"
         assert alpha.campaigns[0].next_drop_remaining_minutes == 30
 

@@ -69,9 +69,13 @@ def drop_metrics(drop: Any, snapshots: Iterable[Any], now: datetime) -> DropMetr
 
 
 def campaign_remaining_minutes(items: Iterable[tuple[DropMetrics, bool]]) -> int:
-    """Sum the remaining minutes of every unclaimed drop in one campaign."""
-    return sum(
-        metrics.remaining_minutes
-        for metrics, claimed in items
-        if not claimed
+    """Remaining watch time for one campaign.
+
+    Drop requirements are not additive: watch time counts toward every open drop
+    in the campaign, so finishing a 1h drop and a 2h drop takes 2h, not 3h. The
+    campaign therefore needs the **largest** remaining drop requirement.
+    """
+    return max(
+        (metrics.remaining_minutes for metrics, claimed in items if not claimed),
+        default=0,
     )
