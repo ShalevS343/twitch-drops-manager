@@ -147,10 +147,13 @@ Borders, spacing, and a larger type scale carry the hierarchy.
 - ≤900px: sidebar becomes a horizontally scrollable tab bar under the topbar.
 - ≤640px: compact topbar (brand + title + icon actions), 2-column stat grid,
   single-column cards, hidden button labels, full-width search/add-game row.
+  The tab bar wraps into rows so every tab is visible. Dashboard panels use a
+  `minmax(0, 1fr)` track and `min-width: 0` grid items so long section headings
+  and action buttons cannot clip the Overview panels.
 - Focus states use a 2px violet outline; skip link, aria labels, `aria-live`
   toast, and keyboard-navigable tabs are preserved.
 - Horizontal overflow is clipped at the page level (`html`/`body`
-  `overflow-x: clip`); the mobile tab bar scrolls inside its own container.
+  `overflow-x: clip`); the 641–900px tab bar scrolls, and ≤640px wraps.
 
 ## Game tracking
 

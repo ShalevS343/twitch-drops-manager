@@ -838,6 +838,10 @@ code {
   gap: 14px;
 }
 
+.dashboard-grid > * {
+  min-width: 0;
+}
+
 .span-5 {
   grid-column: span 5;
 }
@@ -2080,6 +2084,21 @@ code {
 }
 
 @media (max-width: 640px) {
+  .sidebar {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  .sidebar-nav {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .nav-link {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
   .topbar {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
@@ -2159,7 +2178,7 @@ code {
   }
 
   .dashboard-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .quick-actions {

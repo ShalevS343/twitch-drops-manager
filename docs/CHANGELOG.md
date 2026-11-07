@@ -14,6 +14,16 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## 2026-11-07
 
+### UI — mobile dashboard responsiveness
+
+- Fixed the Overview dashboard grid forcing a 630px single-column track on
+  phones, which clipped the Needs attention, Next in queue, and Quick actions
+  panels. The mobile track is now `minmax(0, 1fr)` and grid items have
+  `min-width: 0`.
+- The ≤640px tab bar now wraps instead of horizontal-scrolling, so all tabs are
+  visible.
+- Verified with Playwright at 375px, 390px, and 412px across all tabs.
+
 ### Public access — Tailscale Funnel + basic auth
 
 - Frontend nginx now requires HTTP Basic Auth for every route, including

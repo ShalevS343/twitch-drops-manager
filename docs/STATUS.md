@@ -44,6 +44,8 @@ campaign-time math + focus offline/completion alerts in `ea8586d`; Start watchin
   `8282` is public, and the API binds to `127.0.0.1:8000`. Verified public
   `401`/`200` on 2026-11-07. Credentials live under
   `/home/server/twitch-drops-auth/`, not in the repo.
+- Mobile UI: Overview dashboard panels fit at 375–412px and the tab bar wraps;
+  verified with Playwright across all tabs.
 - Focused watcher is backend-persisted (`watch_focus`, one row) and reuses the
   watch queue. It notifies when the focused live goes offline while the campaign
   is open, and notifies + turns itself off when the campaign completes. It does
