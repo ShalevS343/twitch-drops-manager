@@ -59,11 +59,13 @@ campaign-time math + focus offline/completion alerts in `ea8586d`; Start watchin
 
 ### Live deployment (verify before assuming)
 
-The Portainer stack `twitch-drops-manager` was rebuilt and redeployed from the
-current source tree on **2026-11-07 18:40 IST**. The backend image includes the
-completed-campaign stream filter. The DB volume persists; `campaign_starts`,
-`watch_focus`, and `campaign_completions` are created automatically by
-`create_all`. There is no timer state to migrate.
+The Portainer stack `twitch-drops-manager` is **Git-based** (stack ID `10`) from
+`https://github.com/ShalevS343/twitch-drops-manager.git`, branch `main`, compose
+path `infra/docker-compose.yml`. It was redeployed from commit `4c132df` on
+**2026-11-07 19:12 IST**; the backend includes the completed-campaign stream
+filter. Use **Pull and redeploy**, not manual compose edits. The DB volume
+persists; `campaign_starts`, `watch_focus`, and `campaign_completions` are
+created automatically by `create_all`. There is no timer state to migrate.
 
 ## Pending work
 

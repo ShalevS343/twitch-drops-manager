@@ -2,9 +2,11 @@
 
 ## Deployment topology
 
-Production runs on the Raspberry Pi under **Portainer** as stack
-`twitch-drops-manager`, from the git repository. The compose source is
-[`infra/docker-compose.yml`](../infra/docker-compose.yml).
+Production runs on the Raspberry Pi under **Portainer** as a **Git-based** stack
+`twitch-drops-manager`, cloning
+`https://github.com/ShalevS343/twitch-drops-manager.git` (`main` branch,
+`infra/docker-compose.yml`). Do not edit the stack compose in Portainer; change
+the repo and use **Pull and redeploy**.
 
 | Service | Image | Port | Notes |
 |---|---|---|---|
@@ -15,12 +17,14 @@ Production runs on the Raspberry Pi under **Portainer** as stack
 - Shared named volume: `twitch-drops-manager_drops_data` → `/data` (SQLite
   `/data/drops.db` + `sunkwi_cache.json`).
 - The old Postgres `db` service was removed when the project moved to SQLite.
-- Compose env comes from `infra/.env` (a symlink to the root `.env` in this
-  checkout). Portainer may keep its own copy of the stack configuration.
-- Optional labels:
-  - Homepage: group/name/icon/href/description.
-  - Kuma: `kuma.enable=true`, `kuma.name`, `kuma.port`, `kuma.type=tcp`. The local
-    `kuma-sync` container watches Docker labels and creates TCP monitors.
+- Portainer stack environment is the source for runtime secrets. Local
+  `infra/.env` (a symlink to the root `.env`) is only for local runs; never
+  commit either.
+- Labels:
+  - Homepage: group/name/icon/href/description (Homepage discovers these).
+  - Kuma: none required. `kuma-sync` auto-creates Docker monitors for every
+    running container except `kuma-sync` and `uptime-kuma`. Use
+    `kuma.enable=false` only as an opt-out.
 
 ## Environment variables
 
@@ -57,13 +61,17 @@ Production runs on the Raspberry Pi under **Portainer** as stack
 
 ## Redeploy / upgrade
 
-Portainer:
+Portainer (production):
 
 1. Push/merge to `main`.
 2. Portainer → Stacks → `twitch-drops-manager` → **Pull and redeploy**.
 3. Verify `/api/v1/health`, the UI, and Kuma monitors.
 
-Manual (same compose project):
+Do not edit the stack compose in Portainer or run a manual `docker compose up`
+against the production project; the stack is Git-backed and manual edits are
+overwritten on the next pull.
+
+Local-only validation (not production):
 
 ```bash
 cd /opt/twitch-drops-manager/twitch-drops-manager
@@ -78,11 +86,12 @@ project name (`twitch-drops-manager`).
 
 - `GET /api/v1/health` — DB + provider configuration flags.
 - `GET /api/v1/status` — last scan, counts, connection state, intervals.
-- Kuma monitors (auto-created by `kuma-sync` from labels):
-  - `Docker: Twitch Drops Manager` → `192.168.68.113:8282`
-  - `Docker: Twitch Drops Manager API` → `192.168.68.113:8000`
+- Kuma monitors (auto-created by `kuma-sync`; no labels required):
+  - `Docker: twitch-drops-manager-api-1`
+  - `Docker: twitch-drops-manager-worker-1`
+  - `Docker: twitch-drops-manager-frontend-1`
 - If a monitor is deleted later, `kuma-sync` recreates it from the running
-  container labels (after the container is recreated with labels present).
+  container on its next sync.
 
 ## Logs / diagnostics
 
