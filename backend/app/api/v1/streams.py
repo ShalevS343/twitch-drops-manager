@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Query
 
 from app.api.deps import SessionDep
+from app.domain.parsing import campaign_gql_id_from_external_id
 from app.domain.schemas import GameOut, StreamOut
+from app.repositories.campaign_completions import CampaignCompletionRepository
 from app.repositories.streams import StreamRepository
 
 router = APIRouter()
@@ -14,6 +16,10 @@ async def list_streams(
     live: bool | None = Query(default=True),
 ) -> list[StreamOut]:
     rows = await StreamRepository(session).list_rows(game_name=game, live=live)
+    completed_ids = {
+        row.campaign_gql_id
+        for row in await CampaignCompletionRepository(session).list()
+    }
 
     streams: dict[int, StreamOut] = {}
     campaign_names: dict[int, list[str]] = {}
@@ -44,10 +50,16 @@ async def list_streams(
             streams[row.id] = stream
             campaign_names[row.id] = []
 
-        if row.campaign_name is not None:
-            campaign_names[row.id].append(row.campaign_name)
+        if row.campaign_name is not None and row.campaign_external_id is not None:
+            gql_id = campaign_gql_id_from_external_id(row.campaign_external_id)
+            if gql_id not in completed_ids:
+                campaign_names[row.id].append(row.campaign_name)
 
+    result: list[StreamOut] = []
     for stream_id, stream in streams.items():
         stream.matching_campaigns = campaign_names[stream_id]
+        # Only keep streams that still advance an uncompleted campaign.
+        if stream.matching_campaigns:
+            result.append(stream)
 
-    return list(streams.values())
+    return result

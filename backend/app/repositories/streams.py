@@ -53,6 +53,7 @@ class StreamRepository:
                 Game.box_art_url,
                 Game.twitch_game_id,
                 Game.selected,
+                Campaign.external_id.label("campaign_external_id"),
                 Campaign.name.label("campaign_name"),
             )
             .join(Game, Stream.game_id == Game.id)

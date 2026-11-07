@@ -116,6 +116,10 @@ Same eager-loading pattern: it loads campaigns + rewards + games for campaign ma
 
 Expected endpoint: **~8 ms**.
 
+Completion filtering (2026-11-07) adds one indexed `campaign_completions` read
+per request; the flat stream join is unchanged. Streams with no uncompleted
+match are dropped before serialization.
+
 ### 3.3 `/status`: 5 queries, 16 ms
 
 Queries: selected games, campaign count, stream count, latest scan, auth row.

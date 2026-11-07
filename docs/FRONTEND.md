@@ -51,7 +51,7 @@ Hash routes, default `#/overview`; invalid hashes are normalized:
 | `#/campaigns` | Campaigns | Catalog with search/game/status filters |
 | `#/progress` | Progress | Personal drop progress and ready-to-claim status |
 | `#/watch-queue` | Watch queue | Urgency-sorted eligible streams, grouped by game, top 5 per game by default |
-| `#/streams` | Streams | All matched live streams, filtered/grouped, top 5 per game by default |
+| `#/streams` | Streams | Live streams that still advance an uncompleted campaign, filtered/grouped, top 5 per game by default |
 | `#/settings` | Settings | Games (including track-by-name), actions, Twitch connection, system info |
 | `#/profile` | Profile | Twitch account/profile, reconnect/disconnect |
 

@@ -14,6 +14,15 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## 2026-11-07
 
+### Streams — hide completed campaigns
+
+- `GET /streams` now omits completed campaigns from `matching_campaigns` using
+  the persisted `campaign_completions` ledger.
+- Streams whose only matching campaigns are completed are no longer returned, so
+  the Streams page and Overview live count only show actionable streams.
+- Added regression coverage for completed-only, mixed, and open-only matches.
+  Backend suite: **72 passed**.
+
 ### Completed campaigns — tagged and sorted last
 
 - Twitch stops returning a campaign from `dropCampaignsInProgress` once all

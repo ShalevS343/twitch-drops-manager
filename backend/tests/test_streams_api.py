@@ -7,7 +7,13 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.v1.streams import list_streams
 from app.core.db import Base
-from app.domain.models import Campaign, Game, Stream, StreamCampaignMatch
+from app.domain.models import (
+    Campaign,
+    CampaignCompletion,
+    Game,
+    Stream,
+    StreamCampaignMatch,
+)
 
 
 async def _session():
@@ -70,7 +76,7 @@ async def _add_stream(
 
 
 @pytest.mark.asyncio
-async def test_streams_uses_one_flat_query_and_preserves_contract():
+async def test_streams_preserves_contract_and_hides_unmatched_streams():
     engine, factory = await _session()
 
     async with factory() as session:
@@ -100,8 +106,10 @@ async def test_streams_uses_one_flat_query_and_preserves_contract():
         streams = await list_streams(session, game=None, live=True)
         event.remove(engine.sync_engine, "before_cursor_execute", record_statement)
 
-        assert len(statements) == 1
-        assert [stream.user_login for stream in streams] == ["alpha", "beta"]
+        # One flat stream query plus one query for completed campaign ids.
+        assert len(statements) == 2
+        # beta has no matching campaign, so it does not advance any drops.
+        assert [stream.user_login for stream in streams] == ["alpha"]
 
         alpha = streams[0]
         assert alpha.id is not None
@@ -119,7 +127,6 @@ async def test_streams_uses_one_flat_query_and_preserves_contract():
         assert alpha.game.selected is True
         assert alpha.game.campaign_count == 0
         assert alpha.matching_campaigns == ["Rust Drops"]
-        assert streams[1].matching_campaigns == []
 
     await engine.dispose()
 
@@ -147,9 +154,47 @@ async def test_streams_preserves_game_and_live_filters():
         ]
 
         live_streams = await list_streams(session, game=None, live=True)
-        assert [stream.user_login for stream in live_streams] == [
-            "minecraft-live",
-            "rust-live",
-        ]
+        # minecraft-live has no campaign match, so it advances nothing.
+        assert [stream.user_login for stream in live_streams] == ["rust-live"]
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_streams_only_returns_uncompleted_campaigns():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        rust = Game(name="Rust", selected=True)
+        session.add(rust)
+        await session.flush()
+
+        completed = await _add_campaign(
+            session, rust, "Rust:completed-1", "Completed Drops"
+        )
+        open_campaign = await _add_campaign(
+            session, rust, "Rust:open-1", "Open Drops"
+        )
+
+        await _add_stream(session, rust, "only-completed", 300, [completed])
+        await _add_stream(
+            session, rust, "mixed", 200, [completed, open_campaign]
+        )
+        await _add_stream(session, rust, "only-open", 100, [open_campaign])
+
+        session.add(
+            CampaignCompletion(
+                campaign_gql_id="completed-1",
+                campaign_name="Completed Drops",
+                game_name="Rust",
+            )
+        )
+        await session.commit()
+
+        streams = await list_streams(session, game=None, live=True)
+
+        assert [stream.user_login for stream in streams] == ["mixed", "only-open"]
+        assert streams[0].matching_campaigns == ["Open Drops"]
+        assert streams[1].matching_campaigns == ["Open Drops"]
 
     await engine.dispose()

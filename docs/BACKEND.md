@@ -155,6 +155,15 @@ See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
 - `find_candidate()` is shared with the focused watcher to pick the next
   dispatchable stream/campaign in queue order.
 
+## Streams
+
+`GET /streams` (see `api/v1/streams.py` and `repositories/streams.py`):
+
+- One flat join for stream + game + campaign name/external id.
+- Loads `campaign_completions` and omits completed campaigns from
+  `matching_campaigns`.
+- Drops streams with no remaining uncompleted campaign match.
+
 ## Focused watcher
 
 `services/watch_focus_service.py` manages the singleton `watch_focus` row and is

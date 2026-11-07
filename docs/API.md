@@ -166,6 +166,9 @@ Returns `CampaignOut[]`:
 
 - `live` defaults to `true`; pass `false` for offline rows (if any).
 - Returns `StreamOut[]`, including `matching_campaigns` names.
+- Only streams that still advance at least one **uncompleted** campaign are
+  returned. Completed campaigns (from `campaign_completions`) are omitted from
+  `matching_campaigns`; a stream whose only matches are completed is dropped.
 
 ## Scans
 

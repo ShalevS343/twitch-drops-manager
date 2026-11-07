@@ -19,7 +19,8 @@ campaign-time math + focus offline/completion alerts in `ea8586d`; Start watchin
 - `main` includes the focused watcher (one queue target at a time,
   manual/auto/next dispatch, offline/completion alerts), sends only campaign-start
   Telegram notifications (no new-live spam), and calculates campaign remaining
-  time from the largest open drop. Backend tests: **71 passed**; ruff clean;
+  time from the largest open drop. `/streams` hides completed campaigns and
+  streams with no uncompleted match. Backend tests: **72 passed**; ruff clean;
   frontend build passes.
 - Frontend: `npm run build` passes; visually verified with headless screenshots
   (desktop + mobile) against live data.
@@ -35,6 +36,9 @@ campaign-time math + focus offline/completion alerts in `ea8586d`; Start watchin
   `earnedDropRewards`, so they stay completed after leaving
   `dropCampaignsInProgress`. Campaigns shows **Completed** instead of `Active`;
   Campaigns/Progress/Overview sort them last with a green border.
+- Streams/Overview only list live streams that still advance an uncompleted
+  campaign; completed campaign names are omitted and completed-only streams are
+  dropped.
 - Focused watcher is backend-persisted (`watch_focus`, one row) and reuses the
   watch queue. It notifies when the focused live goes offline while the campaign
   is open, and notifies + turns itself off when the campaign completes. It does
@@ -55,22 +59,15 @@ campaign-time math + focus offline/completion alerts in `ea8586d`; Start watchin
 
 ### Live deployment (verify before assuming)
 
-The Portainer stack `twitch-drops-manager` was last observed running a build from
-**2026-11-06 19:51 UTC**:
-
-- UI asset `index-CKY9jEgc.js` (tabbed dashboard, pre-solid redesign)
-- `/watch-queue` still ~100 ms (pre-P0)
-- It does include the tabbed UI, Twitch profile, and Telegram digest hotfix
-
-**The live stack is behind `main`.** A redeploy is required to get P0 performance,
-the violet UI, the circular favicon, game tracking/campaign-start alerts, Start
-watching/focus, the per-game live caps, the focused watcher, and the Telegram
-alert changes. The DB volume persists; `campaign_starts` and `watch_focus` are
-created automatically by `create_all`. There is no timer state to migrate.
+The Portainer stack `twitch-drops-manager` was rebuilt and redeployed from the
+current source tree on **2026-11-07 18:40 IST**. The backend image includes the
+completed-campaign stream filter. The DB volume persists; `campaign_starts`,
+`watch_focus`, and `campaign_completions` are created automatically by
+`create_all`. There is no timer state to migrate.
 
 ## Pending work
 
-1. **Redeploy** the Portainer stack (`Pull and redeploy`) to current `main`.
+1. ~~Redeploy the Portainer stack to current `main`.~~ Done 2026-11-07 18:40 IST.
 2. **Rotate the Telegram bot token** in @BotFather and update `.env` (the old token
    appeared in logs before request logging was disabled). Redeploy/restart after.
 3. Verify after redeploy:

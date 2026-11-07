@@ -151,7 +151,8 @@ are hash routes (`#/overview`, `#/campaigns`, `#/progress`, `#/watch-queue`,
   streams, matches, campaigns, and games (P0 optimization).
 - `/watcher` reuses the watch-queue builder for candidates and returns the single
   `watch_focus` row; the worker advances it when a focused live leaves the queue.
-- `/streams` uses one flat join returning stream + game + campaign names.
+- `/streams` uses one flat join returning stream + game + campaign names, then
+  filters against `campaign_completions` so only uncompleted matches are shown.
 - `/status` runs a small set of counts plus auth/scan/profile state.
 - `/twitch/status` is DB-only when a profile row exists; it schedules a background
   GQL refresh on a cold profile instead of blocking the request.
