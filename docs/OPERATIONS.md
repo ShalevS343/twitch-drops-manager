@@ -85,11 +85,11 @@ project name (`twitch-drops-manager`).
 
 ## Public access (Tailscale Funnel)
 
-Public access is configured through Tailscale Funnel at
+Public access is live through Tailscale Funnel at
 `https://pi.taile9ec1c.ts.net`, proxying local port `8282`. The frontend nginx
-requires HTTP Basic Auth for every route, including `/api`. Funnel requires a
-one-time tailnet enablement; until it is granted, the public URL is not
-reachable.
+requires HTTP Basic Auth for every route, including `/api`. Verified on
+2026-11-07: `401` without credentials, `200` with credentials, and the API proxy
+returns `200`.
 
 - Username: `admin`
 - Password file: `/home/server/twitch-drops-auth/password.txt` (mode `600`)
@@ -107,8 +107,8 @@ reachable.
   docker restart twitch-drops-manager-frontend-1
   ```
 
-- Enable Funnel (one time, after the tailnet grants the capability):
-  `tailscale funnel --bg 8282`
+- Funnel is enabled. Re-enable it after a reset with:
+  `sudo tailscale funnel --bg 8282`
 - Only port `8282` is public. The API is published on `127.0.0.1:8000` only;
   the frontend reaches it over the Compose network.
 - Funnel is public. Keep basic auth enabled.

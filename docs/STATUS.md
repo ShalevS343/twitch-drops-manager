@@ -39,10 +39,10 @@ campaign-time math + focus offline/completion alerts in `ea8586d`; Start watchin
 - Streams/Overview only list live streams that still advance an uncompleted
   campaign; completed campaign names are omitted and completed-only streams are
   dropped.
-- Public access is configured for Tailscale Funnel
+- Public access is live through Tailscale Funnel
   (`https://pi.taile9ec1c.ts.net`) with nginx basic auth on all routes; only port
-  `8282` is public, and the API binds to `127.0.0.1:8000`. Funnel enablement is
-  pending on the tailnet. Credentials live under
+  `8282` is public, and the API binds to `127.0.0.1:8000`. Verified public
+  `401`/`200` on 2026-11-07. Credentials live under
   `/home/server/twitch-drops-auth/`, not in the repo.
 - Focused watcher is backend-persisted (`watch_focus`, one row) and reuses the
   watch queue. It notifies when the focused live goes offline while the campaign
@@ -70,8 +70,8 @@ path `infra/docker-compose.yml`. The running stack includes commit `6f5998b`
 (basic auth for public access; backend completed-campaign stream filter) and was
 redeployed on **2026-11-07 20:42 IST**. Use **Pull and redeploy**, not manual
 compose edits. Public access is `https://pi.taile9ec1c.ts.net` via Tailscale
-Funnel on port `8282`, protected by nginx basic auth; Funnel enablement is
-pending on the tailnet. The DB volume
+Funnel on port `8282`, protected by nginx basic auth; Funnel is enabled and
+verified. The DB volume
 persists; `campaign_starts`, `watch_focus`, and `campaign_completions` are
 created automatically by `create_all`. There is no timer state to migrate.
 

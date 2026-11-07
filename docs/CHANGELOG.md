@@ -20,8 +20,9 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   `/api`.
 - The htpasswd file is mounted read-only from the host; no credentials are
   committed. The plaintext password stays in the user's home directory.
-- Configured local port `8282` for Tailscale Funnel at
-  `https://pi.taile9ec1c.ts.net`. Funnel enablement is a one-time tailnet action.
+- Exposed local port `8282` through Tailscale Funnel at
+  `https://pi.taile9ec1c.ts.net`. Funnel was enabled on 2026-11-07 after the
+  one-time tailnet action; verified public `401`/`200`.
 - API port `8000` is published on `127.0.0.1` only; the frontend reaches it over
   the Compose network.
 
