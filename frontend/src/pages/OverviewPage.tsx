@@ -10,6 +10,7 @@ import {
 import {
   campaignPhase,
   inProgressDropCount,
+  isProgressCampaignCompleted,
   progressPercent,
 } from '../lib/campaigns'
 import { endsSoon, formatRemaining, formatTimeUntil } from '../lib/format'
@@ -27,9 +28,10 @@ interface Props {
 
 function MiniProgress({ campaign }: { campaign: ProgressCampaign }) {
   const percent = progressPercent(campaign)
+  const completed = isProgressCampaignCompleted(campaign)
 
   return (
-    <article className="mini-progress">
+    <article className={`mini-progress${completed ? ' completed' : ''}`}>
       <div className="mini-progress-head">
         <div>
           <strong>{campaign.campaign_name}</strong>
@@ -38,7 +40,13 @@ function MiniProgress({ campaign }: { campaign: ProgressCampaign }) {
             {campaign.total_count} claimed
           </span>
         </div>
-        <Badge tone={percent >= 100 ? 'success' : 'accent'}>{percent}%</Badge>
+        {completed ? (
+          <Badge tone="success" dot>
+            Completed
+          </Badge>
+        ) : (
+          <Badge tone="accent">{percent}%</Badge>
+        )}
       </div>
       <div className="progress-track">
         <span
@@ -47,8 +55,14 @@ function MiniProgress({ campaign }: { campaign: ProgressCampaign }) {
         />
       </div>
       <div className="mini-progress-foot">
-        <span>{formatRemaining(campaign.remaining_minutes)} left</span>
-        <span>{inProgressDropCount(campaign)} drops open</span>
+        <span>
+          {completed
+            ? 'All drops claimed'
+            : `${formatRemaining(campaign.remaining_minutes)} left`}
+        </span>
+        <span>
+          {completed ? 'Campaign complete' : `${inProgressDropCount(campaign)} drops open`}
+        </span>
       </div>
     </article>
   )
@@ -91,7 +105,13 @@ export function OverviewPage({ status, twitch }: Props) {
 
   const hasAttention = readyDrops.length > 0 || endingCampaigns.length > 0
   const topProgress = [...progress]
-    .sort((a, b) => a.remaining_minutes - b.remaining_minutes)
+    .sort((a, b) => {
+      const aCompleted = isProgressCampaignCompleted(a) ? 1 : 0
+      const bCompleted = isProgressCampaignCompleted(b) ? 1 : 0
+      if (aCompleted !== bCompleted) return aCompleted - bCompleted
+
+      return a.remaining_minutes - b.remaining_minutes
+    })
     .slice(0, 3)
 
   return (

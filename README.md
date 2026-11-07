@@ -31,6 +31,8 @@ never automates watching.
   automatically when the campaign completes. One watcher at a time.
 - **Top 5 per game** — watch queue and live streams group by game and show the
   top 5 by default, with a 5/10/20/All selector.
+- **Completed campaigns** — campaigns with every drop claimed are tagged
+  **Completed**, use a green border, and sort after unfinished campaigns.
 - **Tabbed dashboard** — Overview, Campaigns, Progress, Watch queue, Streams,
   Settings, and a Twitch profile page. High-contrast violet design, responsive.
 - **Rate-limit resilient** — the public catalog is cached to disk and served during

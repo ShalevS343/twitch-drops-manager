@@ -178,6 +178,17 @@ exactly one live target selected from the queue:
 - **Stop watcher** clears the focus. The focus panel is monitor-only; it links
   to the stream but does not track a timer.
 
+## Completed campaigns
+
+A campaign counts as completed when every drop is claimed (`claimed_count ===
+total_count`). Completed campaigns are sorted after unfinished campaigns and get
+a green **Completed** badge plus a green-bordered card on:
+
+- **Campaigns** — matched to progress by the GQL id suffix of `external_id`.
+- **Progress** — every drop claimed.
+- **Overview** — completed entries appear last in “Campaign progress” and show
+  “All drops claimed”.
+
 ## Start watching
 
 Every campaign row in the Watch queue has a **Start watching** button. It:

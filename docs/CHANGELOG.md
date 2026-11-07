@@ -14,6 +14,15 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## 2026-11-07
 
+### Completed campaigns — tagged and sorted last
+
+- Campaigns, Progress, and Overview now detect completed campaigns
+  (`claimed_count === total_count`), sort them after unfinished campaigns, and
+  show a green **Completed** badge/border.
+- Campaigns matches catalog rows to progress via the GQL id suffix, so a
+  completed campaign still shows correctly even if its catalog status is
+  `ACTIVE` or `ENDED`.
+
 ### Watch queue — Start watching replaces the timer
 
 - Removed the local watch-session timer, elapsed-time panel, pause/resume controls,

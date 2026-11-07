@@ -1,4 +1,5 @@
 import type { ProgressCampaign } from '../api/types'
+import { isProgressCampaignCompleted } from '../lib/campaigns'
 import { endsSoon, formatDateTime, formatRemaining } from '../lib/format'
 import { Badge } from './ui/Badge'
 import { Icon } from './ui/Icon'
@@ -8,23 +9,29 @@ function clampPercent(value: number): number {
 }
 
 export function ProgressCard({ campaign }: { campaign: ProgressCampaign }) {
+  const completed = isProgressCampaignCompleted(campaign)
   const hasReady = campaign.drops.some((drop) => drop.is_ready && !drop.is_claimed)
   const unclaimed = campaign.drops.filter((drop) => !drop.is_claimed)
 
   return (
-    <article className="card progress-card">
+    <article className={`card progress-card${completed ? ' completed' : ''}`}>
       <header className="card-head">
         <div className="badge-row">
           <Badge>{campaign.game_name || 'Unknown game'}</Badge>
           <Badge tone="neutral">
             {campaign.claimed_count}/{campaign.total_count} claimed
           </Badge>
+          {completed && (
+            <Badge tone="success" dot>
+              Completed
+            </Badge>
+          )}
           {hasReady && (
             <Badge tone="success" dot>
               Ready to claim
             </Badge>
           )}
-          {endsSoon(campaign.campaign_ends_at) && (
+          {!completed && endsSoon(campaign.campaign_ends_at) && (
             <Badge tone="warning" dot>
               Ending soon
             </Badge>

@@ -30,6 +30,8 @@ campaign-time math + focus offline/completion alerts in `ea8586d`; Start watchin
   dispatches focus mode to that streamer/campaign. Only one focus target exists;
   clicking another Start watching replaces it. Watch queue/streams are grouped by
   game and capped at 5 by default.
+- Completed campaigns (all drops claimed) are tagged **Completed**, sorted after
+  unfinished campaigns on Campaigns/Progress/Overview, and use a green border.
 - Focused watcher is backend-persisted (`watch_focus`, one row) and reuses the
   watch queue. It notifies when the focused live goes offline while the campaign
   is open, and notifies + turns itself off when the campaign completes. It does
@@ -44,9 +46,9 @@ campaign-time math + focus offline/completion alerts in `ea8586d`; Start watchin
 - The UI no longer shows the “never plays/controls/simulates” or “never claims”
   disclaimers; the underlying behavior is unchanged.
 - Docs: API, data model, backend, architecture, frontend, decisions, changelog,
-  and this file updated for game tracking, Start watching/focus, ETA removal, the
-  violet UI pass, the focused watcher, Telegram alert changes, and campaign-time
-  math.
+  and this file updated for game tracking, Start watching/focus, completed
+  campaign ordering/tags, ETA removal, the violet UI pass, the focused watcher,
+  Telegram alert changes, and campaign-time math.
 
 ### Live deployment (verify before assuming)
 
@@ -79,6 +81,8 @@ created automatically by `create_all`. There is no timer state to migrate.
      alert + focus off; no auto-move
    - Telegram: campaign starts and focused-watcher alerts only; no new-live spam
    - Campaign remaining time is the largest open drop (1h + 2h shows 2h)
+   - Completed campaigns appear last with a green Completed tag on Campaigns,
+     Progress, and Overview
    - Live streams: game groups + Per game selector
    - No ETA text; progress shows `X min left` and actions read “Scan for new
      drops” / “Sync drop progress”

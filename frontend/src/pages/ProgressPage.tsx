@@ -1,9 +1,12 @@
+import { useMemo } from 'react'
+
 import { ProgressCard } from '../components/ProgressCard'
 import { TwitchConnect, useTwitchConnect } from '../components/TwitchConnect'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Icon } from '../components/ui/Icon'
 import { LoadingState } from '../components/ui/Spinner'
 import { useProgress, useRefreshProgress, type TwitchStatusQuery } from '../hooks/useApi'
+import { isProgressCampaignCompleted } from '../lib/campaigns'
 
 interface Props {
   twitch: TwitchStatusQuery
@@ -16,6 +19,15 @@ export function ProgressPage({ twitch }: Props) {
 
   const connected = twitch.data?.connected === true
   const progress = progressQuery.data ?? []
+  const orderedProgress = useMemo(
+    () =>
+      [...progress].sort(
+        (a, b) =>
+          Number(isProgressCampaignCompleted(a)) -
+          Number(isProgressCampaignCompleted(b)),
+      ),
+    [progress],
+  )
 
   if (twitch.isLoading) {
     return <LoadingState label="Loading Twitch connection…" />
@@ -138,9 +150,9 @@ export function ProgressPage({ twitch }: Props) {
             </div>
           )}
 
-          {progress.length > 0 && (
+          {orderedProgress.length > 0 && (
             <div className="campaign-grid">
-              {progress.map((campaign) => (
+              {orderedProgress.map((campaign) => (
                 <ProgressCard key={campaign.campaign_id} campaign={campaign} />
               ))}
             </div>
