@@ -20,9 +20,10 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   phones, which clipped the Needs attention, Next in queue, and Quick actions
   panels. The mobile track is now `minmax(0, 1fr)` and grid items have
   `min-width: 0`.
-- The ≤640px tab bar now wraps instead of horizontal-scrolling, so all tabs are
-  visible.
-- Verified with Playwright at 375px, 390px, and 412px across all tabs.
+- The ≤640px navigation is now a burger menu: it opens a vertical tab panel and
+  closes on navigation or `Escape`.
+- Verified with Playwright at 375px, 390px, and 412px across all tabs, including
+  opening the menu.
 
 ### Public access — Tailscale Funnel + basic auth
 

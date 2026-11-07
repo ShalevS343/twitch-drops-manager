@@ -11,6 +11,7 @@ export type IconName =
   | 'scan'
   | 'refresh'
   | 'search'
+  | 'menu'
   | 'external'
   | 'link'
   | 'check'
@@ -100,6 +101,13 @@ const ICONS: Record<IconName, ReactNode> = {
         d="M10.5 2.6a7.6 7.6 0 1 0 0 15.2 7.6 7.6 0 0 0 0-15.2Zm0 2.3a5.3 5.3 0 1 1 0 10.6 5.3 5.3 0 0 1 0-10.6Z"
       />
       <path d="M16.1 14.6 22 20.5l-1.5 1.5-5.9-5.9 1.5-1.5Z" />
+    </>
+  ),
+  menu: (
+    <>
+      <rect x="2" y="5" width="20" height="2" />
+      <rect x="2" y="11" width="20" height="2" />
+      <rect x="2" y="17" width="20" height="2" />
     </>
   ),
   external: (

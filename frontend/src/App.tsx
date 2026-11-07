@@ -34,6 +34,22 @@ export default function App() {
   const refresh = useRefreshProgress()
 
   const [toast, setToast] = useState<Toast | null>(null)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  useEffect(() => {
+    setMobileNavOpen(false)
+  }, [tab])
+
+  useEffect(() => {
+    if (!mobileNavOpen) return
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setMobileNavOpen(false)
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [mobileNavOpen])
 
   useEffect(() => {
     if (!toast) return
@@ -129,6 +145,17 @@ export default function App() {
 
             <PageHeader title={meta.title} description={meta.subtitle} />
 
+            <button
+              type="button"
+              className="btn btn-secondary mobile-menu-toggle"
+              aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
+              aria-expanded={mobileNavOpen}
+              aria-controls="mobile-nav"
+              onClick={() => setMobileNavOpen((open) => !open)}
+            >
+              <Icon name={mobileNavOpen ? 'x' : 'menu'} size={18} />
+            </button>
+
             <div className="topbar-actions">
               <a
                 className="mobile-connection"
@@ -177,7 +204,10 @@ export default function App() {
             </div>
           </header>
 
-          <aside className="sidebar">
+          <aside
+            id="mobile-nav"
+            className={`sidebar${mobileNavOpen ? ' is-open' : ''}`}
+          >
             <a
               className="brand"
               href="#/overview"
@@ -193,7 +223,14 @@ export default function App() {
             </a>
 
             <div className="nav-section-label">Dashboard</div>
-            <TabNav tabs={TABS} active={tab} onNavigate={navigate} />
+            <TabNav
+              tabs={TABS}
+              active={tab}
+              onNavigate={(next) => {
+                navigate(next)
+                setMobileNavOpen(false)
+              }}
+            />
 
             <div className="sidebar-footer">
               <a className="connection-chip" href="#/profile">
