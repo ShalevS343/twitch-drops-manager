@@ -8,7 +8,6 @@ interface WatchQueueCardProps {
   onWatch: (stream: WatchQueueItem, campaign: WatchQueueCampaign) => void
   activeCampaignId: string | null
   activeStreamId: number | null
-  sessionActive: boolean
 }
 
 export function WatchQueueCard({
@@ -16,7 +15,6 @@ export function WatchQueueCard({
   onWatch,
   activeCampaignId,
   activeStreamId,
-  sessionActive,
 }: WatchQueueCardProps) {
   const hasEndingSoon = item.campaigns.some((campaign) => endsSoon(campaign.ends_at))
   const isActiveStream =
@@ -33,7 +31,7 @@ export function WatchQueueCard({
           </Badge>
           {isActiveStream && (
             <Badge tone="accent" dot>
-              Current session
+              Focused
             </Badge>
           )}
           {hasEndingSoon && (
@@ -82,28 +80,22 @@ export function WatchQueueCard({
               <div className="queue-campaign-actions">
                 {isActive ? (
                   <Badge tone="accent" dot>
-                    Watching now
+                    Focused
                   </Badge>
                 ) : (
                   <button
                     type="button"
                     className="btn btn-primary btn-sm"
                     onClick={() => onWatch(item, campaign)}
-                    disabled={sessionActive || !canWatch}
+                    disabled={!canWatch}
                     title={
-                      sessionActive
-                        ? 'Stop the current watch timer first'
-                        : canWatch
-                          ? 'Start a local manual watch timer for this campaign'
-                          : 'No watch time left in this campaign'
+                      canWatch
+                        ? 'Open the live stream and focus this campaign'
+                        : 'No watch time left in this campaign'
                     }
                   >
                     <Icon name="play" size={13} />
-                    {sessionActive
-                      ? 'Timer already running'
-                      : canWatch
-                        ? 'Start watch timer'
-                        : 'Complete'}
+                    {canWatch ? 'Start watching' : 'Complete'}
                   </button>
                 )}
               </div>

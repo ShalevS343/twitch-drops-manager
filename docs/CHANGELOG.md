@@ -14,6 +14,15 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## 2026-11-07
 
+### Watch queue — Start watching replaces the timer
+
+- Removed the local watch-session timer, elapsed-time panel, pause/resume controls,
+  next-up handoff, `localStorage` session, and related frontend modules/styles.
+- Each campaign row now has **Start watching**: it opens the live stream and
+  dispatches focus mode to that streamer/campaign (`POST /watcher/focus`).
+- Clicking Start watching on another stream replaces the single focus target.
+- The Watch queue callout/buttons now describe focus, not a running timer.
+
 ### Campaign time uses the largest open drop
 
 - Campaign `remaining_minutes` now uses the **maximum** remaining requirement of
@@ -80,11 +89,11 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   pace”/ETA text.
 - Renamed vague actions to state the verb and object: “Scan for new drops”,
   “Sync drop progress”, “Send test message”, “Track this game”, “Save tracked
-  games”, “Start watch timer”, “Pause/Resume watch timer”, “Open stream on
-  Twitch”, “Claim on Twitch”, “View campaign on Twitch”, “Manage tracked games”.
+  games”, “Start watching”, “Open stream on Twitch”, “Claim on Twitch”, “View
+  campaign on Twitch”, “Manage tracked games”.
 - Loading labels now match the action (“Scanning…”, “Syncing…”, “Sending…”).
 
-### Manual watch sessions + per-game limits
+### Manual watch sessions + per-game limits (superseded 2026-11-07)
 
 - Watch queue can start one browser-local watch session for a chosen
   campaign/stream: opens the real Twitch stream, tracks elapsed time, and shows

@@ -1,29 +1,5 @@
 const DAY_MS = 24 * 60 * 60 * 1000
 
-export function formatDuration(minutes: number): string {
-  const rounded = Math.max(0, Math.round(minutes))
-
-  if (rounded < 60) {
-    return `${rounded}m`
-  }
-
-  const hours = Math.floor(rounded / 60)
-  const rest = rounded % 60
-  return rest > 0 ? `${hours}h ${rest}m` : `${hours}h`
-}
-
-export function formatClock(milliseconds: number): string {
-  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000))
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-  const pad = (value: number) => String(value).padStart(2, '0')
-
-  return hours > 0
-    ? `${hours}:${pad(minutes)}:${pad(seconds)}`
-    : `${minutes}:${pad(seconds)}`
-}
-
 export function formatRemaining(minutes: number): string {
   return `${Math.max(0, Math.round(minutes))} min`
 }

@@ -147,7 +147,7 @@ numeric/technical values.
 work must use the current `:root` tokens; do not reintroduce amber or micro
 uppercase/mono labels.
 
-## ADR-013 — Manual watch sessions only
+## ADR-013 — Manual watch sessions only (superseded by ADR-017)
 
 **Context:** the watch queue makes it easy to find the right stream, but tracking
 how long you have actually been watching is manual. Automating playback or

@@ -3,16 +3,12 @@ import { useMemo, useState } from 'react'
 import type { WatchQueueCampaign, WatchQueueItem } from '../api/types'
 import { WatchFocusPanel } from '../components/WatchFocusPanel'
 import { WatchQueueCard } from '../components/WatchQueueCard'
-import { WatchSessionPanel } from '../components/WatchSessionPanel'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Icon } from '../components/ui/Icon'
 import { PerGameSelect } from '../components/ui/PerGameSelect'
 import { LoadingState } from '../components/ui/Spinner'
-import { useWatchQueue } from '../hooks/useApi'
-import { useWatchSession } from '../hooks/useWatchSession'
+import { useFocusWatcher, useWatcher, useWatchQueue } from '../hooks/useApi'
 import { groupByGame, limitPerGame } from '../lib/streamGroups'
-import { suggestNextCampaigns } from '../lib/watchQueue'
-import type { WatchSuggestion } from '../lib/watchQueue'
 
 function openStream(url: string) {
   window.open(url, '_blank', 'noopener,noreferrer')
@@ -20,9 +16,9 @@ function openStream(url: string) {
 
 export function WatchQueuePage() {
   const queueQuery = useWatchQueue()
+  const watcher = useWatcher()
+  const focus = useFocusWatcher()
   const items = useMemo(() => queueQuery.data ?? [], [queueQuery.data])
-  const watch = useWatchSession()
-  const session = watch.session
   const [perGame, setPerGame] = useState(5)
 
   const visibleItems = useMemo(
@@ -34,35 +30,16 @@ export function WatchQueuePage() {
     [visibleItems],
   )
 
-  const suggestions = useMemo(
-    () => suggestNextCampaigns(items, session?.campaignId ?? null),
-    [items, session?.campaignId],
-  )
-
-  function startSession(stream: WatchQueueItem, campaign: WatchQueueCampaign) {
-    watch.start({
-      streamId: stream.stream_id,
-      userLogin: stream.user_login,
-      userName: stream.user_name,
-      streamUrl: stream.url,
-      streamTitle: stream.title,
-      gameName: stream.game_name,
-      campaignId: campaign.campaign_id,
-      campaignName: campaign.campaign_name,
-      targetMinutes: campaign.remaining_minutes,
-    })
-    openStream(stream.url)
-  }
+  const focusedCampaignId = watcher.data?.focus?.campaign_id ?? null
+  const focusedStreamId = watcher.data?.focus?.stream_id ?? null
 
   function handleWatch(stream: WatchQueueItem, campaign: WatchQueueCampaign) {
-    if (session) {
-      return
-    }
-    startSession(stream, campaign)
-  }
-
-  function handleSwitch(suggestion: WatchSuggestion) {
-    startSession(suggestion.stream, suggestion.campaign)
+    openStream(stream.url)
+    focus.mutate({
+      stream_id: stream.stream_id,
+      campaign_id: campaign.campaign_id,
+      strategy: 'manual',
+    })
   }
 
   return (
@@ -92,29 +69,23 @@ export function WatchQueuePage() {
 
       <WatchFocusPanel />
 
-      {session && (
-        <WatchSessionPanel
-          session={session}
-          elapsedMs={watch.elapsedMs}
-          isRunning={watch.isRunning}
-          suggestions={suggestions}
-          onPause={watch.pause}
-          onResume={watch.resume}
-          onStop={watch.stop}
-          onSwitch={handleSwitch}
-        />
+      {focus.error && (
+        <p className="alert alert-danger" role="alert">
+          <Icon name="alert" size={16} />
+          <span>{focus.error.message}</span>
+        </p>
       )}
 
-      {!session && items.length > 0 && (
+      {items.length > 0 && (
         <div className="callout">
           <span className="callout-icon">
-            <Icon name="clock" size={20} />
+            <Icon name="target" size={20} />
           </span>
           <div className="callout-copy">
-            <strong>Watch one campaign at a time</strong>
+            <strong>Start watching a campaign</strong>
             <p>
-              Pick a campaign below to start a timer and open the stream. Only
-              one session runs at a time.
+              Pick a campaign below to open the live stream and start focus mode
+              on that streamer.
             </p>
           </div>
         </div>
@@ -166,9 +137,8 @@ export function WatchQueuePage() {
                     key={item.stream_id}
                     item={item}
                     onWatch={handleWatch}
-                    activeCampaignId={session?.campaignId ?? null}
-                    activeStreamId={session?.streamId ?? null}
-                    sessionActive={session !== null}
+                    activeCampaignId={focusedCampaignId}
+                    activeStreamId={focusedStreamId}
                   />
                 ))}
               </div>

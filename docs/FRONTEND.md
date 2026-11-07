@@ -16,8 +16,7 @@ frontend/src/
     ProgressCard.tsx
     StreamCard.tsx
     WatchFocusPanel.tsx     single focused watcher, dispatch/next/stop
-    WatchQueueCard.tsx
-    WatchSessionPanel.tsx    active manual session, timer, next-up handoff
+    WatchQueueCard.tsx       start watching = open stream + focus target
     TwitchConnect.tsx        reusable authorize/paste flow + hook
     GameSelector.tsx
     ui/                      Avatar, Badge, EmptyState, Icon, PageHeader,
@@ -25,13 +24,11 @@ frontend/src/
   hooks/
     useApi.ts                TanStack Query hooks + query result types
     useTab.ts                hash routing with canonicalization
-    useWatchSession.ts       localStorage-backed manual watch timer
   lib/
     campaigns.ts             phase/percent helpers
     format.ts                date/time/remaining formatters
     streamGroups.ts          per-game limiting/grouping helpers
     tabs.ts                  tab ids + metadata
-    watchQueue.ts            campaign-level "next up" suggestions
   pages/
     OverviewPage.tsx
     CampaignsPage.tsx
@@ -140,7 +137,7 @@ Borders, spacing, and a larger type scale carry the hierarchy.
 - Headings use the sans display face; data uses mono with tabular numbers.
 - Action labels state both the verb and the object, and avoid bare “Scan now” or
   “Refresh”: use “Scan for new drops”, “Sync drop progress”, “Send test message”,
-  “Start watch timer”, “Open stream on Twitch”. Loading labels use the same verb
+  “Start watching”, “Open stream on Twitch”. Loading labels use the same verb
   (“Scanning…”, “Syncing…”, “Sending…”).
 
 ## Layout / responsive
@@ -178,30 +175,20 @@ exactly one live target selected from the queue:
   **Live offline** and one Telegram notification is sent. If the campaign
   completes, the watcher sends a completion notification and turns focused mode
   off. The watcher does not auto-move and has no timer handoff.
-- **Stop watcher** clears the focus. Focus is independent of the manual watch
-  timer on the stream cards.
+- **Stop watcher** clears the focus. The focus panel is monitor-only; it links
+  to the stream but does not track a timer.
 
-The focus panel is monitor-only; it links to the stream but does not start a
-session.
+## Start watching
 
-## Manual watch sessions
+Every campaign row in the Watch queue has a **Start watching** button. It:
 
-The Watch queue can start one **local** session for a chosen stream/campaign pair.
-It opens the real Twitch stream in a new tab and records elapsed time in
-`localStorage` under `tdm.watch-session.v1`; refreshing the page keeps the timer.
-Only one session can exist at a time.
+1. opens the real Twitch stream in a new tab, and
+2. dispatches the single focused watcher to that streamer/campaign via
+   `POST /watcher/focus` (`strategy: "manual"`).
 
-- The timer can be paused/resumed and stopped. It survives navigation and is
-  synced across tabs through the `storage` event.
-- `targetMinutes` comes from the campaign’s remaining watch time. When elapsed
-  time reaches the target, the panel shows **Target reached** plus up to three
-  campaign-level “Next up” suggestions (most urgent campaign first, best live
-  stream per campaign). Switching is an explicit click — nothing auto-plays or
-  auto-advances.
-- The panel never controls Twitch playback, sends watch heartbeats, or simulates
-  viewing. This is a manual convenience only; the read-only product boundary
-  still applies.
-- Session data is local to the browser and is not persisted to the backend.
+There is no local timer, elapsed-time display, or persisted watch session. The
+focus panel shows the selected target and its offline/completion alerts; clicking
+**Start watching** on another stream replaces the focus (still one watcher).
 
 ## Live list limits
 

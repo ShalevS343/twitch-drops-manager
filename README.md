@@ -23,9 +23,8 @@ never automates watching.
   New live streams are not sent to Telegram.
 - **Track any game** — add a game by name in Settings even if it is not in the
   catalog; get notified when its next campaign becomes active.
-- **Manual watch sessions** — start one campaign at a time, open the real stream,
-  and track elapsed time locally. The timer never controls playback or simulates
-  viewing.
+- **Start watching** — opens the real Twitch stream and focuses the watcher on
+  that streamer/campaign. No local timer or elapsed-time tracking.
 - **Focused watcher** — keep one live target selected from the watch queue for the
   most urgent campaign, switch it manually or with **Next live**, get a Telegram
   alert if that live goes offline while the campaign is open, and turn focus off
