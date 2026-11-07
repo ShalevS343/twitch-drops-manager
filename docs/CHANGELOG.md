@@ -14,6 +14,16 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## 2026-11-07
 
+### Public access — Tailscale Funnel + basic auth
+
+- Frontend nginx now requires HTTP Basic Auth for every route, including
+  `/api`.
+- The htpasswd file is mounted read-only from the host; no credentials are
+  committed. The plaintext password stays in the user's home directory.
+- Exposed local port `8282` through Tailscale Funnel at
+  `https://pi.taile9ec1c.ts.net`. Funnel enablement is a one-time tailnet action.
+- API port `8000` remains private.
+
 ### Streams — hide completed campaigns
 
 - `GET /streams` now omits completed campaigns from `matching_campaigns` using

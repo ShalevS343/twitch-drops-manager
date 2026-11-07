@@ -82,6 +82,24 @@ The DB volume persists. `init_db` adds new tables/indexes on startup. If the
 compose project name differs, the volume/network names change; use the existing
 project name (`twitch-drops-manager`).
 
+## Public access (Tailscale Funnel)
+
+The app is reachable outside the VPN at `https://pi.taile9ec1c.ts.net` through
+Tailscale Funnel on local port `8282`. The frontend nginx requires HTTP Basic
+Auth for every route, including `/api`.
+
+- Username: `admin`
+- Password file: `/home/server/twitch-drops-auth/password.txt` (mode `600`)
+- htpasswd file: `/home/server/twitch-drops-auth/htpasswd` (mode `644`, mounted
+  read-only into the frontend container; hash only, not committed)
+- Rotate the password: generate a new password, rewrite the htpasswd file, then
+  restart the frontend container:
+  `docker restart twitch-drops-manager-frontend-1`
+- Funnel enablement is a one-time tailnet setting:
+  `tailscale funnel --bg 8282`
+- Only port `8282` is public. API port `8000` stays private.
+- Funnel is public. Keep basic auth enabled.
+
 ## Health and monitoring
 
 - `GET /api/v1/health` — DB + provider configuration flags.
