@@ -180,12 +180,14 @@ exactly one live target selected from the queue:
 
 ## Completed campaigns
 
-A campaign counts as completed when every drop is claimed (`claimed_count ===
-total_count`). Completed campaigns are sorted after unfinished campaigns and get
-a green **Completed** badge plus a green-bordered card on:
+Completion is persisted by the backend from Twitch `earnedDropRewards`, so it
+survives a campaign leaving `dropCampaignsInProgress`. Completed campaigns sort
+after unfinished campaigns and get a green **Completed** badge/border on:
 
-- **Campaigns** — matched to progress by the GQL id suffix of `external_id`.
-- **Progress** — every drop claimed.
+- **Campaigns** — uses `Campaign.completed` from the API. The **Completed** badge
+  replaces the catalog status, so a finished campaign no longer shows “Active”.
+- **Progress** — completed campaigns appended from the ledger render with every
+  drop claimed.
 - **Overview** — completed entries appear last in “Campaign progress” and show
   “All drops claimed”.
 

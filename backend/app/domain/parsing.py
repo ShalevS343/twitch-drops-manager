@@ -139,6 +139,43 @@ def _as_int(value: Any) -> int:
         return 0
 
 
+def parse_earned_rewards(inventory: dict[str, Any]) -> dict[str, set[str]]:
+    """Map campaign GQL id -> claimed reward ids from ``earnedDropRewards``.
+
+    Twitch only returns this block when ``fetchRewardCampaigns`` is true. It is
+    the source of truth for campaigns that have already left
+    ``dropCampaignsInProgress``.
+    """
+    earned = inventory.get("earnedDropRewards")
+    edges = earned.get("edges") if isinstance(earned, dict) else None
+    if not isinstance(edges, list):
+        return {}
+
+    claimed: dict[str, set[str]] = {}
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        node = edge.get("node")
+        if not isinstance(node, dict) or node.get("status") != "CLAIMED":
+            continue
+
+        campaign = node.get("campaign")
+        campaign_id = (
+            str(campaign.get("id") or "") if isinstance(campaign, dict) else ""
+        )
+        if not campaign_id:
+            continue
+
+        item = node.get("item")
+        item_id = (
+            str(item.get("id") or "") if isinstance(item, dict) else ""
+        ) or str(node.get("id") or "")
+        if item_id:
+            claimed.setdefault(campaign_id, set()).add(item_id)
+
+    return claimed
+
+
 def parse_inventory(campaigns: list[Any]) -> list[dict[str, Any]]:
     """Flatten Twitch's ``dropCampaignsInProgress`` into per-drop progress rows."""
     rows: list[dict[str, Any]] = []

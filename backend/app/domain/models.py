@@ -159,6 +159,30 @@ class CampaignStart(Base):
 
 
 
+class CampaignCompletion(Base):
+    """A campaign the user has fully claimed.
+
+    Twitch's ``dropCampaignsInProgress`` stops returning a campaign once all
+    rewards are claimed, so completion is persisted separately and survives the
+    replacement of ``drop_progress``.
+    """
+
+    __tablename__ = "campaign_completions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_gql_id: Mapped[str] = mapped_column(
+        String(128), unique=True, index=True
+    )
+    campaign_name: Mapped[str] = mapped_column(String(512), default="")
+    game_name: Mapped[str] = mapped_column(String(255), default="")
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class TwitchProfile(Base):
     """Persisted Twitch display profile for the connected account.
 

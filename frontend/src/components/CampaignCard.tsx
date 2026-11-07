@@ -17,14 +17,9 @@ function statusTone(campaign: Campaign): BadgeTone {
   return 'neutral'
 }
 
-export function CampaignCard({
-  campaign,
-  completed = false,
-}: {
-  campaign: Campaign
-  completed?: boolean
-}) {
+export function CampaignCard({ campaign }: { campaign: Campaign }) {
   const phase = campaignPhase(campaign)
+  const completed = campaign.completed === true
   const isEndingSoon =
     !completed && phase === 'active' && endsSoon(campaign.ends_at)
 
@@ -33,12 +28,13 @@ export function CampaignCard({
       <header className="card-head">
         <div className="badge-row">
           <Badge>{campaign.game.name}</Badge>
-          <Badge tone={statusTone(campaign)} dot={phase === 'active'}>
-            {titleCase(campaign.status)}
-          </Badge>
-          {completed && (
+          {completed ? (
             <Badge tone="success" dot>
               Completed
+            </Badge>
+          ) : (
+            <Badge tone={statusTone(campaign)} dot={phase === 'active'}>
+              {titleCase(campaign.status)}
             </Badge>
           )}
           {isEndingSoon && (

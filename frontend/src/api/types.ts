@@ -23,6 +23,7 @@ export interface Campaign {
   ends_at: string | null
   details_url: string
   owner_name: string
+  completed: boolean
   game: Game
   rewards: Reward[]
 }

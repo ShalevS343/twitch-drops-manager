@@ -134,11 +134,14 @@ are hash routes (`#/overview`, `#/campaigns`, `#/progress`, `#/watch-queue`,
 
 1. Read `twitch_auth`; if no user token, return disconnected.
 2. Refresh the token if an expiry is known and near; otherwise use it as-is.
-3. Query Twitch GQL `Inventory` (`dropCampaignsInProgress`).
+3. Query Twitch GQL `Inventory` (`dropCampaignsInProgress` +
+   `earnedDropRewards` with `fetchRewardCampaigns: true`).
 4. Flatten campaigns/drops into `drop_progress` rows (replacing the previous set).
-5. Insert `progress_snapshots`; prune older than 24h.
-6. Compute the watch rate from snapshots in the last 2h.
-7. Build one digest of newly ready drops and 24h/2h deadline reminders; atomically
+5. Persist `campaign_completions` for fully claimed campaigns, using the claimed
+   reward count vs the catalog reward count.
+6. Insert `progress_snapshots`; prune older than 24h.
+7. Compute the watch rate from snapshots in the last 2h.
+8. Build one digest of newly ready drops and 24h/2h deadline reminders; atomically
    claim each dedupe key before sending; release claims on failure.
 
 ### API read path
