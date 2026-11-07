@@ -25,11 +25,6 @@ services:
       - drops_data:/data
     ports:
       - "8000:8000"
-    labels:
-      - kuma.enable=true
-      - kuma.name=Twitch Drops Manager API
-      - kuma.port=8000
-      - kuma.type=tcp
 
   worker:
     build:
@@ -59,10 +54,6 @@ services:
       - homepage.icon=twitch.png
       - homepage.href=http://100.115.65.82:8282
       - homepage.description=Track Twitch Drops campaigns and live streams
-      - kuma.enable=true
-      - kuma.name=Twitch Drops Manager
-      - kuma.port=8282
-      - kuma.type=tcp
 
 volumes:
   drops_data:
