@@ -1435,80 +1435,6 @@ code {
   background: var(--surface-2);
 }
 
-/* ------------------------------------------------------ manual watch session */
-
-.watch-session {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  border-left: 3px solid var(--accent);
-}
-
-.watch-session-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.watch-session-copy {
-  min-width: 0;
-}
-
-.watch-session-copy h2 {
-  margin: 7px 0 0;
-  font-size: 1.45rem;
-  line-height: 1.2;
-}
-
-.watch-session-timer {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.watch-session-clock {
-  color: var(--text-strong);
-  font-family: var(--font-mono);
-  font-size: 2.5rem;
-  font-weight: 700;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-.watch-session-target {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.watch-session-track {
-  height: 10px;
-  margin: 0;
-}
-
-.watch-session-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.watch-session-actions {
-  margin-top: 0;
-}
-
-.watch-session-next {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-}
-
 .next-list {
   display: flex;
   flex-direction: column;
@@ -2245,10 +2171,6 @@ code {
   .callout {
     align-items: flex-start;
     flex-wrap: wrap;
-  }
-
-  .watch-session-clock {
-    font-size: 2rem;
   }
 
   .next-list li {

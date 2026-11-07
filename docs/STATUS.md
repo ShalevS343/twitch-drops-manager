@@ -11,9 +11,9 @@ campaign-time math + focus offline/completion alerts in `ea8586d`.
 ### Repository
 
 - `main` includes: P0 performance work, tabbed dashboard, Twitch profile/settings,
-  Telegram dedupe/digests, game tracking by name, campaign-start alerts, manual
-  watch sessions, top-5-per-game live lists, and the violet high-contrast UI
-  (circular logo/favicon).
+  Telegram dedupe/digests, game tracking by name, campaign-start alerts, the
+  Start watching → focus action, top-5-per-game live lists, and the violet
+  high-contrast UI (circular logo/favicon).
 - `main` includes the focused watcher (one queue target at a time,
   manual/auto/next dispatch, offline/completion alerts), sends only campaign-start
   Telegram notifications (no new-live spam), and calculates campaign remaining
@@ -25,9 +25,10 @@ campaign-time math + focus offline/completion alerts in `ea8586d`.
   tracked before it has a campaign. Scans alert when a selected game's campaign
   becomes `ACTIVE`, including `UPCOMING` → `ACTIVE` and the next campaign after a
   previous one ended. Failed Telegram sends retry via `campaign_starts`.
-- Manual watch sessions are frontend-only: one local timer, persisted in
-  `localStorage`, with next-campaign suggestions. No playback control or fake
-  viewing. Watch queue/streams are grouped by game and capped at 5 by default.
+- The Watch queue has no timer: **Start watching** opens the live stream and
+  dispatches focus mode to that streamer/campaign. Only one focus target exists;
+  clicking another Start watching replaces it. Watch queue/streams are grouped by
+  game and capped at 5 by default.
 - Focused watcher is backend-persisted (`watch_focus`, one row) and reuses the
   watch queue. It notifies when the focused live goes offline while the campaign
   is open, and notifies + turns itself off when the campaign completes. It does
@@ -42,7 +43,7 @@ campaign-time math + focus offline/completion alerts in `ea8586d`.
 - The UI no longer shows the “never plays/controls/simulates” or “never claims”
   disclaimers; the underlying behavior is unchanged.
 - Docs: API, data model, backend, architecture, frontend, decisions, changelog,
-  and this file updated for game tracking, manual sessions, ETA removal, the
+  and this file updated for game tracking, Start watching/focus, ETA removal, the
   violet UI pass, the focused watcher, Telegram alert changes, and campaign-time
   math.
 
@@ -56,11 +57,10 @@ The Portainer stack `twitch-drops-manager` was last observed running a build fro
 - It does include the tabbed UI, Twitch profile, and Telegram digest hotfix
 
 **The live stack is behind `main`.** A redeploy is required to get P0 performance,
-the violet UI, the circular favicon, game tracking/campaign-start alerts, manual
-watch sessions, the per-game live caps, the focused watcher, and the
-campaign-start stream gating. The DB volume persists; `campaign_starts` and
-`watch_focus` are created automatically by `create_all`. Manual watch sessions
-are browser-local and need no migration.
+the violet UI, the circular favicon, game tracking/campaign-start alerts, Start
+watching/focus, the per-game live caps, the focused watcher, and the Telegram
+alert changes. The DB volume persists; `campaign_starts` and `watch_focus` are
+created automatically by `create_all`. There is no timer state to migrate.
 
 ## Pending work
 
@@ -72,7 +72,8 @@ are browser-local and need no migration.
    - `/watch-queue` p50 (~20 ms on the host; gzip via nginx)
    - UI violet theme + circular favicon
    - Settings → Games “Track a game by name” creates a tracked row
-   - Watch queue: one manual session, timer persists on refresh, top 5 per game
+   - Watch queue: Start watching opens the stream and focuses that target; no
+     timer; top 5 per game
    - Focus watcher: enable, switch focus, Next live, offline alert, completion
      alert + focus off; no auto-move
    - Telegram: campaign starts and focused-watcher alerts only; no new-live spam
@@ -104,8 +105,6 @@ are browser-local and need no migration.
 - **Sunkwi limit**: 1 request/300s; cache covers normal operation, a very cold
   cache during a 429 can still surface a provider error.
 - **Telegram token exposure**: pre-fix logs contained the bot token; rotate it.
-- **Manual timer is advisory**: it is wall-clock, browser-local, and can overstate
-  elapsed time if left running; use pause/stop. It never verifies playback.
 - **Focused watcher does not auto-move**: an offline target stays in `offline`
   state until the user picks another live or the campaign completes. Offline
   notification is once per online session; completion turns focus off.

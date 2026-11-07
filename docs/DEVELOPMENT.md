@@ -134,6 +134,6 @@ pass, lint/build pass, contracts aligned, docs updated, no secrets.
 - Backend tests: **69 passed**
 - Ruff: clean
 - Frontend: `npm run build` passes
-- Main includes P0 performance work, game tracking/campaign-start alerts, manual
-  watch sessions, and the violet high-contrast UI; `feat/queue-watcher` adds the
-  single focused watcher over the watch queue.
+- Main includes P0 performance work, game tracking/campaign-start alerts, the
+  Start watching → focus action, and the violet high-contrast UI; the focused
+  watcher monitors the selected stream and sends offline/completion alerts.
