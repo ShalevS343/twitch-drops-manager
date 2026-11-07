@@ -126,7 +126,7 @@ Expected: `401`, `200`, `200`.
 - [ ] **Step 1: Enable Funnel for local port 8282**
 
 ```bash
-tailscale funnel 8282 on
+tailscale funnel --bg 8282
 tailscale funnel status
 ```
 

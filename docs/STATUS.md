@@ -39,8 +39,10 @@ campaign-time math + focus offline/completion alerts in `ea8586d`; Start watchin
 - Streams/Overview only list live streams that still advance an uncompleted
   campaign; completed campaign names are omitted and completed-only streams are
   dropped.
-- Public access is Tailscale Funnel (`https://pi.taile9ec1c.ts.net`) with nginx
-  basic auth on all routes; only port `8282` is public. Credentials live under
+- Public access is configured for Tailscale Funnel
+  (`https://pi.taile9ec1c.ts.net`) with nginx basic auth on all routes; only port
+  `8282` is public, and the API binds to `127.0.0.1:8000`. Funnel enablement is
+  pending on the tailnet. Credentials live under
   `/home/server/twitch-drops-auth/`, not in the repo.
 - Focused watcher is backend-persisted (`watch_focus`, one row) and reuses the
   watch queue. It notifies when the focused live goes offline while the campaign

@@ -44,6 +44,7 @@ the repo and use **Pull and redeploy**.
 | `TWITCH_DEVICE_CLIENT_ID` | optional | built-in first-party client | Advanced progress login override |
 | `TWITCH_DEVICE_CLIENT_SECRET` | optional | empty | Advanced |
 | `DATABASE_URL` | compose | `sqlite+aiosqlite:////data/drops.db` | do not override casually |
+| `DROPS_AUTH_FILE` | optional | `/home/server/twitch-drops-auth/htpasswd` | host basic-auth file mounted into the frontend |
 
 `.env` and `.env.save` are local secrets and must never be committed.
 
@@ -84,20 +85,32 @@ project name (`twitch-drops-manager`).
 
 ## Public access (Tailscale Funnel)
 
-The app is reachable outside the VPN at `https://pi.taile9ec1c.ts.net` through
-Tailscale Funnel on local port `8282`. The frontend nginx requires HTTP Basic
-Auth for every route, including `/api`.
+Public access is configured through Tailscale Funnel at
+`https://pi.taile9ec1c.ts.net`, proxying local port `8282`. The frontend nginx
+requires HTTP Basic Auth for every route, including `/api`. Funnel requires a
+one-time tailnet enablement; until it is granted, the public URL is not
+reachable.
 
 - Username: `admin`
 - Password file: `/home/server/twitch-drops-auth/password.txt` (mode `600`)
 - htpasswd file: `/home/server/twitch-drops-auth/htpasswd` (mode `644`, mounted
   read-only into the frontend container; hash only, not committed)
-- Rotate the password: generate a new password, rewrite the htpasswd file, then
-  restart the frontend container:
-  `docker restart twitch-drops-manager-frontend-1`
-- Funnel enablement is a one-time tailnet setting:
+- Rotate the password:
+
+  ```bash
+  PASSWORD="$(openssl rand -base64 24 | tr -d '\n')"
+  printf 'admin:%s\n' "$(openssl passwd -apr1 "$PASSWORD")" \
+    > /home/server/twitch-drops-auth/htpasswd
+  printf '%s\n' "$PASSWORD" > /home/server/twitch-drops-auth/password.txt
+  chmod 644 /home/server/twitch-drops-auth/htpasswd
+  chmod 600 /home/server/twitch-drops-auth/password.txt
+  docker restart twitch-drops-manager-frontend-1
+  ```
+
+- Enable Funnel (one time, after the tailnet grants the capability):
   `tailscale funnel --bg 8282`
-- Only port `8282` is public. API port `8000` stays private.
+- Only port `8282` is public. The API is published on `127.0.0.1:8000` only;
+  the frontend reaches it over the Compose network.
 - Funnel is public. Keep basic auth enabled.
 
 ## Health and monitoring
