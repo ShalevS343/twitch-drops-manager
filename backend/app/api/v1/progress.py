@@ -7,7 +7,8 @@ from app.api.deps import ProgressServiceDep, SessionDep, TwitchUserDep
 from app.core.db import SessionLocal
 from app.core.exceptions import NotConfiguredError, ProviderError
 from app.core.security import require_api_token
-from app.domain.models import DropProgress, ProgressSnapshot
+from app.domain.models import Campaign, DropProgress, ProgressSnapshot
+from app.domain.parsing import campaign_gql_id_from_external_id
 from app.domain.schemas import (
     ProgressCampaignOut,
     ProgressDropOut,
@@ -17,6 +18,8 @@ from app.domain.schemas import (
     TwitchConnectResult,
     TwitchUserStatusOut,
 )
+from app.repositories.campaign_completions import CampaignCompletionRepository
+from app.repositories.campaigns import CampaignRepository
 from app.repositories.progress import ProgressRepository
 from app.repositories.twitch_auth import TwitchAuthRepository
 from app.repositories.twitch_profile import TwitchProfileRepository
@@ -214,6 +217,37 @@ def _group_progress(
     )
 
 
+def _completed_campaign_out(campaign: Campaign) -> ProgressCampaignOut:
+    drops = [
+        ProgressDropOut(
+            drop_id=f"completed:{campaign.external_id}:{reward.id}",
+            drop_name=reward.name,
+            required_minutes=reward.required_minutes,
+            current_minutes=reward.required_minutes,
+            percent=100,
+            is_claimed=True,
+            is_ready=False,
+            starts_at=campaign.starts_at,
+            ends_at=campaign.ends_at,
+            benefits=[reward.benefit_name] if reward.benefit_name else [],
+            remaining_minutes=0,
+            rate_minutes_per_hour=None,
+        )
+        for reward in campaign.rewards
+    ]
+    return ProgressCampaignOut(
+        campaign_id=campaign_gql_id_from_external_id(campaign.external_id),
+        campaign_name=campaign.name,
+        game_name=campaign.game.name if campaign.game else "",
+        game_box_art_url=campaign.game.box_art_url if campaign.game else "",
+        campaign_ends_at=campaign.ends_at,
+        claimed_count=len(drops),
+        total_count=len(drops),
+        drops=drops,
+        remaining_minutes=0,
+    )
+
+
 @router.get("/progress", response_model=list[ProgressCampaignOut])
 async def list_progress(session: SessionDep) -> list[ProgressCampaignOut]:
     repo = ProgressRepository(session)
@@ -227,7 +261,31 @@ async def list_progress(session: SessionDep) -> list[ProgressCampaignOut]:
     for snapshot in snapshots:
         snapshots_by_drop.setdefault(snapshot.drop_id, []).append(snapshot)
 
-    return _group_progress(rows, snapshots_by_drop, now)
+    campaigns = _group_progress(rows, snapshots_by_drop, now)
+    completed = await CampaignCompletionRepository(session).list()
+    completed_ids = {row.campaign_gql_id for row in completed}
+    existing = {campaign.campaign_id for campaign in campaigns}
+
+    missing = completed_ids - existing
+    if missing:
+        catalog = await CampaignRepository(session).list()
+        by_gql_id = {
+            campaign_gql_id_from_external_id(campaign.external_id): campaign
+            for campaign in catalog
+        }
+        for campaign_id in sorted(missing):
+            campaign = by_gql_id.get(campaign_id)
+            if campaign is not None and campaign.rewards:
+                campaigns.append(_completed_campaign_out(campaign))
+
+    return sorted(
+        campaigns,
+        key=lambda item: (
+            item.campaign_id in completed_ids,
+            item.game_name.lower(),
+            item.campaign_name.lower(),
+        ),
+    )
 
 
 @router.post(

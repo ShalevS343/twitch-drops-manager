@@ -35,6 +35,7 @@ class CampaignOut(BaseModel):
     ends_at: str | None = None
     details_url: str = ""
     owner_name: str = ""
+    completed: bool = False
     game: GameOut
     rewards: list[RewardOut] = Field(default_factory=list)
 

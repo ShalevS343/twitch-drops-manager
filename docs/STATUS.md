@@ -18,7 +18,7 @@ campaign-time math + focus offline/completion alerts in `ea8586d`; Start watchin
 - `main` includes the focused watcher (one queue target at a time,
   manual/auto/next dispatch, offline/completion alerts), sends only campaign-start
   Telegram notifications (no new-live spam), and calculates campaign remaining
-  time from the largest open drop. Backend tests: **69 passed**; ruff clean;
+  time from the largest open drop. Backend tests: **71 passed**; ruff clean;
   frontend build passes.
 - Frontend: `npm run build` passes; visually verified with headless screenshots
   (desktop + mobile) against live data.
@@ -30,8 +30,10 @@ campaign-time math + focus offline/completion alerts in `ea8586d`; Start watchin
   dispatches focus mode to that streamer/campaign. Only one focus target exists;
   clicking another Start watching replaces it. Watch queue/streams are grouped by
   game and capped at 5 by default.
-- Completed campaigns (all drops claimed) are tagged **Completed**, sorted after
-  unfinished campaigns on Campaigns/Progress/Overview, and use a green border.
+- Completed campaigns are persisted in `campaign_completions` from Twitch
+  `earnedDropRewards`, so they stay completed after leaving
+  `dropCampaignsInProgress`. Campaigns shows **Completed** instead of `Active`;
+  Campaigns/Progress/Overview sort them last with a green border.
 - Focused watcher is backend-persisted (`watch_focus`, one row) and reuses the
   watch queue. It notifies when the focused live goes offline while the campaign
   is open, and notifies + turns itself off when the campaign completes. It does
@@ -47,8 +49,8 @@ campaign-time math + focus offline/completion alerts in `ea8586d`; Start watchin
   disclaimers; the underlying behavior is unchanged.
 - Docs: API, data model, backend, architecture, frontend, decisions, changelog,
   and this file updated for game tracking, Start watching/focus, completed
-  campaign ordering/tags, ETA removal, the violet UI pass, the focused watcher,
-  Telegram alert changes, and campaign-time math.
+  campaign completion ledger/ordering/tags, ETA removal, the violet UI pass, the
+  focused watcher, Telegram alert changes, and campaign-time math.
 
 ### Live deployment (verify before assuming)
 
@@ -81,8 +83,9 @@ created automatically by `create_all`. There is no timer state to migrate.
      alert + focus off; no auto-move
    - Telegram: campaign starts and focused-watcher alerts only; no new-live spam
    - Campaign remaining time is the largest open drop (1h + 2h shows 2h)
-   - Completed campaigns appear last with a green Completed tag on Campaigns,
-     Progress, and Overview
+   - Completed campaigns persist after leaving in-progress inventory, show
+     Completed (not Active) on Campaigns, and appear last on Campaigns/Progress/
+     Overview
    - Live streams: game groups + Per game selector
    - No ETA text; progress shows `X min left` and actions read “Scan for new
      drops” / “Sync drop progress”

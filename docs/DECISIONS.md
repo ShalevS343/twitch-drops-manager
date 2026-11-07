@@ -215,3 +215,21 @@ and are limited to an offline target and campaign completion.
 used for `campaign-started:*`, `watch-offline:*`, and `watch-complete:*`. When
 Telegram fails, the campaign-start claim is released and the start row remains
 for retry.
+
+## ADR-018 — Persist campaign completion from earnedDropRewards
+
+**Context:** Twitch's `dropCampaignsInProgress` no longer returns a campaign once
+all rewards are claimed, so matching completion against current progress misses
+campaigns the user already finished. Catalog status can still say `ACTIVE`.
+
+**Decision:** fetch the Inventory query with `fetchRewardCampaigns: true`, which
+adds `earnedDropRewards`. The progress sync groups claimed rewards by campaign
+and compares the count with the catalog campaign's reward count. Fully claimed
+campaigns are written to the `campaign_completions` ledger and never removed.
+`GET /campaigns` exposes `completed`; `GET /progress` appends ledger campaigns
+(from catalog rewards) so they still render with all drops claimed.
+
+**Consequences:** completion survives the campaign leaving Twitch's in-progress
+inventory and `drop_progress` replacement. The UI can label completed campaigns
+instead of showing them as active. The ledger is only as accurate as the catalog
+reward count and Twitch's claimed reward list; partial claims stay incomplete.

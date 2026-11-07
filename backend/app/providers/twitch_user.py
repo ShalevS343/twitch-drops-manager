@@ -51,6 +51,17 @@ query Inventory($fetchRewardCampaigns: Boolean) {
           self { dropInstanceID isClaimed currentMinutesWatched }
         }
       }
+      earnedDropRewards {
+        edges {
+          node {
+            id
+            status
+            earnedAt
+            item { id name }
+            campaign { id }
+          }
+        }
+      }
       gameEventDrops { id lastAwardedAt }
     }
   }
@@ -267,7 +278,9 @@ class TwitchUserProvider:
 
         payload = {
             "operationName": "Inventory",
-            "variables": {"fetchRewardCampaigns": False},
+            # True adds earnedDropRewards, which is how completed campaigns are
+            # detected after they leave dropCampaignsInProgress.
+            "variables": {"fetchRewardCampaigns": True},
             "extensions": {
                 "persistedQuery": {"version": 1, "sha256Hash": INVENTORY_HASH}
             },
@@ -289,7 +302,7 @@ class TwitchUserProvider:
                     fallback = {
                         "operationName": "Inventory",
                         "query": INVENTORY_QUERY,
-                        "variables": {"fetchRewardCampaigns": False},
+                        "variables": {"fetchRewardCampaigns": True},
                     }
                     response = await client.post(
                         self.settings.twitch_gql_url, headers=headers, json=fallback

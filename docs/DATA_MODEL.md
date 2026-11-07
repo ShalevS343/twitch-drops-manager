@@ -115,6 +115,23 @@ The matching `notifications` claim uses the key
 `campaign-started:{campaign_external_id}`. Orphan rows are removed when their
 campaign no longer exists in the catalog.
 
+### `campaign_completions`
+
+Persistent completion ledger. Twitch removes a campaign from
+`dropCampaignsInProgress` once all rewards are claimed, so the app records it
+from `earnedDropRewards` (fetched with `fetchRewardCampaigns: true`). One row per
+campaign; completion survives `drop_progress` replacement.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | int PK | |
+| `campaign_gql_id` | string, unique, indexed | Twitch campaign id |
+| `campaign_name` / `game_name` | string | display copy |
+| `completed_at` / `updated_at` | datetime | first observed / last update |
+
+Completed campaigns are exposed as `completed: true` on `GET /campaigns` and are
+appended to `GET /progress` from the catalog rewards (all drops claimed).
+
 ### `twitch_auth`
 
 Single-row token store (no user accounts).
@@ -219,6 +236,7 @@ twitch_auth (1 row)     twitch_profile (1 row)
 drop_progress (current) 1─* progress_snapshots (history)
 notifications (dedupe ledger)
 campaign_starts (pending start events)
+campaign_completions (claimed campaign ledger)
 watch_focus (1 row, queue focus pointer)
 scan_runs (audit)
 ```
@@ -237,6 +255,7 @@ by the `external_id` suffix (`"{game}:{gql_id}"`).
 - `notifications`: kept; one row per event forever (small).
 - `campaign_starts`: deleted after a successful digest; failed sends stay for the
   next scan; orphan rows pruned on every scan.
+- `campaign_completions`: retained; completion is permanent for the account.
 - `watch_focus`: single row; updated in place by the API/worker.
 - `scan_runs`: kept (small); could be pruned in the future.
 

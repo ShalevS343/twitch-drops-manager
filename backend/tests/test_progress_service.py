@@ -5,11 +5,20 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from app.api.v1.campaigns import list_campaigns
 from app.api.v1.progress import list_progress
 from app.core.config import Settings
 from app.core.db import Base
 from app.core.exceptions import ProviderError
-from app.domain.models import DropProgress, Notification, ProgressSnapshot
+from app.domain.models import (
+    Campaign,
+    CampaignCompletion,
+    DropProgress,
+    Game,
+    Notification,
+    ProgressSnapshot,
+    Reward,
+)
 from app.repositories.twitch_auth import TwitchAuthRepository
 from app.services.progress_service import ProgressService
 
@@ -56,6 +65,32 @@ class FakeProvider:
                     ],
                 }
             ]
+        }
+
+    async def refresh(self, refresh_token):
+        raise AssertionError("Token should not need refreshing in this test")
+
+
+class CompletedProvider:
+    def __init__(self, claimed_rewards: int) -> None:
+        self.claimed_rewards = claimed_rewards
+
+    async def fetch_inventory(self, access_token):
+        return {
+            "dropCampaignsInProgress": [],
+            "earnedDropRewards": {
+                "edges": [
+                    {
+                        "node": {
+                            "id": f"item-{index}",
+                            "status": "CLAIMED",
+                            "item": {"id": f"item-{index}"},
+                            "campaign": {"id": "campaign-1"},
+                        }
+                    }
+                    for index in range(self.claimed_rewards)
+                ]
+            },
         }
 
     async def refresh(self, refresh_token):
@@ -134,6 +169,110 @@ async def test_progress_sync_persists_drops_and_notifies_once():
             select(func.count()).select_from(Notification)
         )
         assert notification_total == 1
+
+    await engine.dispose()
+
+
+async def _seed_catalog_campaign(session) -> Campaign:
+    game = Game(name="Rust", selected=True)
+    session.add(game)
+    await session.flush()
+
+    campaign = Campaign(
+        external_id="Rust:campaign-1",
+        game_id=game.id,
+        name="Completed Campaign",
+        status="ACTIVE",
+        ends_at="2026-12-01T00:00:00Z",
+    )
+    session.add(campaign)
+    await session.flush()
+    session.add_all(
+        [
+            Reward(
+                campaign_id=campaign.id,
+                name="Drop One",
+                benefit_name="Skin",
+                required_minutes=60,
+            ),
+            Reward(
+                campaign_id=campaign.id,
+                name="Drop Two",
+                benefit_name="Booster",
+                required_minutes=120,
+            ),
+        ]
+    )
+    await session.commit()
+    return campaign
+
+
+async def _run_completed_progress(session, claimed_rewards: int):
+    await _seed_catalog_campaign(session)
+    await TwitchAuthRepository(session).save(
+        user_id="123",
+        login="viewer",
+        access_token="token",
+        refresh_token="refresh",
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    await session.commit()
+    return await ProgressService(
+        session=session,
+        settings=Settings(default_games="Rust", _env_file=None),
+        provider=CompletedProvider(claimed_rewards),
+        telegram=FakeTelegram(),
+    ).run()
+
+
+@pytest.mark.asyncio
+async def test_progress_records_campaign_completion_from_earned_rewards():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        await _run_completed_progress(session, claimed_rewards=2)
+
+        completion_count = await session.scalar(
+            select(func.count()).select_from(CampaignCompletion)
+        )
+        assert completion_count == 1
+
+        campaigns = await list_campaigns(
+            session, game=None, status=None, active_only=False
+        )
+        assert len(campaigns) == 1
+        assert campaigns[0].completed is True
+
+        progress = await list_progress(session)
+        assert len(progress) == 1
+        completed = progress[0]
+        assert completed.campaign_name == "Completed Campaign"
+        assert completed.claimed_count == 2
+        assert completed.total_count == 2
+        assert completed.remaining_minutes == 0
+        assert all(drop.is_claimed for drop in completed.drops)
+        assert all(drop.remaining_minutes == 0 for drop in completed.drops)
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_progress_does_not_complete_a_campaign_with_missing_rewards():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        await _run_completed_progress(session, claimed_rewards=1)
+
+        completion_count = await session.scalar(
+            select(func.count()).select_from(CampaignCompletion)
+        )
+        assert completion_count == 0
+
+        campaigns = await list_campaigns(
+            session, game=None, status=None, active_only=False
+        )
+        assert campaigns[0].completed is False
+        assert await list_progress(session) == []
 
     await engine.dispose()
 

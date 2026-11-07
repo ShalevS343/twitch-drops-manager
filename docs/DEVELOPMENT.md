@@ -131,7 +131,7 @@ pass, lint/build pass, contracts aligned, docs updated, no secrets.
 
 ## Current baseline
 
-- Backend tests: **69 passed**
+- Backend tests: **71 passed**
 - Ruff: clean
 - Frontend: `npm run build` passes
 - Main includes P0 performance work, game tracking/campaign-start alerts, the

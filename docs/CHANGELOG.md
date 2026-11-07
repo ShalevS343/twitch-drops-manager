@@ -16,12 +16,15 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ### Completed campaigns — tagged and sorted last
 
-- Campaigns, Progress, and Overview now detect completed campaigns
-  (`claimed_count === total_count`), sort them after unfinished campaigns, and
-  show a green **Completed** badge/border.
-- Campaigns matches catalog rows to progress via the GQL id suffix, so a
-  completed campaign still shows correctly even if its catalog status is
-  `ACTIVE` or `ENDED`.
+- Twitch stops returning a campaign from `dropCampaignsInProgress` once all
+  rewards are claimed, so completion is now persisted in `campaign_completions`
+  from the Inventory `earnedDropRewards` data (`fetchRewardCampaigns: true`).
+- `GET /campaigns` exposes `completed`; completed campaigns show **Completed**
+  instead of the catalog status (no more “Active” on finished campaigns), sort
+  after unfinished campaigns, and use a green border.
+- `GET /progress` appends completed campaigns from the ledger + catalog rewards,
+  so Progress and Overview keep them with all drops claimed.
+- Added completion-ledger tests. Backend suite: **71 passed**.
 
 ### Watch queue — Start watching replaces the timer
 

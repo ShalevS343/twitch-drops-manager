@@ -120,6 +120,10 @@ exist in the catalog is created as a tracked `Game` row with no Twitch metadata;
 a later scan fills in the game id and box art. This is what allows tracking a game
 that currently has no campaign.
 
+`completed` is `true` when the account has claimed every reward in the campaign.
+Completion is persisted in `campaign_completions`, so it stays true after Twitch
+removes the campaign from `dropCampaignsInProgress`.
+
 When a tracked game's campaign becomes `ACTIVE` (new campaign, `UPCOMING` →
 `ACTIVE`, or the first campaign after an earlier one ended), the scan records a
 pending campaign-start event and includes it in the next Telegram digest. If
@@ -145,6 +149,7 @@ Returns `CampaignOut[]`:
   "ends_at": "2026-11-12T09:59:59.999Z",
   "details_url": "https://...",
   "owner_name": "Gaijin",
+  "completed": false,
   "game": { "id": 1, "name": "War Thunder", "...": "..." },
   "rewards": [{
     "id": 1,
@@ -223,6 +228,10 @@ duplicates.
 Campaign `remaining_minutes` is the **largest** remaining requirement among the
 campaign's unclaimed drops, not the sum. Drop requirements share the same watch
 time (a 1h drop + a 2h drop needs 2h total).
+
+Completed campaigns that are no longer in Twitch's in-progress inventory are
+appended from `campaign_completions` + the catalog rewards (all drops claimed,
+`remaining_minutes: 0`) and sort after unfinished campaigns.
 
 `POST /progress/refresh` (token)
 

@@ -30,7 +30,8 @@ app/
     telegram.py           Bot API send
   repositories/
     campaigns.py games.py streams.py notifications.py progress.py
-    campaign_starts.py scans.py twitch_auth.py twitch_profile.py watch_focus.py
+    campaign_starts.py campaign_completions.py scans.py twitch_auth.py
+    twitch_profile.py watch_focus.py
   services/
     scan_service.py       catalog + streams + campaign-start alerts
     progress_service.py   inventory + snapshots + ready/deadline alerts
@@ -39,7 +40,7 @@ app/
     watch_focus_service.py  focused-watcher state + offline/completion alerts
     factory.py            cached providers + service builders
   worker/scheduler.py     APScheduler worker entry point
-tests/                    pytest suite (69 tests)
+tests/                    pytest suite (71 tests)
 ```
 
 ## Startup (`main.py`)
@@ -115,13 +116,18 @@ See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
    Twitch returns `PersistedQueryNotFound`, retry with the raw query.
 4. Flatten `dropCampaignsInProgress` with `parse_inventory` (current/required
    minutes, claimed, benefits, campaign/game metadata).
-5. `ProgressRepository.replace(rows)`; commit.
-6. Insert one `ProgressSnapshot` per drop; prune >24h.
-7. Build notifications:
+5. Read `earnedDropRewards` (fetched with `fetchRewardCampaigns: true`) and
+   persist `campaign_completions` for catalog campaigns whose claimed reward
+   count reaches the catalog reward count. Also mark a campaign completed when
+   every in-progress drop is claimed. This survives the campaign leaving
+   `dropCampaignsInProgress`.
+6. `ProgressRepository.replace(rows)`; commit.
+7. Insert one `ProgressSnapshot` per drop; prune >24h.
+8. Build notifications:
    - ready drops (`is_ready` and not claimed) keyed `drop-ready:<drop_id>`
    - deadline: tightest window only, `campaign-ending:<gql_id>:2h` or `:24h`
    - atomically claim each key before sending; one digest; release on failure.
-8. Commit; return counts.
+9. Commit; return counts.
 
 ### Remaining-time / watch-rate math (`progress_metrics.py`)
 
@@ -198,7 +204,8 @@ the only writer of focused mode:
 - `parse_oauth_token` accepts a full URL with `#access_token=` or a raw token.
 - `validate` uses `/oauth2/validate`.
 - `fetch_inventory` uses the internal GQL `Inventory` persisted query with a raw
-  fallback.
+  fallback. `fetchRewardCampaigns: true` adds `earnedDropRewards`, used for the
+  completion ledger.
 - `fetch_profile` uses `ViewerCard` (`displayName`, `profileImageURL(width:300)`),
   cached in memory for 10 minutes; the persisted profile lives in `twitch_profile`.
 - Sends Android client headers (`User-Agent`, `Client-Session-Id`, `X-Device-Id`,
@@ -226,7 +233,7 @@ Repositories wrap SQLAlchemy. Notable choices:
 
 ## Tests
 
-`backend/tests` (69 tests):
+`backend/tests` (71 tests):
 
 - parsing/inventory
 - scan service (catalog, streams, campaign-start-gated alerts, retry)
@@ -234,6 +241,7 @@ Repositories wrap SQLAlchemy. Notable choices:
 - notifications (claim/release/duplicate)
 - watch queue (filtering/sorting/next drop)
 - focused watcher (singleton, manual/auto/next, offline, completion)
+- campaign completion ledger (`earnedDropRewards`, /campaigns, /progress)
 - streams API, status API, DB/index creation, models (deferred raw)
 
 Run:

@@ -7,9 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.exceptions import NotConfiguredError, ProviderError
 from app.domain.models import TwitchAuth
-from app.domain.parsing import parse_inventory, parse_iso_datetime
+from app.domain.parsing import (
+    campaign_gql_id_from_external_id,
+    parse_earned_rewards,
+    parse_inventory,
+    parse_iso_datetime,
+)
 from app.providers.telegram import TelegramProvider
 from app.providers.twitch_user import TwitchUserProvider
+from app.repositories.campaign_completions import CampaignCompletionRepository
+from app.repositories.campaigns import CampaignRepository
 from app.repositories.notifications import NotificationRepository
 from app.repositories.progress import ProgressRepository
 from app.repositories.twitch_auth import TwitchAuthRepository
@@ -56,6 +63,8 @@ class ProgressService:
             campaigns = []
 
         rows = parse_inventory(campaigns)
+        await self._record_completions(rows, inventory)
+
         now = datetime.now(timezone.utc)
         repo = ProgressRepository(self.session)
         await repo.replace(rows)
@@ -75,6 +84,51 @@ class ProgressService:
             drop_count=len(rows),
             notified_count=notified,
         )
+
+    async def _record_completions(
+        self, rows: list[dict], inventory: dict
+    ) -> None:
+        """Persist campaigns whose rewards are all claimed.
+
+        ``dropCampaignsInProgress`` drops a campaign after its final reward is
+        claimed; ``earnedDropRewards`` still lists the claimed rewards, so it is
+        used to detect completion even when the campaign is no longer in
+        progress. A campaign is also completed when every in-progress drop is
+        claimed.
+        """
+        earned = parse_earned_rewards(inventory)
+        campaigns = await CampaignRepository(self.session).list()
+
+        rows_by_campaign: dict[str, list[dict]] = {}
+        for row in rows:
+            campaign_id = str(row.get("campaign_gql_id") or "")
+            if campaign_id:
+                rows_by_campaign.setdefault(campaign_id, []).append(row)
+
+        completed: list[dict] = []
+        for campaign in campaigns:
+            campaign_id = campaign_gql_id_from_external_id(campaign.external_id)
+            if not campaign_id:
+                continue
+
+            claimed_rewards = len(earned.get(campaign_id, set()))
+            campaign_rows = rows_by_campaign.get(campaign_id, [])
+            all_rows_claimed = bool(campaign_rows) and all(
+                row["is_claimed"] for row in campaign_rows
+            )
+            if (
+                len(campaign.rewards) > 0
+                and claimed_rewards >= len(campaign.rewards)
+            ) or all_rows_claimed:
+                completed.append(
+                    {
+                        "campaign_gql_id": campaign_id,
+                        "campaign_name": campaign.name,
+                        "game_name": campaign.game.name if campaign.game else "",
+                    }
+                )
+
+        await CampaignCompletionRepository(self.session).upsert_many(completed)
 
     async def _ensure_token(self, auth: TwitchAuth) -> TwitchAuth:
         expires = auth.expires_at
