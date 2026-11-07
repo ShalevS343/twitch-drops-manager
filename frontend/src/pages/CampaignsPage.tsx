@@ -5,8 +5,13 @@ import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Icon } from '../components/ui/Icon'
 import { LoadingState } from '../components/ui/Spinner'
-import { useCampaigns, useScan } from '../hooks/useApi'
-import { campaignPhase, type CampaignPhase } from '../lib/campaigns'
+import { useCampaigns, useProgress, useScan } from '../hooks/useApi'
+import {
+  campaignGqlId,
+  campaignPhase,
+  isProgressCampaignCompleted,
+  type CampaignPhase,
+} from '../lib/campaigns'
 
 type StatusFilter = 'all' | 'active' | 'upcoming' | 'ended'
 
@@ -19,6 +24,7 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
 
 export function CampaignsPage() {
   const campaignsQuery = useCampaigns()
+  const progressQuery = useProgress()
   const scan = useScan()
 
   const [search, setSearch] = useState('')
@@ -26,6 +32,17 @@ export function CampaignsPage() {
   const [status, setStatus] = useState<StatusFilter>('all')
 
   const campaigns = campaignsQuery.data ?? []
+  const progress = progressQuery.data ?? []
+
+  const completedIds = useMemo(
+    () =>
+      new Set(
+        progress
+          .filter(isProgressCampaignCompleted)
+          .map((campaign) => campaign.campaign_id),
+      ),
+    [progress],
+  )
 
   const games = useMemo(() => {
     const names = new Set(campaigns.map((campaign) => campaign.game.name))
@@ -35,20 +52,26 @@ export function CampaignsPage() {
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
 
-    return campaigns.filter((campaign) => {
-      const phase: CampaignPhase = campaignPhase(campaign)
-      const matchesSearch =
-        !query ||
-        campaign.name.toLowerCase().includes(query) ||
-        campaign.game.name.toLowerCase().includes(query) ||
-        campaign.owner_name.toLowerCase().includes(query)
+    return campaigns
+      .filter((campaign) => {
+        const phase: CampaignPhase = campaignPhase(campaign)
+        const matchesSearch =
+          !query ||
+          campaign.name.toLowerCase().includes(query) ||
+          campaign.game.name.toLowerCase().includes(query) ||
+          campaign.owner_name.toLowerCase().includes(query)
 
-      const matchesGame = game === 'all' || campaign.game.name === game
-      const matchesStatus = status === 'all' || phase === status
+        const matchesGame = game === 'all' || campaign.game.name === game
+        const matchesStatus = status === 'all' || phase === status
 
-      return matchesSearch && matchesGame && matchesStatus
-    })
-  }, [campaigns, game, search, status])
+        return matchesSearch && matchesGame && matchesStatus
+      })
+      .sort((a, b) => {
+        const aCompleted = completedIds.has(campaignGqlId(a.external_id)) ? 1 : 0
+        const bCompleted = completedIds.has(campaignGqlId(b.external_id)) ? 1 : 0
+        return aCompleted - bCompleted
+      })
+  }, [campaigns, completedIds, game, search, status])
 
   const hasFilters = Boolean(search.trim()) || game !== 'all' || status !== 'all'
 
@@ -169,7 +192,11 @@ export function CampaignsPage() {
       {filtered.length > 0 && (
         <div className="campaign-grid">
           {filtered.map((campaign) => (
-            <CampaignCard key={campaign.id} campaign={campaign} />
+            <CampaignCard
+              key={campaign.id}
+              campaign={campaign}
+              completed={completedIds.has(campaignGqlId(campaign.external_id))}
+            />
           ))}
         </div>
       )}

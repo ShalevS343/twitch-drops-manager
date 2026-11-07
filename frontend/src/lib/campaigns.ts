@@ -27,6 +27,22 @@ export function progressPercent(campaign: ProgressCampaign): number {
   return Math.round(total / campaign.drops.length)
 }
 
+export function isProgressCampaignCompleted(campaign: ProgressCampaign): boolean {
+  if (campaign.total_count > 0) {
+    return campaign.claimed_count >= campaign.total_count
+  }
+
+  return (
+    campaign.drops.length > 0 && campaign.drops.every((drop) => drop.is_claimed)
+  )
+}
+
+/** The GQL campaign id is the suffix of `"{game}:{gql_id}"`. */
+export function campaignGqlId(externalId: string): string {
+  const separator = externalId.lastIndexOf(':')
+  return separator >= 0 ? externalId.slice(separator + 1) : externalId
+}
+
 export function readyDropCount(campaign: ProgressCampaign): number {
   return campaign.drops.filter((drop) => drop.is_ready && !drop.is_claimed).length
 }
