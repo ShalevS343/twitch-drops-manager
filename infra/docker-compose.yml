@@ -46,6 +46,8 @@ services:
         VITE_API_TOKEN: ${API_TOKEN:-}
     ports:
       - "8282:80"
+    volumes:
+      - ${DROPS_AUTH_FILE:-/home/server/twitch-drops-auth/htpasswd}:/etc/nginx/.htpasswd:ro
     depends_on:
       - api
     labels:
