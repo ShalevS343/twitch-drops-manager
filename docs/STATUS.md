@@ -5,7 +5,7 @@ Source of truth: `main` (run `git log -1` for the exact tip). Game tracking +
 violet UI in `77bfc75`; manual watch sessions + per-game limits in `0eb9b16`;
 ETA removal + clearer action labels in `0c6a7e2`; focused watcher in `5e3937e`;
 campaign-time math + focus offline/completion alerts in `ea8586d`; Start watching
-+ timer removal in `a01f2c9`.
++ timer removal in `a01f2c9`; completed-campaign tags/ordering in `0db1c07`.
 
 ## Current state
 
