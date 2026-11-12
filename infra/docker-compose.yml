@@ -17,7 +17,7 @@ x-backend-env: &backend-env
   REGISTRATION_OPEN: ${REGISTRATION_OPEN:-false}
   OWNER_TWITCH_ID: ${OWNER_TWITCH_ID:-}
   SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
-  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-auto}
+  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
   PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
   ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
   AUTH_RATE_LIMIT_PER_MINUTE: ${AUTH_RATE_LIMIT_PER_MINUTE:-10}
@@ -27,6 +27,7 @@ services:
     build:
       context: ../backend
     image: twitch-drops-backend:local
+    restart: unless-stopped
     environment:
       <<: *backend-env
     volumes:
@@ -38,6 +39,7 @@ services:
     build:
       context: ../backend
     image: twitch-drops-backend:local
+    restart: unless-stopped
     command: ["python", "-m", "app.worker.scheduler"]
     environment:
       <<: *backend-env
@@ -50,15 +52,18 @@ services:
   frontend:
     build:
       context: ../frontend
+    restart: unless-stopped
     ports:
-      - "8282:80"
+      # Loopback only: Tailscale Funnel is the public TLS entry point. This
+      # avoids serving the UI over plaintext HTTP to the LAN.
+      - "127.0.0.1:8282:80"
     depends_on:
       - api
     labels:
       - homepage.group=Media
       - homepage.name=Twitch Drops Manager
       - homepage.icon=twitch.png
-      - homepage.href=http://100.115.65.82:8282
+      - homepage.href=https://pi.taile9ec1c.ts.net
       - homepage.description=Track Twitch Drops campaigns and live streams
 
 volumes:
