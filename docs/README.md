@@ -55,4 +55,5 @@ Rules:
 
 ## Last updated
 
-2026-11-12 — multi-user accounts, auth, and deployment docs.
+2026-11-12 — multi-user accounts, Telegram auto-link, security hardening, and
+deployment docs.

@@ -45,8 +45,9 @@ Required updates:
   `users` row is keyed by the unique Twitch user id, and sessions are server-side
   cookies. Keep every personal table/query scoped to `user_id`; never read or
   return another user's progress, games, focus, or Telegram chat id. The catalog
-  and live streams are shared. The first user is admin; new users need an invite
-  code unless registration is explicitly opened.
+  and live streams are shared. The first admin needs a matching
+  `OWNER_TWITCH_ID`, a valid invite code, or explicit `REGISTRATION_OPEN=true`;
+  new users need an invite code unless registration is explicitly opened.
 - **Secrets**: never read, print, commit, or copy `.env` / `.env.save`. Never
   log tokens (Twitch or Telegram). Use `.env.example` for documentation.
 - **No live deployment** (Portainer redeploy, `docker compose up`, container
@@ -85,11 +86,10 @@ docker compose --project-directory infra -f infra/docker-compose.yml config -q
 docker compose --project-directory infra -f infra/docker-compose.yml up -d --build
 ```
 
-Expected current baseline: the backend suite passes (see
-[`docs/STATUS.md`](docs/STATUS.md) for the current count), ruff clean, frontend
-build passes. The multi-user release adds auth/migration/isolation/admin/worker
-tests, so the count is higher than the old 71-test single-user baseline; do not
-lower it.
+Expected current baseline: **252 backend tests pass**, `ruff check app tests` is
+clean, and the frontend `npm run build` passes. The multi-user/auth/security
+suite is the current floor; do not lower it. See
+[`docs/STATUS.md`](docs/STATUS.md) for the live count and pending work.
 
 ## 5. Worktree workflow for parallel work
 

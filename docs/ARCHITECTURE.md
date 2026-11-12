@@ -65,8 +65,9 @@ never automates watching.
   `/data`; `/data/drops.db` in WAL mode.
 - **Kuma / Homepage** — optional external monitoring/dashboard labels.
 
-Ports: UI `8282`, API `127.0.0.1:8000` (loopback only; nginx reaches it over the
-Compose network).
+Ports: UI `127.0.0.1:8282`, API `127.0.0.1:8000` (both loopback in Compose;
+nginx reaches the API over the Compose network, and Tailscale Funnel reaches the
+frontend through the local listener).
 
 ## Components
 
@@ -75,15 +76,17 @@ Compose network).
 - Twitch is the only identity provider. There are no passwords.
 - `POST /auth/twitch/connect` validates the pasted implicit-grant token with
   Twitch, maps it to `users.twitch_user_id`, and creates/loads the local user.
-- The first user is `admin`; later users need `REGISTRATION_CODE` unless
-  `REGISTRATION_OPEN=true`. An empty code means closed, never open.
+- The first admin needs a matching `OWNER_TWITCH_ID`, a valid
+  `REGISTRATION_CODE`, or explicit `REGISTRATION_OPEN=true`; an empty DB is not
+  implicitly open. Later users need the invite code unless registration is open.
 - A successful connect creates an opaque session token, stores only its SHA-256
   hash in `user_sessions`, and sets:
   - `tdm_session` — `HttpOnly`, `SameSite=Lax`, `Path=/`, absolute
     `SESSION_TTL_DAYS` expiry.
   - `tdm_csrf` — readable token echoed as `X-CSRF-Token` on unsafe methods and
     compared with `secrets.compare_digest`.
-- `SESSION_COOKIE_SECURE=auto` derives `Secure` from `X-Forwarded-Proto`.
+- `SESSION_COOKIE_SECURE=true` is the Compose default; `auto` can derive
+  `Secure` from a trusted forwarded scheme for local/special deployments.
 - When `PUBLIC_ORIGIN`/`ALLOWED_HOSTS` are set, they pin production origin/host
   checks; the same-origin fallback is for local development.
 - Disabled users cannot log in; disabling deletes their sessions and stops their
@@ -256,11 +259,16 @@ id, and logout/user change clears the query cache. See [FRONTEND.md](FRONTEND.md
   30-day expiry.
 - `Secure` cookies on public HTTPS via preserved `X-Forwarded-Proto`;
   `PUBLIC_ORIGIN`/`ALLOWED_HOSTS` pin production origin/host checks.
-- Auth endpoints are rate-limited per client IP (`AUTH_RATE_LIMIT_PER_MINUTE`).
+- Auth is rate-limited per client IP (`AUTH_RATE_LIMIT_PER_MINUTE`) plus a
+  deployment-wide ceiling (`AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE`); personal actions
+  have per-user limits too.
 - The public static UI is reachable without a shared password; personal API
   endpoints require a session, and new accounts require the invite code.
-- Twitch tokens are plaintext in SQLite; protect the volume and host. Never log
-  tokens. Telegram errors are redacted so the bot token never reaches logs.
+- The frontend binds `127.0.0.1:8282`; nginx adds CSP, HSTS, nosniff, frame-deny,
+  referrer and permissions headers before the SPA is served.
+- Twitch tokens are plaintext in SQLite; protect the volume and host. Provider
+  errors, scan errors, and Telegram errors are sanitized so secrets never reach
+  logs or API responses.
 - Each user can only read/write their own personal data; admins see only safe
   account metadata (never tokens or chat ids).
 - No auto-claim/watch automation; the focused watcher is a queue pointer only.

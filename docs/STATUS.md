@@ -55,15 +55,15 @@ Deployment config and docs are committed; **nothing is deployed yet**.
 - Frontend: `npm run build` passes.
 - `docker compose --project-directory infra -f infra/docker-compose.yml config -q`
   passes; `nginx -t` passes with the new map.
-- The old 71/72-test single-user baseline is superseded; use the integration run
-  for the current count.
+- The old 71/72-test single-user baseline is superseded; **252** is the current
+  floor.
 
 ### Live deployment
 
 - **Not deployed.** The Portainer stack `twitch-drops-manager` still runs the
-  single-user build from `main`. `main` removes nginx basic auth; once
-  deployed, the public UI is reachable and the app's Twitch login + invite code
-  are the access gate.
+  old single-user build. `main` removes nginx basic auth; once deployed, the
+  public UI is reachable and the app's Twitch login + invite code are the access
+  gate.
 - Public URL (when deployed): `https://pi.taile9ec1c.ts.net` via Tailscale
   Funnel → port `8282`; API stays on `127.0.0.1:8000`.
 - Rollout: backup → set env/owner/registration code → deploy → verify owner
@@ -88,7 +88,8 @@ Deployment config and docs are committed; **nothing is deployed yet**.
 
 ## Known issues / caveats
 
-- **Not deployed**: the live stack is single-user until the staged rollout runs.
+- **Not deployed**: the live stack is still the old build until the deployment
+  runbook runs.
 - **Rollback**: the old release reads frozen legacy tables; keeping post-upgrade
   data requires restoring the pre-upgrade backup.
 - **Tokens are plaintext** in `twitch_accounts` inside the SQLite volume.
@@ -109,7 +110,7 @@ Deployment config and docs are committed; **nothing is deployed yet**.
 2. `git status -sb`, `git log --oneline -5`; check the live stack before claiming
    deployment state.
 3. If deploying: back up `/data/drops.db` first and follow
-   [OPERATIONS.md](OPERATIONS.md) staged rollout.
+   [OPERATIONS.md](OPERATIONS.md) deployment runbook.
 4. If changing code: implement, tests/lint/build, update docs, update this file.
 5. Keep the test baseline here current after each integration run.
 

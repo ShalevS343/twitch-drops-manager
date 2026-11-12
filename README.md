@@ -11,10 +11,11 @@ never automates watching.
 
 ## Features
 
-- **Multi-user by Twitch login** — no passwords or email accounts. The first user
-  becomes admin; friends join with an invite code (`REGISTRATION_CODE`) or an
-  explicitly opened deployment. Personal data is isolated per user; the campaign
-  catalog and live streams are shared and scanned once.
+- **Multi-user by Twitch login** — no passwords or email accounts. The first
+  admin needs a matching `OWNER_TWITCH_ID`, a valid invite code
+  (`REGISTRATION_CODE`), or explicit `REGISTRATION_OPEN=true`; friends join with
+  the invite code. Personal data is isolated per user; the campaign catalog and
+  live streams are shared and scanned once.
 - **Campaign catalog** — active/upcoming campaigns, rewards, requirements, and end
   dates from the public Drops API.
 - **Live stream discovery** — Drops-enabled streams for your selected games via
@@ -26,7 +27,8 @@ never automates watching.
 - **Per-user Telegram alerts** — ready-to-claim drops, campaign deadline reminders
   (24h/2h), campaign starts for tracked games (including games with no current
   campaign), focused-live offline alerts, and focused campaign-completion alerts,
-  each to your own chat id. New live streams are not sent to Telegram.
+  each to your own chat id. Connect from Settings → Telegram → Connect Telegram;
+  the chat id is read-only. New live streams are not sent to Telegram.
 - **Track any game** — add a game by name in Settings even if it is not in the
   catalog; get notified when its next campaign becomes active.
 - **Start watching** — opens the real Twitch stream and focuses your watcher on
@@ -72,20 +74,22 @@ cp .env.example .env
 docker compose --project-directory infra -f infra/docker-compose.yml up -d --build
 ```
 
-- UI: http://localhost:8282
-- API docs: http://localhost:8000/docs
-- Health: http://localhost:8000/api/v1/health
+- UI (local): `http://localhost:8282` (Compose binds loopback)
+- Public deployment: `https://pi.taile9ec1c.ts.net` via Tailscale Funnel
+- API docs (local backend): `http://localhost:8000/docs`
+- Health: `http://localhost:8000/api/v1/health`
 
 Progress requires each person to sign in with Twitch once: approve the authorize
 page, then paste the resulting `https://www.twitch.tv/#access_token=...` URL back
 into the app. The token is stored server-side for that user's account; there are
-no passwords. The first user becomes admin. Later users need a valid
-`REGISTRATION_CODE` unless `REGISTRATION_OPEN=true`; an empty code alone never
-opens registration. Each user sets their own Telegram chat id in Settings.
+no passwords. The first admin needs `OWNER_TWITCH_ID`, a valid
+`REGISTRATION_CODE`, or `REGISTRATION_OPEN=true`. Later users need the invite code
+unless registration is explicitly open. Each user connects Telegram from
+Settings → Telegram → Connect Telegram; the chat id is read-only.
 
-During the staged rollout, nginx still requires HTTP Basic Auth in front of the
-app. It is removed only after Twitch login, per-user isolation, and the public
-HTTPS cookie path are verified (see [`docs/OPERATIONS.md`](docs/OPERATIONS.md)).
+There is no shared nginx basic-auth password. The public site is gated by Twitch
+login plus the invite code, and the frontend binds loopback so it is reached
+through the public HTTPS URL. See [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 ## Documentation
 
@@ -105,15 +109,21 @@ Start with [`docs/README.md`](docs/README.md). Key references:
 
 ## Security
 
-- `.env` and `.env.save` are **not** versioned. Never commit tokens.
+- `.env`, `.env.save`, and other `.env.*` backups are **not** versioned. Set
+  `chmod 600 .env`; never commit tokens.
 - Twitch OAuth tokens are stored in SQLite (`twitch_accounts`) and the app can
   read each user's drops inventory. Protect the Docker volume and host access.
 - Browser auth is an `HttpOnly` session cookie plus a CSRF header; there is no
-  API token in the frontend bundle. Use `PUBLIC_ORIGIN`, `ALLOWED_HOSTS`, and a
-  `Secure` cookie on HTTPS. Registration is invite-only by default.
+  API token in the frontend bundle. `SESSION_COOKIE_SECURE=true` is the Compose
+  default. Use `PUBLIC_ORIGIN` and `ALLOWED_HOSTS`; registration is invite-only by
+  default and a fresh DB is not implicitly open.
+- The frontend publishes only on `127.0.0.1:8282`; nginx adds CSP, HSTS,
+  nosniff, frame-deny, referrer and permissions headers.
 - Each user can only read their own personal data; admins see safe account
   metadata only (never tokens or chat ids).
-- Rotate the Telegram bot token if it was ever written to logs.
+- Auth and per-user actions are rate-limited. Rotate the Twitch client secret if
+  a token request ever failed on an old build, and rotate the Telegram bot token
+  if it was ever written to logs.
 - The app never claims rewards and never automates viewing; see
   [`docs/DECISIONS.md`](docs/DECISIONS.md).
 

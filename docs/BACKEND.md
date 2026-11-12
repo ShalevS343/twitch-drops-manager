@@ -372,8 +372,8 @@ PYTHONPATH=$PWD pytest -q
 ruff check app tests
 ```
 
-The exact pass count is recorded in [STATUS.md](STATUS.md); after this change it
-is higher than the old single-user baseline.
+The exact pass count is recorded in [STATUS.md](STATUS.md); the current floor is
+**252 tests**.
 
 ## Adding a backend feature
 

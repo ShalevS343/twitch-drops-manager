@@ -69,7 +69,11 @@ docker compose --project-directory infra -f infra/docker-compose.yml config -q
 docker compose --project-directory infra -f infra/docker-compose.yml up -d --build
 ```
 
-Ports: API `8000`, UI `8282`. The `drops_data` volume is shared by api/worker.
+Ports: API `127.0.0.1:8000`, UI `127.0.0.1:8282` (loopback in Compose). The
+public deployment reaches the UI through Tailscale Funnel at
+`https://pi.taile9ec1c.ts.net`. The `drops_data` volume is shared by api/worker.
+For local HTTP development, set `SESSION_COOKIE_SECURE=false` or `auto`; the
+Compose default is `true`.
 
 ## Worktree workflow
 
@@ -133,9 +137,11 @@ pass, lint/build pass, contracts aligned, docs updated, no secrets.
 
 ## Current baseline
 
-- Backend tests: **71 passed**
+- Backend tests: **252 passed**
 - Ruff: clean
 - Frontend: `npm run build` passes
-- Main includes P0 performance work, game tracking/campaign-start alerts, the
-  Start watching → focus action, and the violet high-contrast UI; the focused
-  watcher monitors the selected stream and sends offline/completion alerts.
+- Main includes multi-user Twitch auth, per-user isolation and Telegram, the
+  focused watcher, completed-campaign tracking, the violet high-contrast UI, and
+  the security hardening pass (CSP/headers, loopback bind, sanitized provider
+  errors, bootstrap gating, rate limits, safe URL rendering).
+- Docker builds use `npm ci`; local development may still use `npm install`.

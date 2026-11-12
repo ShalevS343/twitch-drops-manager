@@ -253,21 +253,25 @@ already proves identity.
   in an `HttpOnly` `tdm_session` cookie. Only the SHA-256 hash is stored in
   `user_sessions`. A readable `tdm_csrf` cookie must be echoed as
   `X-CSRF-Token` on every unsafe method. Cookies are `SameSite=Lax`, `Path=/`,
-  and `Secure` per `SESSION_COOKIE_SECURE` (default `auto`, from the forwarded
-  scheme). Sessions have an absolute `SESSION_TTL_DAYS` (30) lifetime and do not
-  slide.
+  and `Secure` per `SESSION_COOKIE_SECURE` (Compose default `true`; `auto` can
+  derive it from a trusted forwarded scheme). Sessions have an absolute
+  `SESSION_TTL_DAYS` (30) lifetime and do not slide.
 - **Per-user personal data.** Selected games, Twitch token/profile, drop
   progress, snapshots, completions, watch focus, campaign starts, and
   notification claims live in `user_*` tables keyed by `user_id`. The catalog
   (`games`, `campaigns`, `rewards`), live streams/matches, and scan runs stay
   shared and are scanned once.
-- **Per-user Telegram.** One bot token in env; each user stores an optional
-  numeric chat id and an opt-in flag. `TELEGRAM_CHAT_ID` only seeds the migrating
-  owner. Disabling Telegram deletes that user's pending start rows.
-- **Invite-only registration.** The first user becomes `admin`; later users need
-  `REGISTRATION_CODE` unless `REGISTRATION_OPEN=true` is set explicitly. An empty
-  code means closed, never open. Admins can list users, enable/disable them, and
-  trigger global scans; admins cannot disable themselves.
+- **Per-user Telegram.** One bot token in env; each user links a private chat
+  through a one-time deep link and stores an optional opt-in flag.
+  `TELEGRAM_CHAT_ID` only seeds the migrating owner. The chat id is read-only;
+  only the link flow can set it. Disabling Telegram deletes that user's pending
+  start rows.
+- **Invite-only registration.** The first admin needs a matching
+  `OWNER_TWITCH_ID`, a valid `REGISTRATION_CODE`, or
+  `REGISTRATION_OPEN=true`; an empty DB is not implicitly open. Later users need
+  the code unless registration is explicitly open. Admins can list users,
+  enable/disable them, and trigger global scans; admins cannot disable
+  themselves.
 - **Legacy migration.** `init_db()` runs a single-transaction, idempotent
   migration that copies the old single-user rows to the owner's user id, keyed
   by `app_meta['multi_user_v1']`. An empty legacy `user_id` or a conflicting user
@@ -285,3 +289,43 @@ plaintext in SQLite, so the volume/host stays the security boundary. The schema
 is user-keyed for future growth, but one SQLite writer and sequential per-user
 Twitch calls remain the practical ceiling (dozens of users); Postgres and a job
 queue are later options.
+
+## ADR-020 — Security hardening after the multi-user audit
+
+**Context:** an independent audit of the multi-user/auth/Telegram release found
+two High and several Medium issues: a first-run admin/invite bypass, Twitch client
+secret leakage through provider/scan errors, Telegram link-code destination
+replacement, missing endpoint cooldowns, a shared auth-rate-limit DoS path,
+unbounded game selection input, stored-XSS risk from API-controlled URLs, missing
+browser security headers, plaintext LAN exposure, and secret-backup handling.
+
+**Decision:**
+
+- **Bootstrap is gated.** An empty `users` table is not open. The first admin
+  needs matching `OWNER_TWITCH_ID`, a valid `REGISTRATION_CODE`, or explicit
+  `REGISTRATION_OPEN=true`; the admin claim stays atomic.
+- **Provider errors are sanitized.** Twitch credentials go in the POST body, and
+  provider/scan errors never include URLs, request bodies, tokens, or upstream
+  response bodies. `/status` and `/scans/latest` expose only safe error text.
+- **Telegram links cannot replace a destination.** A code may re-link the same
+  chat but cannot overwrite a different existing chat; disabled accounts cannot
+  drive commands; repeated commands are cooldown-limited.
+- **Rate limits have two layers.** Per-IP auth limiting plus a deployment-wide
+  ceiling, and per-user cooldowns on expensive/abusable actions.
+- **Input is bounded.** Selected-game count and name length are capped before
+  touching the shared catalog.
+- **Browser output is constrained.** API-controlled URLs are rendered only for
+  `http:`/`https:`, and nginx adds CSP/HSTS/nosniff/frame-deny/referrer/
+  permissions headers.
+- **The deployment is not LAN-plaintext.** The frontend binds `127.0.0.1:8282`;
+  Funnel is the public TLS entry point. `SESSION_COOKIE_SECURE` defaults to
+  `true`.
+- **Secret backups are excluded.** `.env.*` is gitignored except `.env.example`,
+  and `.env` is `chmod 600`.
+
+**Consequences:** the app is safer to expose publicly, but local HTTP access now
+needs an explicit `SESSION_COOKIE_SECURE=false`/`auto` override and direct LAN
+access is intentionally unavailable. In-process limiters assume the current
+single-worker deployment. CSRF remains double-submit rather than session-bound,
+and a Twitch client-secret/Telegram-token rotation is still an operator action if
+an old build ever logged them.

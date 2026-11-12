@@ -1,7 +1,8 @@
 # Frontend
 
-React 18 + TypeScript + Vite + TanStack Query. Served by nginx in production at
-port **8282**. No router dependency; tabs are hash routes.
+React 18 + TypeScript + Vite + TanStack Query. Served by nginx in production on
+**127.0.0.1:8282** (loopback); Tailscale Funnel provides the public HTTPS URL. No
+router dependency; tabs are hash routes.
 
 ## Structure
 
@@ -307,13 +308,13 @@ npm run dev      # :5173, proxies /api to :8000
 npm run build    # tsc --noEmit && vite build -> dist/
 ```
 
-Production: `frontend/Dockerfile` builds with `npm run build`, then nginx serves
-`/usr/share/nginx/html` with gzip, immutable `/assets/*`, no-cache `index.html`,
-and `/api/` proxy to `api:8000` (HTTP/1.1 keepalive). No API token is baked into
-the bundle; auth is the session cookie. nginx forwards the inbound
-`X-Forwarded-Proto` (falling back to `$scheme`) so the backend can set `Secure`
-cookies behind Tailscale Funnel. Basic auth remains in front during the staged
-rollout and is removed after app login is verified.
+Production: `frontend/Dockerfile` uses `npm ci`, builds with `npm run build`,
+then nginx serves `/usr/share/nginx/html` with gzip, immutable `/assets/*`,
+no-cache `index.html`, and `/api/` proxy to `api:8000` (HTTP/1.1 keepalive). No
+API token is baked into the bundle; auth is the session cookie. The compose
+frontend binds `127.0.0.1:8282`; nginx adds CSP, HSTS, nosniff, frame-deny,
+referrer and permissions headers, and forwards the inbound `X-Forwarded-Proto`
+(falling back to `$scheme`). There is no shared basic-auth prompt.
 
 ## Adding a page/tab
 

@@ -1,7 +1,9 @@
 # API reference
 
-Base path: `/api/v1` (through nginx at `/api/v1` on port 8282, or directly on
-port 8000). Interactive OpenAPI: `http://<host>:8000/docs`.
+Base path: `/api/v1` (through nginx at `/api/v1` on the loopback-bound public
+frontend, or directly on the backend's loopback port). Interactive OpenAPI:
+`http://127.0.0.1:8000/docs` on the backend host; nginx does not proxy `/docs`.
+The public deployment uses `https://pi.taile9ec1c.ts.net/api/v1`.
 
 ## Authentication and sessions
 
@@ -39,8 +41,9 @@ Sign-in:
   `secrets.compare_digest`. The session row stores a hash of the token for
   future use but the middleware does **not** compare against that stored hash.
   The public connect endpoint is exempt.
-- Both cookies are `Secure` according to `SESSION_COOKIE_SECURE`: `auto` uses
-  the effective scheme from `X-Forwarded-Proto`, `true`/`false` forces it.
+- Both cookies are `Secure` according to `SESSION_COOKIE_SECURE`: the Compose
+  default is `true`; `auto` uses the effective scheme from `X-Forwarded-Proto`
+  and `false` is local HTTP development only.
 - Sessions expire after an **absolute** `SESSION_TTL_DAYS` (30 by default). They
   do not slide; expired sessions return `401`.
 - Unsafe requests with an `Origin` header must match `PUBLIC_ORIGIN` (or a
@@ -185,8 +188,10 @@ still returned so the sign-in screen knows whether to show an invite field.
 - Enforces the expected Twitch client id and validates the token with Twitch.
 - Existing active user: logs in; the invite code is ignored.
 - New user allowed by the registration table: creates the local user, seeds
-  default games, makes the first user `admin`, stores the token, fetches the
-  profile, and starts the first progress sync after the session is committed.
+  default games, claims the first-admin role only when the bootstrap gate
+  matches (`OWNER_TWITCH_ID`, invite code, or open registration), stores the
+  token, fetches the profile, and starts the first progress sync after the
+  session is committed.
 - Sets `tdm_session` and `tdm_csrf` on success; refresh `/auth/me` for the user.
 - `403` closed registration / wrong code / inactive user, `409` different Twitch
   id while signed in, `429` rate limit.

@@ -84,9 +84,10 @@ Twitch sign-in, with new accounts requiring `REGISTRATION_CODE` unless
 There is no password to set or reset. A user who signs in with a different Twitch
 account gets a different local account; sign out first.
 
-## Upgrade to multi-user (staged rollout)
+## Deploy the multi-user release
 
 Deployment is **not performed** by this change. Run this runbook when deploying.
+The shared basic-auth gate is already removed from Compose and nginx.
 
 ### 1. Back up before upgrading
 
@@ -138,15 +139,17 @@ c.commit(); c.close()
 PY
 ```
 
-If there is no legacy token, either set `OWNER_TWITCH_ID` for a placeholder admin
-or let the first sign-in become admin.
+If there is no legacy token, set `OWNER_TWITCH_ID` for the first admin, or set a
+valid `REGISTRATION_CODE` / `REGISTRATION_OPEN=true`. An empty DB is **not**
+implicitly open; the first Twitch login must satisfy one of those gates.
 
 ### 2. Set the new stack environment
 
 In Portainer (or local `.env`): add `REGISTRATION_CODE`, `REGISTRATION_OPEN`,
 `OWNER_TWITCH_ID`, `SESSION_TTL_DAYS`, `SESSION_COOKIE_SECURE`, `PUBLIC_ORIGIN`,
-`ALLOWED_HOSTS`, and `AUTH_RATE_LIMIT_PER_MINUTE`. Remove `API_TOKEN`,
-`VITE_API_TOKEN`, and `DROPS_AUTH_FILE`.
+`ALLOWED_HOSTS`, `AUTH_RATE_LIMIT_PER_MINUTE`, and
+`AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE`. Remove `API_TOKEN`, `VITE_API_TOKEN`, and
+`DROPS_AUTH_FILE`.
 
 For the public Pi:
 
@@ -193,7 +196,11 @@ sign-in gate is Twitch + the invite code. Then verify:
    requests send `X-CSRF-Token`. A missing/mismatched token returns `403`.
 7. Worker: progress syncs both users; one bad token marks only that user
    `reconnect_required` and other users continue.
-8. Header/HTTPS: the public login sets `Secure` on both cookies (see below).
+8. Header/HTTPS: the public login sets `Secure` on both cookies and the response
+   carries CSP/HSTS/nosniff/frame-deny/referrer/permissions headers (see below).
+9. Security regression: confirm the Twitch client secret never appears in
+   `/status`, `/scans/latest`, or logs after a forced provider failure; confirm
+   the first-user gate rejects non-owner/non-invite logins on a fresh DB.
 
 ### 4. Shared basic auth is removed
 
@@ -270,7 +277,7 @@ Portainer (production):
 1. Push/merge to `main`.
 2. Portainer → Stacks → `twitch-drops-manager` → **Pull and redeploy**.
 3. Verify `/api/v1/health`, the UI, and Kuma monitors.
-4. For the multi-user release, follow the staged rollout above (backup first).
+4. For the multi-user release, follow the deployment runbook above (backup first).
 
 Do not edit the stack compose in Portainer or run a manual `docker compose up`
 against production; the stack is Git-backed.
