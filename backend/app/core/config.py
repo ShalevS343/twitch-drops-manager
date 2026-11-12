@@ -16,7 +16,6 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     database_url: str = "sqlite+aiosqlite:///./data/drops.db"
     cors_origins: str = "http://localhost:5173"
-    api_token: str = ""
 
     sunkwi_url: str = "https://drops.sunkwi.com/api/twitch/drops"
     drops_api_key: str = ""

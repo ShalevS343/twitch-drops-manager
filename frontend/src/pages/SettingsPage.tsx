@@ -72,7 +72,10 @@ export function SettingsPage({ status, twitch }: Props) {
     effectiveEnabled !== (user?.telegram_enabled ?? false)
   const canSaveTelegram = !updateMe.isPending && telegramDirty
   const canTestTelegram =
-    telegramBotConfigured && Boolean(savedChatId) && !testTelegram.isPending
+    telegramBotConfigured &&
+    Boolean(savedChatId) &&
+    user?.telegram_enabled === true &&
+    !testTelegram.isPending
 
   function saveTelegram() {
     updateMe.mutate({
@@ -196,7 +199,9 @@ export function SettingsPage({ status, twitch }: Props) {
                   ? 'Telegram is not configured on this server'
                   : !savedChatId
                     ? 'Save your chat ID first'
-                    : 'Send a test message to your chat'
+                    : user?.telegram_enabled !== true
+                      ? 'Enable Telegram alerts for this account first'
+                      : 'Send a test message to your chat'
               }
             >
               <Icon name="link" size={16} />
@@ -308,7 +313,15 @@ export function SettingsPage({ status, twitch }: Props) {
                 <span>{refreshProgress.error.message}</span>
               </p>
             )}
-            {refreshProgress.data && (
+            {refreshProgress.data && !refreshProgress.data.connected && (
+              <p className="alert alert-warning" role="alert">
+                <Icon name="alert" size={15} />
+                <span>
+                  Twitch reconnect required before drop progress can sync.
+                </span>
+              </p>
+            )}
+            {refreshProgress.data?.connected && (
               <p className="alert alert-success" role="status">
                 <Icon name="check" size={15} />
                 <span>

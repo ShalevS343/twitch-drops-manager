@@ -134,9 +134,13 @@ class AuthService:
             )
             created = True
 
-        # Placeholder/migrated users may have no games yet; seed defaults on
-        # every successful connect without overwriting an existing selection.
-        await self.games.seed_defaults(user.id, self.settings.default_game_list)
+        # Seed defaults exactly once. A user who clears all games must keep the
+        # empty selection on later logins.
+        if not user.games_seeded:
+            await self.games.seed_defaults(
+                user.id, self.settings.default_game_list
+            )
+            await self.users.set_games_seeded(user, True)
 
         display_name, profile_image_url = await self._profile(
             token, twitch_user_id, login
@@ -221,6 +225,13 @@ class AuthService:
         await self.users.set_active(user, active)
         if not active:
             await self.sessions.delete_for_user(user_id)
+            # Do not deliver a backlog of campaign starts when this account is
+            # enabled again.
+            await self.session.execute(
+                delete(UserCampaignStart).where(
+                    UserCampaignStart.user_id == user_id
+                )
+            )
             focus = (
                 await self.session.execute(
                     select(UserWatchFocus).where(UserWatchFocus.user_id == user_id)

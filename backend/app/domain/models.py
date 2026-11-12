@@ -182,6 +182,11 @@ class User(Base):
     telegram_enabled: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
+    # Default games are seeded exactly once. A user who deliberately clears all
+    # games must not get them back on the next login.
+    games_seeded: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

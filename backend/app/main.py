@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from app.api.v1.auth import shutdown_first_progress_syncs
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.db import SessionLocal, engine, init_db
@@ -26,6 +27,7 @@ async def lifespan(_app: FastAPI):
         yield
     finally:
         await get_profile_service().shutdown()
+        await shutdown_first_progress_syncs()
         await engine.dispose()
 
 

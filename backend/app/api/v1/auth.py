@@ -64,6 +64,16 @@ async def _first_progress_sync(user_id: int) -> None:
     task.add_done_callback(_sync_tasks.discard)
 
 
+async def shutdown_first_progress_syncs() -> None:
+    """Cancel in-flight first-sync tasks during application shutdown."""
+    while _sync_tasks:
+        tasks = list(_sync_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    _sync_tasks.clear()
+
+
 @router.get("/auth/me", response_model=AuthMeOut)
 async def auth_me(
     request: Request, session: SessionDep, service: AuthServiceDep

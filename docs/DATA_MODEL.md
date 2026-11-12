@@ -14,8 +14,8 @@ tables are frozen after migration and are not read by current code (see
 - `users.twitch_user_id` is the single authoritative Twitch identity. It is
   required (non-empty) and unique. `twitch_accounts` does not duplicate it.
 - `users` owns `login`, `display_name`, `profile_image_url`, `role`,
-  `is_active`, `telegram_chat_id` (empty = not set), and `telegram_enabled`
-  (opt-in).
+  `is_active`, `telegram_chat_id` (empty = not set), `telegram_enabled`
+  (opt-in), and `games_seeded` (one-time default-game bootstrap).
 - `twitch_accounts` owns only the token, expiry, connected timestamp, and sync
   health. Reconnect updates the token row and user profile in one transaction.
 - A local user is permanently bound to one Twitch id. Signing in with another
@@ -38,6 +38,7 @@ tables are frozen after migration and are not read by current code (see
 | `is_active` | bool | disabled users get no session and are skipped by workers |
 | `telegram_chat_id` | string | empty = not set; per-user destination |
 | `telegram_enabled` | bool | opt-in |
+| `games_seeded` | bool | default `false`; set on first connect or `PUT /games`, so cleared games stay cleared |
 | `created_at`, `updated_at` | datetime | |
 | `last_login_at` | datetime, nullable | admin list uses created/last login |
 
@@ -50,7 +51,7 @@ Server-side sessions. The raw token exists only in the browser cookie.
 | `id` | int PK | |
 | `user_id` | FK → users, indexed, cascade | |
 | `token_hash` | string, unique, indexed | SHA-256 of the session token |
-| `csrf_token_hash` | string | SHA-256 of the readable CSRF token |
+| `csrf_token_hash` | string | SHA-256 of the CSRF token; unused by the current double-submit check |
 | `created_at` | datetime | |
 | `expires_at` | datetime, indexed | absolute expiry, `SESSION_TTL_DAYS` |
 | `last_used_at` | datetime | updated at most once per hour |
@@ -71,7 +72,6 @@ Per-user OAuth token and sync health.
 | `last_synced_at` | datetime, nullable | last successful progress sync |
 | `last_error` | text | redacted, user-facing |
 | `reconnect_required` | bool | set on user-token 401/expiry; cleared on success |
-| `updated_at` | datetime | |
 
 ### `user_games`
 
@@ -261,7 +261,10 @@ serializes them; the first process sets the flag.
 3. Copy `drop_progress`, `progress_snapshots`, `campaign_completions`,
    `watch_focus`, `notifications`, and `campaign_starts` into their `user_*`
    counterparts with `INSERT OR IGNORE`/upserts.
-4. Copy `games.selected = true` rows into `user_games`.
+4. Copy `games.selected = true` rows into `user_games`. Mark a migrated owner
+   `games_seeded=true` (the legacy selection, including an empty one, is
+   authoritative). A placeholder `OWNER_TWITCH_ID` user stays `false` so its
+   first connect seeds defaults.
 5. Set `app_meta['multi_user_v1']` and commit in the same transaction.
 
 If there is no legacy token:

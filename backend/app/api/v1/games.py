@@ -7,6 +7,7 @@ from app.domain.models import Campaign
 from app.domain.schemas import GameOut, GamesUpdate
 from app.repositories.games import GameRepository
 from app.repositories.user_games import UserGameRepository
+from app.repositories.users import UserRepository
 
 router = APIRouter()
 
@@ -49,5 +50,6 @@ async def update_games(
     payload: GamesUpdate, session: SessionDep, user: CurrentUserDep
 ) -> GamesUpdate:
     selected = await UserGameRepository(session).replace(user.id, payload.games)
+    await UserRepository(session).set_games_seeded(user, True)
     await session.commit()
     return GamesUpdate(games=[game.name for game in selected])

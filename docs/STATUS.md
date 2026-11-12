@@ -1,15 +1,14 @@
 # Status / handoff
 
 Last updated: **2026-11-12**
-Source of truth for this work: the lane branches `feat/multi-user-auth`,
-`feat/multi-user-frontend`, and `feat/multi-user-deploy-docs`. `feat/multi-user`
-is the integration target and is still at the design/plan commit (`28b1618`)
-until the lanes merge; `main` remains the single-user release. Deployment config
-and docs are committed on `feat/multi-user-deploy-docs`; nothing is deployed yet.
+Source of truth for this work: `feat/multi-user`. The auth, frontend, and
+deploy/docs lanes are integrated there at the fix-wave HEAD; `main` remains the
+single-user release. Deployment config and docs are committed on the branch,
+but **nothing is deployed yet**.
 
 ## Current state
 
-### Multi-user accounts (implemented on the lane branches, **not deployed**)
+### Multi-user accounts (integrated on `feat/multi-user`, **not deployed**)
 
 - Twitch is the only identity provider: no passwords or email accounts. The first
   user becomes `admin`; later users need `REGISTRATION_CODE` unless
@@ -40,11 +39,13 @@ and docs are committed on `feat/multi-user-deploy-docs`; nothing is deployed yet
 
 ### Validation
 
+- Integrated on `feat/multi-user` at the fix-wave HEAD.
+- Backend suite: **193 tests passed** (`pytest -q`); `ruff check app tests` is
+  clean.
+- Frontend: `npm run build` passes.
 - `docker compose --project-directory infra -f infra/docker-compose.yml config -q`
-  passes on `feat/multi-user-deploy-docs`; `nginx -t` passes with the new map.
-- Backend `pytest -q` / `ruff` and frontend `npm run build` must pass; the
-  backend/frontend lanes run them, and integration must re-run the full suite.
-  The old 71/72-test single-user baseline is superseded; use the integration run
+  passes; `nginx -t` passes with the new map.
+- The old 71/72-test single-user baseline is superseded; use the integration run
   for the current count.
 
 ### Live deployment
@@ -60,16 +61,16 @@ and docs are committed on `feat/multi-user-deploy-docs`; nothing is deployed yet
 
 ## Pending work
 
-1. **Integrate and run the full suite** on `feat/multi-user`: backend pytest +
-   ruff, frontend build; update this file with the exact pass count/commit.
-2. **Deploy stage 1** with the pre-upgrade backup, `OWNER_TWITCH_ID`,
+1. **Deploy stage 1** with the pre-upgrade backup, `OWNER_TWITCH_ID`,
    `PUBLIC_ORIGIN`, `ALLOWED_HOSTS`, `SESSION_COOKIE_SECURE=auto`, and a random
-   `REGISTRATION_CODE`. Verify the owner sees old data.
-3. **Remove basic auth** (stage 2) after app login is verified; update
-   `docs/OPERATIONS.md` if the exact steps change.
-4. Keep legacy tables until the soak period ends; then plan a cleanup release.
-5. Rotate the Telegram bot token if it appeared in pre-fix logs.
-6. Carry over performance work (P1 response cache/ETag, P2 dashboard snapshot) as
+   `REGISTRATION_CODE`. Verify the owner sees old data. **Not performed.**
+2. **Remove basic auth** (stage 2) after app login is verified; update
+   `docs/OPERATIONS.md` if the exact steps change. **Pending.**
+3. **Rollback/soak**: keep legacy tables until the soak period ends; rollback
+   that keeps post-upgrade data requires the pre-upgrade backup. Then plan a
+   cleanup release.
+4. Rotate the Telegram bot token if it appeared in pre-fix logs.
+5. Carry over performance work (P1 response cache/ETag, P2 dashboard snapshot) as
    separate follow-ups; multi-user adds per-user loop cost.
 
 ## Known issues / caveats
@@ -97,7 +98,7 @@ and docs are committed on `feat/multi-user-deploy-docs`; nothing is deployed yet
 3. If deploying: back up `/data/drops.db` first and follow
    [OPERATIONS.md](OPERATIONS.md) staged rollout.
 4. If changing code: implement, tests/lint/build, update docs, update this file.
-5. Update the test baseline here after the integration run.
+5. Keep the test baseline here current after each integration run.
 
 ## How to update this file
 

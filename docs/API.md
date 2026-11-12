@@ -34,8 +34,11 @@ Sign-in:
 - `tdm_session` — opaque session token, `HttpOnly`, `SameSite=Lax`, `Path=/`.
   Only its SHA-256 hash is stored server-side.
 - `tdm_csrf` — readable random token. Send it as `X-CSRF-Token` on every
-  `POST`/`PUT`/`PATCH`/`DELETE`. The backend compares it with the session's CSRF
-  hash using `secrets.compare_digest`. The public connect endpoint is exempt.
+  `POST`/`PUT`/`PATCH`/`DELETE`. The backend uses cookie/header double-submit:
+  it compares the `tdm_csrf` cookie with the header using
+  `secrets.compare_digest`. The session row stores a hash of the token for
+  future use but the middleware does **not** compare against that stored hash.
+  The public connect endpoint is exempt.
 - Both cookies are `Secure` according to `SESSION_COOKIE_SECURE`: `auto` uses
   the effective scheme from `X-Forwarded-Proto`, `true`/`false` forces it.
 - Sessions expire after an **absolute** `SESSION_TTL_DAYS` (30 by default). They
@@ -238,6 +241,9 @@ Never returns tokens, chat ids, progress, or session data.
     "campaign_count": 118,
     "stream_count": 5
   },
+  "last_error": null,
+  "twitch_user_connected": true,
+  "twitch_login": "shalevs343",
   "poll_seconds": 900,
   "min_poll_seconds": 300,
   "progress_poll_seconds": 300,
@@ -281,7 +287,9 @@ Response: `{ "games": ["War Thunder", "Rust"] }` (names actually selected for
 the current user). Replaces only that user's selection. Names are matched
 case-insensitively and de-duplicated. A name that does not yet exist in the
 catalog is created as a tracked `Game` row with no Twitch metadata; a later scan
-fills in the game id and box art.
+fills in the game id and box art. Default games are seeded once on the account's
+first connect; clearing every game is persisted, so a later login does not
+restore the defaults.
 
 ## Campaigns
 
@@ -437,7 +445,7 @@ user's chat, and does not auto-move.
   "profile_image_url": "https://static-cdn.jtvnw.net/...",
   "connected_at": "2026-11-06T18:58:44",
   "reconnect_required": false,
-  "last_error": "",
+  "last_error": null,
   "last_synced_at": "2026-11-12T09:00:00"
 }
 ```

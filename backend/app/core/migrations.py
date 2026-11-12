@@ -131,8 +131,10 @@ async def run_multi_user_migration(connection: AsyncConnection) -> None:
         twitch_user_id = str(legacy_auth.get("user_id") or "").strip()
         if not twitch_user_id:
             raise RuntimeError(
-                "Legacy twitch_auth row has an empty user_id. Set "
-                "OWNER_TWITCH_ID or fix the row, then restart."
+                "Legacy twitch_auth row has an empty user_id. Fix or clear the "
+                "legacy twitch_auth.user_id/login, or restore the pre-upgrade "
+                "backup, then restart. OWNER_TWITCH_ID only bootstraps an "
+                "install with no legacy token; it cannot repair this row."
             )
 
         owner_id = await _find_user_id(connection, twitch_user_id)
@@ -158,6 +160,14 @@ async def run_multi_user_migration(connection: AsyncConnection) -> None:
                 role="admin",
                 now=now,
                 profile=profile,
+                games_seeded=True,
+            )
+        else:
+            # The migrated owner's copied selection (including an intentionally
+            # empty one) is authoritative; never reseed defaults on login.
+            await connection.execute(
+                text("UPDATE users SET games_seeded = 1 WHERE id = :owner_id"),
+                {"owner_id": owner_id},
             )
 
         await _seed_telegram(
@@ -177,6 +187,7 @@ async def run_multi_user_migration(connection: AsyncConnection) -> None:
             role="admin",
             now=now,
             profile=None,
+            games_seeded=False,
         )
         await _seed_telegram(
             connection, owner_id=owner_id, settings_chat_id=settings.telegram_chat_id
@@ -215,6 +226,7 @@ async def _create_user(
     role: str,
     now: str,
     profile: dict[str, Any] | None,
+    games_seeded: bool,
 ) -> int:
     display_name = str((profile or {}).get("display_name") or "") or login
     profile_image_url = str((profile or {}).get("profile_image_url") or "")
@@ -222,9 +234,9 @@ async def _create_user(
         text(
             "INSERT INTO users (twitch_user_id, login, display_name, "
             "profile_image_url, role, is_active, telegram_chat_id, "
-            "telegram_enabled, created_at, updated_at) "
+            "telegram_enabled, games_seeded, created_at, updated_at) "
             "VALUES (:twitch_user_id, :login, :display_name, "
-            ":profile_image_url, :role, 1, '', 0, :now, :now)"
+            ":profile_image_url, :role, 1, '', 0, :games_seeded, :now, :now)"
         ),
         {
             "twitch_user_id": twitch_user_id,
@@ -232,6 +244,7 @@ async def _create_user(
             "display_name": display_name,
             "profile_image_url": profile_image_url,
             "role": role,
+            "games_seeded": 1 if games_seeded else 0,
             "now": now,
         },
     )

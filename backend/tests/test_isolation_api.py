@@ -18,6 +18,7 @@ from app.domain.models import (
     Game,
     Stream,
     StreamCampaignMatch,
+    User,
     UserCampaignCompletion,
     UserDropProgress,
     UserGame,
@@ -199,6 +200,9 @@ async def test_games_show_the_callers_own_selection(monkeypatch):
         )
         assert response.status_code == 200
         assert response.json()["games"] == ["Minecraft"]
+
+    async with factory() as session:
+        assert (await session.get(User, first_id)).games_seeded is True
 
     async with _client(app) as client:
         await _login(client, factory, second_id)

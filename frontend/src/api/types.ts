@@ -54,8 +54,10 @@ export interface ScanRun {
 
 export interface Status {
   app: string
+  user: AuthUser | null
   twitch_configured: boolean
   telegram_configured: boolean
+  telegram_ready: boolean
   games_selected: string[]
   campaign_count: number
   stream_count: number

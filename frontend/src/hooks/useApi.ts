@@ -52,6 +52,8 @@ export function useSaveGames() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['u', userId, 'games'] })
       queryClient.invalidateQueries({ queryKey: ['u', userId, 'campaigns'] })
+      queryClient.invalidateQueries({ queryKey: ['u', userId, 'streams'] })
+      queryClient.invalidateQueries({ queryKey: ['u', userId, 'watch-queue'] })
       queryClient.invalidateQueries({ queryKey: ['u', userId, 'status'] })
     },
   })

@@ -4,7 +4,6 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## Unreleased / planned
 
-- Integrate `feat/multi-user` and run the full backend/frontend suite.
 - P1 performance: response cache + ETag, `/dashboard` bootstrap endpoint,
   combined `/status` queries.
 - P2 performance: materialized dashboard snapshot, explicit relationship loaders,
@@ -12,6 +11,20 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 - Rotate the Telegram bot token if it appeared in pre-fix logs.
 
 ## 2026-11-12
+
+### Integration — multi-user branch and fix wave
+
+- Integrated the auth, frontend, and deploy/docs lanes on `feat/multi-user` at
+  the fix-wave HEAD. Backend suite: **193 passed**; `ruff` clean; frontend
+  `npm run build` passes.
+- Fix wave: Origin checks accept `PUBLIC_ORIGIN` **or** `CORS_ORIGINS` (LAN
+  login/mutations work); default games seed once via `users.games_seeded` so a
+  cleared selection stays cleared; disabling an account clears pending campaign
+  starts; first-sync background tasks are cancelled on shutdown; frontend shows
+  a reconnect warning instead of a green "Synced 0 drops", requires Telegram
+  opt-in for tests, and refreshes game-dependent caches.
+- **Not deployed.** Production still runs the single-user build; staged rollout,
+  basic-auth removal, rollback/soak, and the pre-upgrade backup remain pending.
 
 ### Accounts — multi-user Twitch login + per-user data
 

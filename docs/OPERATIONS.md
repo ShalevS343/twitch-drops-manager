@@ -226,8 +226,9 @@ the public host.
 
 ### 6. Client address / auth rate limiting
 
-The backend's limiter uses the **first** `X-Forwarded-For` value, falling back to
-the socket peer. nginx must therefore pass exactly one trustworthy address:
+The backend's limiter uses the **last** `X-Forwarded-For` hop (or the single
+address nginx forwards), falling back to the socket peer. nginx must therefore
+pass exactly one trustworthy address:
 
 - `frontend/nginx.conf` trusts only loopback proxies (`set_real_ip_from
   127.0.0.1`/`::1`, `real_ip_header X-Forwarded-For`, `real_ip_recursive on`) and

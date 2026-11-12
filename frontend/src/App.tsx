@@ -83,6 +83,13 @@ export default function App() {
   async function handleRefresh() {
     try {
       const result = await refresh.mutateAsync(undefined)
+      if (!result.connected) {
+        setToast({
+          tone: 'danger',
+          message: 'Twitch reconnect required before drop progress can sync.',
+        })
+        return
+      }
       setToast({
         tone: 'success',
         message: `Synced ${result.drop_count} drops from ${result.campaign_count} campaign(s).`,

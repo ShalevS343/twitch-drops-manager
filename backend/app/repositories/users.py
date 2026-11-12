@@ -155,6 +155,11 @@ class UserRepository:
         await self.session.flush()
         return user
 
+    async def set_games_seeded(self, user: User, seeded: bool = True) -> User:
+        user.games_seeded = seeded
+        await self.session.flush()
+        return user
+
     async def set_telegram(
         self, user: User, chat_id: str, enabled: bool
     ) -> User:

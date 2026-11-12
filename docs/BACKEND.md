@@ -113,6 +113,8 @@ deployment-facing list.
     explicit open registration);
   - a different Twitch id while signed in raises a `409` conflict; inactive users
     get `403`;
+  - seed default games only when `users.games_seeded` is false, then mark it
+    true (`PUT /games` also marks it true);
   - store the token on `twitch_accounts`, fetch the profile (login fallback),
     create the session, set both cookies, and trigger the first progress sync
     **after** the session is committed. Never sync on a failed registration.
@@ -121,13 +123,16 @@ deployment-facing list.
   the user and session.
 - `update_telegram(user_id, chat_id, enabled)` updates only the current user.
   Disabling/clearing deletes pending `user_campaign_starts` rows so re-enabling
-  does not send a backlog.
+  does not send a backlog. Disabling an account also deletes its pending starts.
 - `registration_state()` returns `{open, invite_required}` for `/auth/me`.
 - Codes are compared with `secrets.compare_digest`; attempts are rate-limited per
-  client IP (first `X-Forwarded-For` value, else peer address).
+  client IP (last `X-Forwarded-For` hop, or the single address nginx forwards;
+  falls back to the peer address).
 
 Sessions: 32 random bytes, base64url in `tdm_session`, SHA-256 hash stored. A
 separate random CSRF token is stored hashed and echoed via `X-CSRF-Token`.
+The middleware validates the token by cookie/header double-submit; it does not
+compare against the stored hash.
 Expiry is absolute (`session_ttl_days`); `last_used_at` is updated at most once
 per hour. Expired rows are pruned at startup and in the scan job.
 
@@ -137,8 +142,9 @@ per hour. Expired rows are pruned at startup and in the scan job.
 
 1. `SunkwiProvider.fetch_games()` — 20s timeout; on 429/5xx/timeout returns the
    cache; `429` without cache raises `ProviderError`.
-2. Upsert games. New users get `DEFAULT_GAMES` as their initial selection at
-   connect; there is no global selected flag.
+2. Upsert games. A user gets `DEFAULT_GAMES` once (`users.games_seeded=false`)
+   on connect; clearing the selection persists and is not reseeded. There is no
+   global selected flag.
 3. Compute the union of selected games across active users.
 4. Parse campaigns for that union; capture previous statuses, upsert campaigns +
    rewards, delete stale campaigns.

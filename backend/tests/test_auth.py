@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 from starlette.applications import Starlette
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -37,6 +38,7 @@ from app.core.security import (
 )
 from app.domain.models import (
     TwitchAccount,
+    User,
     UserCampaignStart,
     UserDropProgress,
     UserNotification,
@@ -110,11 +112,14 @@ def _request(
     cookies: dict[str, str] | None = None,
     scheme: str = "http",
     host: str = "testserver",
+    forwarded_proto: str | None = None,
 ) -> Request:
     headers = []
     if cookies:
         header = "; ".join(f"{key}={value}" for key, value in cookies.items())
         headers.append((b"cookie", header.encode()))
+    if forwarded_proto is not None:
+        headers.append((b"x-forwarded-proto", forwarded_proto.encode()))
     scope = {
         "type": "http",
         "http_version": "1.1",
@@ -563,13 +568,16 @@ async def test_reconnecting_clears_the_reconnect_required_flag():
 
 
 @pytest.mark.asyncio
-async def test_connect_seeds_default_games_for_an_existing_user_with_none():
+async def test_placeholder_owner_gets_default_games_on_first_connect():
     engine, factory = await _session()
 
     async with factory() as session:
-        user = await UserRepository(session).create(
-            twitch_user_id="123", login="viewer"
+        user = User(
+            twitch_user_id="123",
+            login="viewer",
+            games_seeded=False,
         )
+        session.add(user)
         await session.commit()
         assert await UserGameRepository(session).selected_names(user.id) == []
 
@@ -580,10 +588,38 @@ async def test_connect_seeds_default_games_for_an_existing_user_with_none():
         )
         await service.connect("url")
 
+        assert user.games_seeded is True
         assert set(await UserGameRepository(session).selected_names(user.id)) == {
             "Rust",
             "Minecraft",
         }
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_cleared_games_stay_cleared_after_reconnect():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        user = User(
+            twitch_user_id="123",
+            login="viewer",
+            games_seeded=True,
+        )
+        session.add(user)
+        await session.commit()
+        assert await UserGameRepository(session).selected_names(user.id) == []
+
+        service = AuthService(
+            session,
+            settings=_settings(default_games="Rust,Minecraft"),
+            provider=FakeTwitchProvider(),
+        )
+        await service.connect("url")
+
+        assert user.games_seeded is True
+        assert await UserGameRepository(session).selected_names(user.id) == []
 
     await engine.dispose()
 
@@ -710,6 +746,16 @@ def test_auth_cookies_use_forwarded_scheme_and_csrf_is_readable():
     assert response.cookies[CSRF_COOKIE]["deleted"] is True
 
 
+def test_forwarded_https_scheme_marks_both_cookies_secure():
+    response = FakeResponse()
+    request = _request(scheme="http", forwarded_proto="https")
+
+    set_auth_cookies(response, request, "session-token", "csrf-token", 3600)
+
+    assert response.cookies[SESSION_COOKIE]["secure"] is True
+    assert response.cookies[CSRF_COOKIE]["secure"] is True
+
+
 def test_cookie_secure_setting_can_force_http_cookies():
     response = FakeResponse()
     request = _request(scheme="https")
@@ -782,6 +828,28 @@ async def test_first_admin_claim_prevents_a_second_admin():
 
         assert first.user.role == "admin"
         assert second.user.role == "user"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_disabling_a_user_clears_pending_campaign_starts():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        user = await UserRepository(session).create(
+            twitch_user_id="123", login="viewer"
+        )
+        session.add(UserCampaignStart(user_id=user.id, external_id="campaign-1"))
+        await session.commit()
+
+        service = AuthService(
+            session, settings=_settings(), provider=FakeTwitchProvider()
+        )
+        await service.set_user_active(user.id, False)
+
+        rows = (await session.execute(select(UserCampaignStart))).scalars().all()
+        assert rows == []
 
     await engine.dispose()
 
@@ -1024,6 +1092,60 @@ async def test_untrusted_origin_is_rejected_for_unsafe_methods(monkeypatch):
             },
         )
         assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_lan_origin_in_cors_origins_is_allowed_when_public_origin_is_set(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.core.middleware.get_settings",
+        lambda: _settings(
+            public_origin="https://drops.example",
+            cors_origins="http://192.168.1.10:5173",
+        ),
+    )
+    transport = ASGITransport(app=_middleware_app())
+
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        for origin in (
+            "https://drops.example",
+            "http://192.168.1.10:5173",
+        ):
+            response = await client.post(
+                "/api/v1/thing",
+                headers={
+                    "Cookie": "tdm_session=session; tdm_csrf=expected",
+                    "X-CSRF-Token": "expected",
+                    "Origin": origin,
+                },
+            )
+            assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_trusted_host_rejects_an_unexpected_host():
+    app = Starlette(
+        routes=[Route("/api/v1/thing", _ok, methods=["GET", "POST"])]
+    )
+    app.add_middleware(CSRFMiddleware)
+    app.add_middleware(
+        TrustedHostMiddleware, allowed_hosts=["drops.example"]
+    )
+    transport = ASGITransport(app=app)
+
+    async with AsyncClient(
+        transport=transport, base_url="http://drops.example"
+    ) as client:
+        response = await client.get(
+            "/api/v1/thing", headers={"Host": "evil.example"}
+        )
+        assert response.status_code == 400
+
+        response = await client.get(
+            "/api/v1/thing", headers={"Host": "drops.example"}
+        )
+        assert response.status_code == 200
 
 
 @pytest.mark.asyncio

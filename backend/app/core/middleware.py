@@ -26,12 +26,11 @@ def _origin_allowed(request: Request, origin: str) -> bool:
     settings = get_settings()
     origin = origin.rstrip("/")
 
+    allowed = [item.rstrip("/") for item in settings.cors_origin_list]
     if settings.public_origin_value:
-        return origin == settings.public_origin_value
-
-    cors_origins = [item.rstrip("/") for item in settings.cors_origin_list]
-    if cors_origins:
-        return origin in cors_origins
+        allowed.append(settings.public_origin_value)
+    if allowed:
+        return origin in allowed
 
     host = request.headers.get("host") or request.url.netloc
     return origin == f"{_effective_scheme(request)}://{host}"

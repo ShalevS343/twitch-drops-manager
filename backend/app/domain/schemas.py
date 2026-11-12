@@ -241,16 +241,6 @@ class TwitchConnectOut(BaseModel):
     redirect_uri: str
 
 
-class TwitchConnectIn(BaseModel):
-    redirect_url: str
-
-
-class TwitchConnectResult(BaseModel):
-    connected: bool = False
-    login: str | None = None
-    message: str | None = None
-
-
 class AuthUserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

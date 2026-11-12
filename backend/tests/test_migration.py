@@ -291,6 +291,7 @@ async def test_migration_copies_legacy_owner_and_rows_once(monkeypatch):
         assert owner["is_active"] in (1, True)
         assert owner["telegram_chat_id"] == settings.telegram_chat_id
         assert owner["telegram_enabled"] in (1, True)
+        assert owner["games_seeded"] in (1, True)
 
         account = (
             await connection.execute(text("SELECT * FROM twitch_accounts"))
@@ -383,6 +384,7 @@ async def test_migration_creates_placeholder_admin_from_owner_setting(monkeypatc
         assert user["role"] == "admin"
         assert user["telegram_chat_id"] == "555"
         assert user["telegram_enabled"] in (1, True)
+        assert user["games_seeded"] in (0, False)
         assert (
             await _scalar(connection, "SELECT COUNT(*) FROM twitch_accounts") == 0
         )
@@ -440,7 +442,7 @@ async def test_migration_aborts_on_empty_legacy_user_id(monkeypatch):
             {"now": now},
         )
 
-    with pytest.raises(RuntimeError, match="OWNER_TWITCH_ID"):
+    with pytest.raises(RuntimeError, match="pre-upgrade backup"):
         async with engine.begin() as connection:
             await run_multi_user_migration(connection)
 
