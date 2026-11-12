@@ -1778,29 +1778,6 @@ code {
   text-align: right;
 }
 
-.notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 12px 0 0;
-  padding: 11px 12px;
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--muted-2);
-  background: var(--bg);
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.notice svg {
-  flex: 0 0 auto;
-  margin-top: 2px;
-}
-
-.notice > span {
-  flex: 1;
-  min-width: 0;
-}
-
 /* --------------------------------------------------------------- settings */
 
 .settings-grid {
@@ -1990,7 +1967,7 @@ code {
   color: var(--text);
 }
 
-/* ------------------------------------------------------- alerts / notices */
+/* --------------------------------------------------------------- alerts */
 
 .alert {
   display: flex;

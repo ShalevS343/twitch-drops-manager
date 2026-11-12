@@ -75,12 +75,9 @@ export function AuthPage() {
         )}
 
         {closed && (
-          <p className="notice">
-            <Icon name="alert" size={15} />
-            <span>
-              New registrations are closed. If you already have an account, sign in
-              with Twitch below. Otherwise ask the admin for access.
-            </span>
+          <p className="muted small">
+            New registrations are closed. If you already have an account, sign in
+            with Twitch below. Otherwise ask the admin for access.
           </p>
         )}
 

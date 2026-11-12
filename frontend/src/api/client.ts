@@ -9,6 +9,7 @@ import type {
   ScanResult,
   Status,
   Stream,
+  TelegramLink,
   TwitchConnect,
   TwitchLoginResult,
   TwitchUserStatus,
@@ -140,6 +141,10 @@ export const api = {
     }),
   scan: () => request<ScanResult>('/scans', { method: 'POST' }),
   testTelegram: () => request<{ sent: boolean }>('/notifications/test', { method: 'POST' }),
+  createTelegramLink: () =>
+    request<TelegramLink>('/telegram/link', { method: 'POST' }),
+  unlinkTelegram: () =>
+    request<{ unlinked: boolean }>('/telegram/unlink', { method: 'POST' }),
   progress: () => request<ProgressCampaign[]>('/progress'),
   refreshProgress: () => request<ProgressRefresh>('/progress/refresh', { method: 'POST' }),
   watchQueue: () => request<WatchQueueItem[]>('/watch-queue'),

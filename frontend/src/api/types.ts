@@ -218,6 +218,11 @@ export interface AuthUser {
   telegram_chat_id: string | null
 }
 
+export interface TelegramLink {
+  deep_link: string
+  expires_at: string
+}
+
 export interface Registration {
   open: boolean
   invite_required: boolean
