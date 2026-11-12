@@ -1,8 +1,9 @@
 # Status / handoff
 
 Last updated: **2026-11-12**
-Source of truth: `main`, merged from `feat/multi-user` in `78d2603`. Deployment
-config and docs are committed; **nothing is deployed yet**.
+Source of truth: `main`, multi-user merged in `78d2603` and Telegram auto-link
+merged in `f1278a8`. Deployment config and docs are committed; **nothing is
+deployed yet**.
 
 ## Current state
 
@@ -41,7 +42,7 @@ config and docs are committed; **nothing is deployed yet**.
 
 ### Validation
 
-- Merged to `main` in `78d2603`.
+- Merged to `main` in `78d2603` (multi-user) and `f1278a8` (Telegram).
 - Backend suite: **227 tests passed** (`pytest -q`); `ruff check app tests` is
   clean.
 - Frontend: `npm run build` passes.

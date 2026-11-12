@@ -28,8 +28,10 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   the htpasswd mount from Compose. The public UI is gated by Twitch sign-in and
   the invite code; personal API endpoints still require a session.
 
-### Telegram — auto-link hardening
+### Telegram — auto-link and notice cleanup
 
+- Merged `feat/telegram-auto-link` into `main` in `f1278a8`; backend suite **227
+  passed**, ruff clean, frontend build passes.
 - Added one-time deep links (`POST /telegram/link`) and a worker long poller for
   `/start`, `/stop`, and `/unlink`; codes are hashed, expire after 10 minutes,
   and work only in private chats.
@@ -43,6 +45,9 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   always timezone-aware UTC.
 - Frontend clears `opener` before opening the bot tab and shows the deep link as
   a fallback when the popup is blocked.
+- Removed the thin gray `.notice` info strips from Profile, Settings, and the
+  sign-in page; critical messages remain as plain inline text, while colored
+  error/success alerts and dashboard panels are unchanged.
 - Backend suite: **227 passed**; `ruff` clean; frontend `npm run build` passes.
 
 ### Accounts — multi-user Twitch login + per-user data
