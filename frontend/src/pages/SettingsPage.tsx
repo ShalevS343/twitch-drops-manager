@@ -1,15 +1,21 @@
+import { useEffect, useState } from 'react'
+
 import { GameSelector } from '../components/GameSelector'
 import { TwitchConnect, useTwitchConnect } from '../components/TwitchConnect'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { Icon } from '../components/ui/Icon'
 import { LoadingState } from '../components/ui/Spinner'
+import { useAuth } from '../auth/AuthContext'
 import {
+  useAdminUsers,
   useGames,
   useRefreshProgress,
   useScan,
   useTestTelegram,
   useTwitchDisconnect,
+  useUpdateAdminUser,
+  useUpdateMe,
   type StatusQuery,
   type TwitchStatusQuery,
 } from '../hooks/useApi'
@@ -34,15 +40,42 @@ function configuredBadge(value: boolean | undefined) {
 }
 
 export function SettingsPage({ status, twitch }: Props) {
+  const { user, isAdmin, telegramBotConfigured, refresh } = useAuth()
   const games = useGames()
   const scan = useScan()
-  const refresh = useRefreshProgress()
+  const refreshProgress = useRefreshProgress()
   const testTelegram = useTestTelegram()
-  const logout = useTwitchDisconnect()
-  const connect = useTwitchConnect()
+  const disconnect = useTwitchDisconnect()
+  const connect = useTwitchConnect({ onConnected: refresh })
+  const updateMe = useUpdateMe()
+  const adminUsers = useAdminUsers()
+  const updateUser = useUpdateAdminUser()
+
+  const [chatId, setChatId] = useState(user?.telegram_chat_id ?? '')
+  const [telegramEnabled, setTelegramEnabled] = useState(user?.telegram_enabled ?? false)
+
+  useEffect(() => {
+    setChatId(user?.telegram_chat_id ?? '')
+    setTelegramEnabled(user?.telegram_enabled ?? false)
+  }, [user?.telegram_chat_id, user?.telegram_enabled])
 
   const connected = twitch.data?.connected === true
   const statusData = status.data
+
+  const savedChatId = user?.telegram_chat_id?.trim() ?? ''
+  const chatIdDirty = chatId.trim() !== savedChatId
+  const enabledDirty = telegramEnabled !== (user?.telegram_enabled ?? false)
+  const canSaveTelegram =
+    !updateMe.isPending && (chatIdDirty || enabledDirty) && (!telegramEnabled || Boolean(chatId.trim()))
+  const canTestTelegram =
+    telegramBotConfigured && Boolean(savedChatId) && !testTelegram.isPending
+
+  function saveTelegram() {
+    updateMe.mutate({
+      telegram_chat_id: chatId.trim(),
+      telegram_enabled: telegramEnabled,
+    })
+  }
 
   return (
     <div className="page settings-grid">
@@ -68,6 +101,139 @@ export function SettingsPage({ status, twitch }: Props) {
         <GameSelector games={games.data ?? []} isLoading={games.isLoading} />
       </section>
 
+      <section className="panel settings-section" aria-labelledby="settings-telegram">
+        <div className="section-head">
+          <div>
+            <h2 id="settings-telegram">
+              <Icon name="link" size={18} />
+              Telegram alerts
+            </h2>
+            <p>Send ready-to-claim alerts to your own Telegram chat.</p>
+          </div>
+          {!telegramBotConfigured ? (
+            <Badge tone="warning" dot>
+              Bot not configured
+            </Badge>
+          ) : user?.telegram_enabled && savedChatId ? (
+            <Badge tone="success" dot>
+              On
+            </Badge>
+          ) : (
+            <Badge tone="muted" dot>
+              Off
+            </Badge>
+          )}
+        </div>
+
+        {!telegramBotConfigured && (
+          <p className="notice">
+            <Icon name="alert" size={15} />
+            <span>
+              This server has no Telegram bot token yet, so alerts and tests cannot
+              be sent. Ask the admin to configure it.
+            </span>
+          </p>
+        )}
+
+        <div className="telegram-form">
+          <label className="field-label" htmlFor="telegram-chat-id">
+            Telegram chat ID
+          </label>
+          <input
+            id="telegram-chat-id"
+            className="search-input"
+            type="text"
+            inputMode="numeric"
+            value={chatId}
+            onChange={(event) => setChatId(event.target.value)}
+            placeholder="e.g. 123456789"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <p className="muted small">
+            Open Telegram, message your bot once, then copy your numeric chat ID from
+            a bot such as <code>@userinfobot</code>. Leave the field empty to receive
+            no alerts.
+          </p>
+
+          <label className="toggle-row" htmlFor="telegram-enabled">
+            <input
+              id="telegram-enabled"
+              type="checkbox"
+              checked={telegramEnabled}
+              onChange={(event) => setTelegramEnabled(event.target.checked)}
+            />
+            <span>
+              <strong>Send Telegram alerts for this account</strong>
+              <span className="muted small">
+                Requires a chat ID above. Turning this off clears queued campaign
+                alerts.
+              </span>
+            </span>
+          </label>
+
+          <div className="form-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={saveTelegram}
+              disabled={!canSaveTelegram}
+            >
+              <Icon name="check" size={16} />
+              {updateMe.isPending ? 'Saving…' : 'Save Telegram settings'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => testTelegram.mutate()}
+              disabled={!canTestTelegram}
+              title={
+                !telegramBotConfigured
+                  ? 'Telegram is not configured on this server'
+                  : !savedChatId
+                    ? 'Save your chat ID first'
+                    : 'Send a test message to your chat'
+              }
+            >
+              <Icon name="link" size={16} />
+              {testTelegram.isPending ? 'Sending…' : 'Send test message'}
+            </button>
+          </div>
+
+          {enabledDirty && telegramEnabled && !chatId.trim() && (
+            <p className="alert alert-warning" role="status">
+              <Icon name="alert" size={15} />
+              <span>Add a chat ID before enabling alerts.</span>
+            </p>
+          )}
+
+          {updateMe.error && (
+            <p className="alert alert-danger" role="alert">
+              <Icon name="alert" size={15} />
+              <span>{updateMe.error.message}</span>
+            </p>
+          )}
+          {updateMe.isSuccess && !chatIdDirty && !enabledDirty && (
+            <p className="alert alert-success" role="status">
+              <Icon name="check" size={15} />
+              <span>Telegram settings saved.</span>
+            </p>
+          )}
+          {testTelegram.error && (
+            <p className="alert alert-danger" role="alert">
+              <Icon name="alert" size={15} />
+              <span>{testTelegram.error.message}</span>
+            </p>
+          )}
+          {testTelegram.data && (
+            <p className="alert alert-success" role="status">
+              <Icon name="check" size={15} />
+              <span>Test message sent to your Telegram chat.</span>
+            </p>
+          )}
+        </div>
+      </section>
+
       <section className="panel settings-section" aria-labelledby="settings-actions">
         <div className="section-head">
           <div>
@@ -75,46 +241,48 @@ export function SettingsPage({ status, twitch }: Props) {
               <Icon name="sparkles" size={18} />
               Actions
             </h2>
-            <p>Manual operations run against the backend.</p>
+            <p>Manual operations available for your account.</p>
           </div>
         </div>
 
         <div className="action-grid">
-          <article className="action-card">
-            <h3>Scan for new drops</h3>
-            <p>Fetch campaigns, live streams, and notifications right now.</p>
-            <button
-              className="btn btn-primary"
-              onClick={() => scan.mutate()}
-              disabled={scan.isPending}
-            >
-              <Icon name="scan" size={16} />
-              {scan.isPending ? 'Scanning…' : 'Scan for new drops'}
-            </button>
-            {scan.error && (
-              <p className="alert alert-danger" role="alert">
-                <Icon name="alert" size={15} />
-                <span>{scan.error.message}</span>
-              </p>
-            )}
-            {scan.data && (
-              <p className="alert alert-success" role="status">
-                <Icon name="check" size={15} />
-                <span>
-                  Found {scan.data.campaign_count} campaigns, {scan.data.stream_count}{' '}
-                  streams, {scan.data.notified_count} notifications.
-                </span>
-              </p>
-            )}
-          </article>
+          {isAdmin && (
+            <article className="action-card">
+              <h3>Scan for new drops</h3>
+              <p>Fetch campaigns, live streams, and notifications for everyone.</p>
+              <button
+                className="btn btn-primary"
+                onClick={() => scan.mutate()}
+                disabled={scan.isPending}
+              >
+                <Icon name="scan" size={16} />
+                {scan.isPending ? 'Scanning…' : 'Scan for new drops'}
+              </button>
+              {scan.error && (
+                <p className="alert alert-danger" role="alert">
+                  <Icon name="alert" size={15} />
+                  <span>{scan.error.message}</span>
+                </p>
+              )}
+              {scan.data && (
+                <p className="alert alert-success" role="status">
+                  <Icon name="check" size={15} />
+                  <span>
+                    Found {scan.data.campaign_count} campaigns, {scan.data.stream_count}{' '}
+                    streams, {scan.data.notified_count} notifications.
+                  </span>
+                </p>
+              )}
+            </article>
+          )}
 
           <article className="action-card">
             <h3>Sync drop progress</h3>
             <p>Sync drop progress and claim status from Twitch.</p>
             <button
               className="btn btn-secondary"
-              onClick={() => refresh.mutate()}
-              disabled={refresh.isPending || !connected}
+              onClick={() => refreshProgress.mutate()}
+              disabled={refreshProgress.isPending || !connected}
               title={
                 connected
                   ? 'Sync your Twitch drop progress'
@@ -122,57 +290,24 @@ export function SettingsPage({ status, twitch }: Props) {
               }
             >
               <Icon name="refresh" size={16} />
-              {refresh.isPending ? 'Syncing…' : 'Sync drop progress'}
+              {refreshProgress.isPending ? 'Syncing…' : 'Sync drop progress'}
             </button>
             {!connected && (
               <p className="muted small">Connect Twitch to enable this action.</p>
             )}
-            {refresh.error && (
+            {refreshProgress.error && (
               <p className="alert alert-danger" role="alert">
                 <Icon name="alert" size={15} />
-                <span>{refresh.error.message}</span>
+                <span>{refreshProgress.error.message}</span>
               </p>
             )}
-            {refresh.data && (
+            {refreshProgress.data && (
               <p className="alert alert-success" role="status">
                 <Icon name="check" size={15} />
                 <span>
-                  Synced {refresh.data.drop_count} drops from{' '}
-                  {refresh.data.campaign_count} campaign(s).
+                  Synced {refreshProgress.data.drop_count} drops from{' '}
+                  {refreshProgress.data.campaign_count} campaign(s).
                 </span>
-              </p>
-            )}
-          </article>
-
-          <article className="action-card">
-            <h3>Telegram test</h3>
-            <p>Send a test notification to verify your Telegram configuration.</p>
-            <button
-              className="btn btn-secondary"
-              onClick={() => testTelegram.mutate()}
-              disabled={testTelegram.isPending || !statusData?.telegram_configured}
-              title={
-                statusData?.telegram_configured
-                  ? 'Send a test message to Telegram'
-                  : 'Telegram is not configured'
-              }
-            >
-              <Icon name="link" size={16} />
-              {testTelegram.isPending ? 'Sending…' : 'Send test message'}
-            </button>
-            {!statusData?.telegram_configured && !status.isLoading && (
-              <p className="muted small">Telegram is not configured in .env.</p>
-            )}
-            {testTelegram.error && (
-              <p className="alert alert-danger" role="alert">
-                <Icon name="alert" size={15} />
-                <span>{testTelegram.error.message}</span>
-              </p>
-            )}
-            {testTelegram.data && (
-              <p className="alert alert-success" role="status">
-                <Icon name="check" size={15} />
-                <span>Test message sent to Telegram.</span>
               </p>
             )}
           </article>
@@ -252,25 +387,123 @@ export function SettingsPage({ status, twitch }: Props) {
             {connected && (
               <button
                 className="btn btn-danger"
-                onClick={() => logout.mutate()}
-                disabled={logout.isPending}
+                onClick={() => disconnect.mutate()}
+                disabled={disconnect.isPending}
               >
                 <Icon name="logout" size={16} />
-                {logout.isPending ? 'Disconnecting…' : 'Disconnect Twitch'}
+                {disconnect.isPending ? 'Disconnecting…' : 'Disconnect Twitch'}
               </button>
             )}
           </div>
         </div>
 
-        {logout.error && (
+        {disconnect.error && (
           <p className="alert alert-danger" role="alert">
             <Icon name="alert" size={16} />
-            <span>{logout.error.message}</span>
+            <span>{disconnect.error.message}</span>
           </p>
         )}
 
         <TwitchConnect connect={connect} />
       </section>
+
+      {isAdmin && (
+        <section className="panel settings-section" aria-labelledby="settings-users">
+          <div className="section-head">
+            <div>
+              <h2 id="settings-users">
+                <Icon name="user" size={18} />
+                Users
+              </h2>
+              <p>Enable or disable access for accounts on this server.</p>
+            </div>
+            <Badge tone="accent">{adminUsers.data?.length ?? 0} accounts</Badge>
+          </div>
+
+          {adminUsers.isLoading && <LoadingState label="Loading users…" />}
+
+          {adminUsers.error && (
+            <p className="alert alert-danger" role="alert">
+              <Icon name="alert" size={16} />
+              <span>{adminUsers.error.message}</span>
+            </p>
+          )}
+
+          {updateUser.error && (
+            <p className="alert alert-danger" role="alert">
+              <Icon name="alert" size={16} />
+              <span>{updateUser.error.message}</span>
+            </p>
+          )}
+
+          {adminUsers.data && adminUsers.data.length > 0 && (
+            <ul className="list">
+              {adminUsers.data.map((account) => {
+                const isSelf = account.id === user?.id
+                const active = account.is_active ?? account.active ?? true
+                const pending =
+                  updateUser.isPending && updateUser.variables?.id === account.id
+
+                return (
+                  <li className="list-item" key={account.id}>
+                    <Avatar
+                      name={account.display_name || account.login}
+                      src={account.profile_image_url}
+                      size="sm"
+                    />
+                    <div className="list-item-main">
+                      <span className="list-item-title">
+                        {account.display_name || account.login}
+                        {isSelf ? ' (you)' : ''}
+                      </span>
+                      <span className="list-item-meta">
+                        @{account.login} · {account.role === 'admin' ? 'Admin' : 'User'} ·
+                        Last sign-in {formatDateTime(account.last_login_at)}
+                      </span>
+                    </div>
+                    <div className="list-item-actions">
+                      {account.telegram_enabled === true && (
+                        <Badge tone="accent" title="Telegram alerts enabled">
+                          Telegram
+                        </Badge>
+                      )}
+                      <Badge tone={active ? 'success' : 'muted'} dot>
+                        {active ? 'Active' : 'Disabled'}
+                      </Badge>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${
+                          active ? 'btn-secondary' : 'btn-primary'
+                        }`}
+                        onClick={() =>
+                          updateUser.mutate({
+                            id: account.id,
+                            isActive: !active,
+                          })
+                        }
+                        disabled={isSelf || pending}
+                        title={
+                          isSelf
+                            ? 'You cannot disable your own account'
+                            : active
+                              ? 'Disable this account'
+                              : 'Enable this account'
+                        }
+                      >
+                        {pending ? 'Saving…' : active ? 'Disable' : 'Enable'}
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+
+          {adminUsers.data && adminUsers.data.length === 0 && (
+            <p className="muted small">No accounts yet.</p>
+          )}
+        </section>
+      )}
 
       <section className="panel settings-section" aria-labelledby="settings-system">
         <div className="section-head">
@@ -288,7 +521,7 @@ export function SettingsPage({ status, twitch }: Props) {
           <Icon name="alert" size={15} />
           <span>
             Scan and progress intervals, credentials, and notification settings are
-            configured in the backend <code>.env</code> file.
+            configured on the server.
           </span>
         </p>
 

@@ -219,7 +219,7 @@ export interface AuthUser {
   profile_image_url: string | null
   role: UserRole
   telegram_enabled: boolean
-  telegram_chat_id: string
+  telegram_chat_id: string | null
 }
 
 export interface Registration {
@@ -253,8 +253,10 @@ export interface AdminUser {
   display_name: string
   profile_image_url?: string | null
   role: UserRole
-  is_active: boolean
-  created_at: string | null
-  last_login_at: string | null
-  telegram_enabled: boolean
+  /** The API may expose either name for the account flag. */
+  is_active?: boolean
+  active?: boolean
+  created_at?: string | null
+  last_login_at?: string | null
+  telegram_enabled?: boolean
 }

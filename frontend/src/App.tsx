@@ -62,7 +62,6 @@ export default function App() {
 
   const meta = TABS.find((item) => item.id === tab) ?? TABS[0]
   const connected = twitch.data?.connected === true
-  const twitchName = twitch.data?.display_name || twitch.data?.login
   const accountName = user?.display_name || user?.login || 'Account'
   const roleLabel = isAdmin ? 'Admin' : 'Signed in'
 
@@ -286,7 +285,7 @@ export default function App() {
                 <span className="connection-copy">
                   <span className="connection-label">{accountName}</span>
                   <span className="connection-sub">
-                    {roleLabel} · {connected ? twitchName || 'Twitch connected' : 'Twitch not connected'}
+                    {roleLabel} · {connected ? 'Twitch connected' : 'Twitch not connected'}
                   </span>
                 </span>
                 <span

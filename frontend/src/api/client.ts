@@ -156,7 +156,10 @@ export const api = {
   stopWatcher: () => request<WatchState>('/watcher', { method: 'DELETE' }),
   twitchStatus: () => request<TwitchUserStatus>('/twitch/status'),
 
-  adminUsers: () => request<AdminUser[]>('/admin/users'),
+  adminUsers: async () => {
+    const data = await request<AdminUser[] | { users: AdminUser[] }>('/admin/users')
+    return Array.isArray(data) ? data : data.users ?? []
+  },
   setUserActive: (id: number, isActive: boolean) =>
     request<AdminUser>(`/admin/users/${id}`, {
       method: 'PATCH',

@@ -19,7 +19,7 @@ export interface TwitchConnectOptions {
     inviteCode?: string,
   ) => Promise<TwitchLoginResult>
   /** Runs after a successful connection, before caches are invalidated. */
-  onConnected?: () => void | Promise<void>
+  onConnected?: () => void | Promise<unknown>
 }
 
 export interface TwitchConnectController {
