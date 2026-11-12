@@ -60,14 +60,14 @@ export const TABS: TabMeta[] = [
     id: 'settings',
     label: 'Settings',
     title: 'Settings',
-    subtitle: 'Games, actions, Twitch connection, and system status.',
+    subtitle: 'Games, Telegram, Twitch connection, and system status.',
     icon: 'settings',
   },
   {
     id: 'profile',
     label: 'Profile',
-    title: 'Twitch profile',
-    subtitle: 'Your connected Twitch account and token details.',
+    title: 'Profile',
+    subtitle: 'Your account, Twitch connection, and Telegram settings.',
     icon: 'user',
   },
 ]
