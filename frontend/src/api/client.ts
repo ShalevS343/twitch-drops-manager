@@ -1,6 +1,7 @@
 import type {
   AdminUser,
   AuthMe,
+  AuthUser,
   Campaign,
   Game,
   ProgressCampaign,
@@ -121,7 +122,7 @@ export const api = {
     }),
   logout: () => request<{ ok?: boolean }>('/auth/logout', { method: 'POST' }),
   updateMe: (input: UpdateMeInput) =>
-    request<AuthMe>('/auth/me', {
+    request<AuthUser>('/auth/me', {
       method: 'PATCH',
       body: JSON.stringify(input),
     }),

@@ -204,12 +204,6 @@ export interface TwitchConnect {
   redirect_uri: string
 }
 
-export interface TwitchConnectResult {
-  connected: boolean
-  login: string | null
-  message: string | null
-}
-
 export type UserRole = 'admin' | 'user'
 
 export interface AuthUser {
@@ -229,17 +223,15 @@ export interface Registration {
 
 export interface AuthMe {
   authenticated: boolean
-  user?: AuthUser
+  user?: AuthUser | null
   registration: Registration
   telegram_bot_configured: boolean
 }
 
 export interface TwitchLoginResult {
-  connected?: boolean
-  login?: string | null
-  message?: string | null
-  redirect_url?: string
-  invite_code?: string
+  connected: boolean
+  user: AuthUser
+  created: boolean
 }
 
 export interface UpdateMeInput {

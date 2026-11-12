@@ -63,17 +63,21 @@ export function SettingsPage({ status, twitch }: Props) {
   const statusData = status.data
 
   const savedChatId = user?.telegram_chat_id?.trim() ?? ''
-  const chatIdDirty = chatId.trim() !== savedChatId
-  const enabledDirty = telegramEnabled !== (user?.telegram_enabled ?? false)
-  const canSaveTelegram =
-    !updateMe.isPending && (chatIdDirty || enabledDirty) && (!telegramEnabled || Boolean(chatId.trim()))
+  const trimmedChatId = chatId.trim()
+  // Clearing the chat id disables alerts on save, so the toggle state we send is
+  // the effective one and Save never dead-ends on an empty field.
+  const effectiveEnabled = trimmedChatId ? telegramEnabled : false
+  const telegramDirty =
+    trimmedChatId !== savedChatId ||
+    effectiveEnabled !== (user?.telegram_enabled ?? false)
+  const canSaveTelegram = !updateMe.isPending && telegramDirty
   const canTestTelegram =
     telegramBotConfigured && Boolean(savedChatId) && !testTelegram.isPending
 
   function saveTelegram() {
     updateMe.mutate({
-      telegram_chat_id: chatId.trim(),
-      telegram_enabled: telegramEnabled,
+      telegram_chat_id: trimmedChatId,
+      telegram_enabled: effectiveEnabled,
     })
   }
 
@@ -200,10 +204,13 @@ export function SettingsPage({ status, twitch }: Props) {
             </button>
           </div>
 
-          {enabledDirty && telegramEnabled && !chatId.trim() && (
+          {telegramEnabled && !trimmedChatId && (
             <p className="alert alert-warning" role="status">
               <Icon name="alert" size={15} />
-              <span>Add a chat ID before enabling alerts.</span>
+              <span>
+                No chat ID set: saving will turn Telegram alerts off for this
+                account.
+              </span>
             </p>
           )}
 
@@ -213,7 +220,7 @@ export function SettingsPage({ status, twitch }: Props) {
               <span>{updateMe.error.message}</span>
             </p>
           )}
-          {updateMe.isSuccess && !chatIdDirty && !enabledDirty && (
+          {updateMe.isSuccess && !telegramDirty && (
             <p className="alert alert-success" role="status">
               <Icon name="check" size={15} />
               <span>Telegram settings saved.</span>

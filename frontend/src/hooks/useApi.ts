@@ -178,12 +178,13 @@ export function useTwitchDisconnect() {
 
 export function useUpdateMe() {
   const queryClient = useQueryClient()
+  const userId = useUserScope()
   const { refresh } = useAuth()
 
   return useMutation({
     mutationFn: (input: UpdateMeInput) => api.updateMe(input),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['u'] })
+      await queryClient.invalidateQueries({ queryKey: ['u', userId] })
       await refresh()
     },
   })

@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { api, setUnauthorizedHandler } from '../api/client'
+import { ApiError, api, setUnauthorizedHandler } from '../api/client'
 import type { AuthMe, AuthUser, Registration, TwitchLoginResult } from '../api/types'
 
 interface AuthContextValue {
@@ -23,6 +23,8 @@ interface AuthContextValue {
 }
 
 const ANONYMOUS_REGISTRATION: Registration = { open: false, invite_required: false }
+
+const SESSION_EXPIRED_NOTICE = 'Your session expired. Sign in again.'
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
@@ -49,6 +51,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear()
   }, [queryClient])
 
+  /**
+   * Drops the current identity immediately. Teardown never waits on `/auth/me`,
+   * so a failed or slow reload cannot leave the previous user rendered. The
+   * registration flags are public data and are kept for the gate.
+   */
+  const clearIdentity = useCallback(async () => {
+    identityRef.current = null
+    await purgeCaches()
+    setMe((current) => ({
+      authenticated: false,
+      registration: current?.registration ?? ANONYMOUS_REGISTRATION,
+      telegram_bot_configured: current?.telegram_bot_configured ?? false,
+    }))
+  }, [purgeCaches])
+
   const load = useCallback(() => {
     if (pendingRef.current) return pendingRef.current
 
@@ -66,7 +83,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError(null)
         return next
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Could not reach the server')
+        if (err instanceof ApiError && err.status === 401) {
+          // A dead session must not keep the old user on screen even though the
+          // reload failed.
+          setNotice(SESSION_EXPIRED_NOTICE)
+          await clearIdentity()
+        } else {
+          setError(err instanceof Error ? err.message : 'Could not reach the server')
+        }
         return null
       } finally {
         setIsLoading(false)
@@ -76,7 +100,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     pendingRef.current = pending
     return pending
-  }, [purgeCaches])
+  }, [clearIdentity, purgeCaches])
+
+  const settlePending = useCallback(async () => {
+    const pending = pendingRef.current
+    if (pending) {
+      await pending.catch(() => null)
+    }
+  }, [])
+
+  /**
+   * Lets any in-flight `/auth/me` settle before loading again. Without this, a
+   * request that started before a mutation (or login/logout) could resolve with
+   * stale identity/profile data and win the race.
+   */
+  const refresh = useCallback(async () => {
+    await settlePending()
+    return load()
+  }, [load, settlePending])
+
+  /**
+   * Ends the local session immediately: identity, caches and rendered user are
+   * gone before the best-effort `/auth/me` reload that refreshes public
+   * registration flags.
+   */
+  const endSession = useCallback(
+    async (message: string | null) => {
+      setNotice(message)
+      await settlePending()
+      await clearIdentity()
+      void load()
+    },
+    [clearIdentity, load, settlePending],
+  )
 
   useEffect(() => {
     void load()
@@ -84,47 +140,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      setNotice('Your session expired. Sign in again.')
-      void load()
+      void endSession(SESSION_EXPIRED_NOTICE)
     })
 
     return () => setUnauthorizedHandler(null)
-  }, [load])
+  }, [endSession])
 
-  const refresh = useCallback(() => load(), [load])
-
-  /**
-   * Lets any in-flight `/auth/me` settle before reloading. Without this, a
-   * request started just before login/logout could resolve with the previous
-   * identity and win the race.
-   */
-  const reload = useCallback(async () => {
-    const pending = pendingRef.current
-    if (pending) {
-      await pending.catch(() => null)
+  // Another tab may sign out or the session may expire while this tab is in the
+  // background. Re-check whenever the tab regains focus or becomes visible.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void refresh()
+      }
     }
-    return load()
-  }, [load])
+    const handleFocus = () => {
+      void refresh()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [refresh])
 
   const login = useCallback(
     async (redirectUrl: string, inviteCode?: string) => {
       const result = await api.twitchConnect(redirectUrl, inviteCode)
       setNotice(null)
-      await reload()
+      await refresh()
       return result
     },
-    [reload],
+    [refresh],
   )
 
   const logout = useCallback(async () => {
-    try {
-      await api.logout()
-    } finally {
-      // Reloading /auth/me drops the identity and purges all personal caches.
-      setNotice(null)
-      await reload()
-    }
-  }, [reload])
+    // Let the request fail loudly and keep the session intact if the server did
+    // not clear it; once it succeeds, tear the local side down immediately.
+    await api.logout()
+    await endSession(null)
+  }, [endSession])
 
   const user = me?.authenticated ? me.user ?? null : null
 

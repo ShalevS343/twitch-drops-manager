@@ -4,6 +4,7 @@ import type { FormEvent } from 'react'
 
 import { api } from '../api/client'
 import type { TwitchConnect as TwitchConnectInfo, TwitchLoginResult } from '../api/types'
+import { useAuth } from '../auth/AuthContext'
 import { Icon } from './ui/Icon'
 
 export type TwitchConnectMode = 'login' | 'reconnect'
@@ -43,6 +44,7 @@ export function useTwitchConnect(
   options: TwitchConnectOptions = {},
 ): TwitchConnectController {
   const queryClient = useQueryClient()
+  const { user } = useAuth()
 
   const mode = options.mode ?? 'reconnect'
   const inviteRequired = options.inviteRequired ?? false
@@ -82,21 +84,26 @@ export function useTwitchConnect(
         setConnect(null)
         setRedirectUrl('')
         setInviteCode('')
+        const displayName =
+          result.user?.display_name || result.user?.login || 'your Twitch account'
         setNotice(
-          result.message ??
-            (mode === 'login'
-              ? `Signed in as ${result.login ?? 'your Twitch account'}.`
-              : `Connected as ${result.login ?? 'your Twitch account'}. Your progress is syncing.`),
+          mode === 'login'
+            ? `${result.created ? 'Account created. ' : ''}Signed in as ${displayName}.`
+            : `Connected as ${displayName}. Your progress is syncing.`,
         )
         await onConnected?.()
-        await queryClient.invalidateQueries()
+        // Identity changes purge everything through the auth provider; a
+        // reconnect only needs to refresh this user's own data.
+        if (user) {
+          await queryClient.invalidateQueries({ queryKey: ['u', user.id] })
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not save the Twitch token')
       } finally {
         setSaving(false)
       }
     },
-    [authenticate, inviteCode, mode, onConnected, queryClient, redirectUrl],
+    [authenticate, inviteCode, mode, onConnected, queryClient, redirectUrl, user],
   )
 
   const cancel = useCallback(() => {

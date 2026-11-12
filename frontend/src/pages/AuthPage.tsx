@@ -1,9 +1,12 @@
+import { useState } from 'react'
+
 import { useAuth } from '../auth/AuthContext'
 import { TwitchConnect, useTwitchConnect } from '../components/TwitchConnect'
 import { Icon } from '../components/ui/Icon'
 
 export function AuthPage() {
-  const { login, registration, notice, clearNotice, error } = useAuth()
+  const { login, registration, notice, clearNotice, error, refresh } = useAuth()
+  const [retrying, setRetrying] = useState(false)
 
   const connect = useTwitchConnect({
     mode: 'login',
@@ -12,7 +15,16 @@ export function AuthPage() {
     onConnected: clearNotice,
   })
 
-  const closed = !registration.open
+  const closed = !registration.open && !error
+
+  async function handleRetry() {
+    setRetrying(true)
+    try {
+      await refresh()
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   return (
     <div className="auth-shell">
@@ -47,10 +59,19 @@ export function AuthPage() {
         )}
 
         {error && (
-          <p className="alert alert-danger" role="alert">
+          <div className="alert alert-danger" role="alert">
             <Icon name="alert" size={16} />
             <span>{error}</span>
-          </p>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm auth-retry"
+              onClick={handleRetry}
+              disabled={retrying}
+            >
+              <Icon name="refresh" size={14} />
+              {retrying ? 'Retrying…' : 'Retry'}
+            </button>
+          </div>
         )}
 
         {closed && (
