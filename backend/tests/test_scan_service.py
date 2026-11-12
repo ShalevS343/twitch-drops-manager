@@ -6,7 +6,16 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import Settings
 from app.core.db import Base
 from app.core.exceptions import ProviderError
-from app.domain.models import Campaign, CampaignStart, DropProgress, Game, Stream
+from app.core.security import create_auth_session
+from app.domain.models import (
+    Campaign,
+    CampaignStart,
+    DropProgress,
+    Game,
+    Stream,
+    User,
+    UserSession,
+)
 from app.repositories.games import GameRepository
 from app.services.scan_service import ScanService
 
@@ -143,6 +152,26 @@ async def test_scan_persists_campaigns_for_all_games_and_streams_for_selected():
         assert campaign_total == 2
         assert stream_total == 1
         assert selected_total == 1
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scan_prunes_expired_sessions():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        user = User(twitch_user_id="123", login="viewer")
+        session.add(user)
+        await session.flush()
+        await create_auth_session(session, user.id, ttl_days=-1)
+        await create_auth_session(session, user.id, ttl_days=30)
+        await session.commit()
+
+        await _run_scan(session, FakeTelegram())
+
+        remaining = (await session.execute(select(UserSession))).scalars().all()
+        assert len(remaining) == 1
 
     await engine.dispose()
 

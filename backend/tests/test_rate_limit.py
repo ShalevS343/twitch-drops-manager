@@ -58,9 +58,41 @@ def _request(headers: dict[str, str] | None = None, client=("10.0.0.1", 1234)) -
     return Request(scope)
 
 
-def test_client_ip_uses_first_forwarded_for_value():
+def test_client_ip_uses_the_last_forwarded_for_hop():
     request = _request({"X-Forwarded-For": "203.0.113.9, 10.0.0.1"})
-    assert client_ip(request) == "203.0.113.9"
+    assert client_ip(request) == "10.0.0.1"
+
+
+def test_client_ip_ignores_a_spoofed_first_forwarded_for_value():
+    request = _request(
+        {"X-Forwarded-For": "198.51.100.7, 203.0.113.9, 10.0.0.1"}
+    )
+    assert client_ip(request) == "10.0.0.1"
+
+
+def test_prune_expired_removes_idle_keys():
+    now = [100.0]
+    limiter = SlidingWindowRateLimiter(2, window_seconds=60, clock=lambda: now[0])
+    limiter.check("expired")
+    limiter.check("active")
+    now[0] += 61
+
+    limiter.prune_expired()
+
+    assert "expired" not in limiter._hits
+    assert "active" not in limiter._hits
+    assert limiter._hits == {}
+
+
+def test_prune_expired_keeps_keys_inside_the_window():
+    now = [100.0]
+    limiter = SlidingWindowRateLimiter(2, window_seconds=60, clock=lambda: now[0])
+    limiter.check("recent")
+    now[0] += 30
+
+    limiter.prune_expired()
+
+    assert "recent" in limiter._hits
 
 
 def test_client_ip_falls_back_to_the_socket_address():

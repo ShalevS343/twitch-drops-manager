@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -12,11 +11,12 @@ from app.core.exceptions import (
     AccountConflictError,
     AccountDisabledError,
     InvalidAuthRequestError,
+    LastAdminError,
     NotConfiguredError,
     ProviderError,
     RegistrationClosedError,
 )
-from app.core.security import create_auth_session
+from app.core.security import compare_secrets, create_auth_session
 from app.domain.models import (
     User,
     UserCampaignCompletion,
@@ -126,7 +126,7 @@ class AuthService:
                 raise RegistrationClosedError(
                     "Registration is closed; a valid invite code is required"
                 )
-            first_user = await self.users.count() == 0
+            first_user = await self.users.claim_first_admin_slot()
             user = await self.users.create(
                 twitch_user_id=twitch_user_id,
                 login=login,
@@ -208,6 +208,13 @@ class AuthService:
         if user is None:
             raise InvalidAuthRequestError("User not found")
 
+        if not active and user.role == "admin" and user.is_active:
+            active_admins = await self.users.count_active_admins()
+            if active_admins <= 1:
+                raise LastAdminError(
+                    "Cannot disable the last active admin account"
+                )
+
         await self.users.set_active(user, active)
         if not active:
             await self.sessions.delete_for_user(user_id)
@@ -232,7 +239,7 @@ class AuthService:
             supplied = (invite_code or "").strip()
             if not supplied:
                 return False
-            return secrets.compare_digest(supplied, configured)
+            return compare_secrets(configured, supplied)
         return bool(self.settings.registration_open)
 
     async def _profile(

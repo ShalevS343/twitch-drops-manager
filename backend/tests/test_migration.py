@@ -371,7 +371,7 @@ async def test_migration_marks_expired_legacy_token_for_reconnect(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_migration_creates_placeholder_admin_from_owner_setting(monkeypatch):
-    _settings(monkeypatch, owner_twitch_id="999")
+    _settings(monkeypatch, owner_twitch_id="999", telegram_chat_id="555")
     engine = await _engine(legacy=False)
 
     async with engine.begin() as connection:
@@ -381,8 +381,18 @@ async def test_migration_creates_placeholder_admin_from_owner_setting(monkeypatc
         ).mappings().one()
         assert user["twitch_user_id"] == "999"
         assert user["role"] == "admin"
+        assert user["telegram_chat_id"] == "555"
+        assert user["telegram_enabled"] in (1, True)
         assert (
             await _scalar(connection, "SELECT COUNT(*) FROM twitch_accounts") == 0
+        )
+        assert (
+            await _scalar(
+                connection,
+                "SELECT COUNT(*) FROM app_meta "
+                "WHERE key = 'first_admin_claimed'",
+            )
+            == 1
         )
         assert (
             await _scalar(
@@ -531,6 +541,78 @@ async def test_concurrent_startup_runs_the_migration_once(monkeypatch, tmp_path)
                 "AND value = 'done'",
             )
             == 1
+        )
+        assert (
+            await _scalar(
+                connection,
+                "SELECT COUNT(*) FROM app_meta "
+                "WHERE key = 'first_admin_claimed'",
+            )
+            == 1
+        )
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_migration_ignores_a_profile_for_another_twitch_user(monkeypatch):
+    _settings(monkeypatch)
+    engine = await _engine()
+    now = _now_iso()
+
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO twitch_auth (id, user_id, login, access_token, "
+                "refresh_token, expires_at, updated_at) "
+                "VALUES (1, '123', 'owner', 'legacy-token', '', NULL, :now)"
+            ),
+            {"now": now},
+        )
+        await connection.execute(
+            text(
+                "INSERT INTO twitch_profile (id, user_id, display_name, "
+                "profile_image_url, connected_at, updated_at) "
+                "VALUES (1, 'other', 'Wrong Person', 'https://example.test/wrong.png', "
+                ":now, :now)"
+            ),
+            {"now": now},
+        )
+        await run_multi_user_migration(connection)
+
+        user = (
+            await connection.execute(text("SELECT * FROM users"))
+        ).mappings().one()
+        assert user["display_name"] == "owner"
+        assert user["profile_image_url"] == ""
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_migration_retries_when_the_flag_is_not_done(monkeypatch):
+    _settings(monkeypatch)
+    engine = await _engine()
+    expires_at = _now_iso(timedelta(days=1))
+
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "INSERT INTO app_meta (key, value, updated_at) "
+                "VALUES ('multi_user_v1', 'pending', :now)"
+            ),
+            {"now": _now_iso()},
+        )
+        await _seed_legacy_owner(connection, expires_at=expires_at)
+        await run_multi_user_migration(connection)
+
+        assert await _scalar(connection, "SELECT COUNT(*) FROM users") == 1
+        assert (
+            await _scalar(
+                connection,
+                "SELECT value FROM app_meta WHERE key = 'multi_user_v1'",
+            )
+            == "done"
         )
 
     await engine.dispose()

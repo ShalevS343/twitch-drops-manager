@@ -10,9 +10,10 @@ from app.api.v1.progress import (
 )
 from app.api.v1.router import api_router
 from app.core.config import get_settings
-from app.core.db import engine, init_db
+from app.core.db import SessionLocal, engine, init_db
 from app.core.logging import configure_logging
 from app.core.middleware import CSRFMiddleware, NoStoreMiddleware
+from app.core.security import prune_expired_sessions
 
 settings = get_settings()
 
@@ -21,6 +22,8 @@ settings = get_settings()
 async def lifespan(_app: FastAPI):
     configure_logging()
     await init_db()
+    async with SessionLocal() as session:
+        await prune_expired_sessions(session)
     start_profile_refresh_warmup()
     try:
         yield
@@ -30,10 +33,6 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
-if settings.allowed_host_list:
-    app.add_middleware(
-        TrustedHostMiddleware, allowed_hosts=settings.allowed_host_list
-    )
 app.add_middleware(NoStoreMiddleware)
 app.add_middleware(CSRFMiddleware)
 app.add_middleware(
@@ -43,6 +42,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Starlette runs the last-added middleware outermost. TrustedHost must see the
+# raw Host header before same-origin/CSRF decisions use it.
+if settings.allowed_host_list:
+    app.add_middleware(
+        TrustedHostMiddleware, allowed_hosts=settings.allowed_host_list
+    )
 app.include_router(api_router, prefix=settings.api_prefix)
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 
@@ -41,16 +42,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _first_progress_sync(user_id: int) -> None:
-    """Best-effort first inventory sync for a newly established session.
+_sync_tasks: set[asyncio.Task[None]] = set()
 
-    The legacy progress service is still singleton-scoped until the scope task
-    reworks the factory. Skipping it until then avoids writing another user's
-    inventory; once ``build_progress_service`` accepts a user id this runs.
-    """
-    if "user_id" not in inspect.signature(build_progress_service).parameters:
-        return
 
+async def _run_first_progress_sync(user_id: int) -> None:
     async with SessionLocal() as session:
         try:
             await build_progress_service(session, user_id).run()
@@ -58,6 +53,26 @@ async def _first_progress_sync(user_id: int) -> None:
             logger.info("First progress sync skipped for user %s", user_id)
         except Exception:  # noqa: BLE001 - background best effort  # pragma: no cover
             logger.warning("First progress sync failed for user %s", user_id)
+
+
+async def _first_progress_sync(user_id: int) -> None:
+    """Schedule a best-effort first inventory sync in the background.
+
+    The legacy progress service is still singleton-scoped until the scope task
+    reworks the factory. Skipping it until then avoids writing another user's
+    inventory; once ``build_progress_service`` accepts a user id this schedules
+    the per-user sync. The scope worker should turn this into its normal
+    user-scoped sync path and remove the signature probe.
+    """
+    if "user_id" not in inspect.signature(build_progress_service).parameters:
+        return
+
+    try:
+        task = asyncio.create_task(_run_first_progress_sync(user_id))
+    except RuntimeError:  # pragma: no cover - no running loop during shutdown
+        return
+    _sync_tasks.add(task)
+    task.add_done_callback(_sync_tasks.discard)
 
 
 @router.get("/auth/me", response_model=AuthMeOut)

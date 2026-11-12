@@ -51,8 +51,17 @@ async def _has_table(connection: AsyncConnection, name: str) -> bool:
     )
 
 
-async def _table_row(connection: AsyncConnection, name: str) -> dict[str, Any] | None:
-    result = await connection.execute(text(f"SELECT * FROM {name} ORDER BY id LIMIT 1"))
+async def _table_row(
+    connection: AsyncConnection,
+    name: str,
+    *,
+    where: str = "",
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    clause = f" WHERE {where}" if where else ""
+    result = await connection.execute(
+        text(f"SELECT * FROM {name}{clause} ORDER BY id LIMIT 1"), params or {}
+    )
     row = result.mappings().first()
     return dict(row) if row is not None else None
 
@@ -64,7 +73,6 @@ async def _copy_rows(
     target_table: str,
     owner_id: int,
     columns: list[str],
-    now: str,
     where: str = "",
 ) -> None:
     if not await _has_table(connection, legacy_table):
@@ -78,9 +86,7 @@ async def _copy_rows(
         f"({', '.join(target_columns)}) "
         f"SELECT {', '.join(selects)} FROM {legacy_table}{clause}"
     )
-    await connection.execute(
-        text(sql), {"owner_id": owner_id, "now": now}
-    )
+    await connection.execute(text(sql), {"owner_id": owner_id})
 
 
 async def run_multi_user_migration(connection: AsyncConnection) -> None:
@@ -102,7 +108,14 @@ async def run_multi_user_migration(connection: AsyncConnection) -> None:
         {"key": MIGRATION_KEY, "now": now},
     )
     if claim.rowcount == 0:
-        return
+        current = (
+            await connection.execute(
+                text("SELECT value FROM app_meta WHERE key = :key"),
+                {"key": MIGRATION_KEY},
+            )
+        ).scalar_one_or_none()
+        if current == MIGRATION_DONE:
+            return
 
     users_count = int(
         (await connection.execute(text("SELECT COUNT(*) FROM users"))).scalar_one()
@@ -130,17 +143,21 @@ async def run_multi_user_migration(connection: AsyncConnection) -> None:
                     "Refusing to attach legacy data to the wrong "
                     "twitch_user_id; fix the users table and restart."
                 )
+            profile = None
+            if await _has_table(connection, "twitch_profile"):
+                profile = await _table_row(
+                    connection,
+                    "twitch_profile",
+                    where="user_id = :twitch_user_id",
+                    params={"twitch_user_id": twitch_user_id},
+                )
             owner_id = await _create_user(
                 connection,
                 twitch_user_id=twitch_user_id,
                 login=str(legacy_auth.get("login") or ""),
                 role="admin",
                 now=now,
-                profile=(
-                    await _table_row(connection, "twitch_profile")
-                    if await _has_table(connection, "twitch_profile")
-                    else None
-                ),
+                profile=profile,
             )
 
         await _seed_telegram(
@@ -161,9 +178,19 @@ async def run_multi_user_migration(connection: AsyncConnection) -> None:
             now=now,
             profile=None,
         )
+        await _seed_telegram(
+            connection, owner_id=owner_id, settings_chat_id=settings.telegram_chat_id
+        )
 
     if owner_id is not None:
         await _copy_personal_rows(connection, owner_id=owner_id, now=now)
+        await connection.execute(
+            text(
+                "INSERT OR IGNORE INTO app_meta (key, value, updated_at) "
+                "VALUES ('first_admin_claimed', '1', :now)"
+            ),
+            {"now": now},
+        )
 
     await connection.execute(
         text("UPDATE app_meta SET value = :value, updated_at = :now WHERE key = :key"),
@@ -292,7 +319,6 @@ async def _copy_personal_rows(
             "benefits",
             "updated_at",
         ],
-        now=now,
     )
     await _copy_rows(
         connection,
@@ -300,7 +326,6 @@ async def _copy_personal_rows(
         target_table="user_progress_snapshots",
         owner_id=owner_id,
         columns=["drop_id", "current_minutes", "recorded_at"],
-        now=now,
     )
     await _copy_rows(
         connection,
@@ -314,7 +339,6 @@ async def _copy_personal_rows(
             "completed_at",
             "updated_at",
         ],
-        now=now,
     )
     await _copy_rows(
         connection,
@@ -339,7 +363,6 @@ async def _copy_personal_rows(
             "focused_at",
             "updated_at",
         ],
-        now=now,
         where="id = 1",
     )
     await _copy_rows(
@@ -348,7 +371,6 @@ async def _copy_personal_rows(
         target_table="user_notifications",
         owner_id=owner_id,
         columns=["dedupe_key", "sent_at"],
-        now=now,
     )
     await _copy_rows(
         connection,
@@ -356,7 +378,6 @@ async def _copy_personal_rows(
         target_table="user_campaign_starts",
         owner_id=owner_id,
         columns=["external_id", "detected_at"],
-        now=now,
     )
     if await _has_table(connection, "games"):
         await connection.execute(

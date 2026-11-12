@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import secrets
-
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from app.core.config import get_settings
-from app.core.security import CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE
+from app.core.security import (
+    CSRF_COOKIE,
+    CSRF_HEADER,
+    SESSION_COOKIE,
+    compare_secrets,
+)
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -51,20 +54,22 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         unsafe = request.method.upper() in UNSAFE_METHODS
         exempt = {f"{prefix}/auth/twitch/connect"}
 
-        if is_api and unsafe and path not in exempt:
+        if is_api and unsafe:
             origin = request.headers.get("origin")
             if origin and not _origin_allowed(request, origin):
                 return JSONResponse(
                     {"detail": "Origin not allowed"}, status_code=403
                 )
 
-            if request.cookies.get(SESSION_COOKIE):
+            # The public connect endpoint needs no CSRF pair (it creates the
+            # session), but it still gets the Origin check above.
+            if path not in exempt and request.cookies.get(SESSION_COOKIE):
                 csrf_cookie = request.cookies.get(CSRF_COOKIE) or ""
                 csrf_header = request.headers.get(CSRF_HEADER) or ""
                 if (
                     not csrf_cookie
                     or not csrf_header
-                    or not secrets.compare_digest(csrf_cookie, csrf_header)
+                    or not compare_secrets(csrf_cookie, csrf_header)
                 ):
                     return JSONResponse(
                         {"detail": "CSRF token missing or invalid"},
