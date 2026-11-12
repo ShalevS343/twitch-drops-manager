@@ -66,18 +66,12 @@ async def _copy_rows(
     columns: list[str],
     now: str,
     where: str = "",
-    extra_columns: list[str] | None = None,
-    extra_values: list[str] | None = None,
 ) -> None:
     if not await _has_table(connection, legacy_table):
         return
 
     target_columns = ["user_id", *columns]
     selects = [":owner_id", *columns]
-    if extra_columns:
-        target_columns.extend(extra_columns)
-        selects.extend(extra_values or [])
-
     clause = f" WHERE {where}" if where else ""
     sql = (
         f"INSERT OR IGNORE INTO {target_table} "
