@@ -206,6 +206,28 @@ export interface TwitchConnect {
   redirect_uri: string
 }
 
+/** Response from `POST /auth/twitch/device/start`. */
+export interface TwitchDeviceStart {
+  flow_id: string
+  user_code: string
+  verification_uri: string
+  expires_at: string
+  /** Seconds between polls; increased by the server on Twitch `slow_down`. */
+  interval: number
+}
+
+/** Pending response from `GET /auth/twitch/device/{flow_id}`. */
+export interface TwitchDevicePending {
+  status: 'pending'
+  interval: number
+}
+
+/**
+ * Poll result: still waiting, or the shared `AuthConnectOut` payload after the
+ * server has set the session cookies.
+ */
+export type TwitchDevicePoll = TwitchDevicePending | TwitchLoginResult
+
 export type UserRole = 'admin' | 'user'
 
 export interface AuthUser {

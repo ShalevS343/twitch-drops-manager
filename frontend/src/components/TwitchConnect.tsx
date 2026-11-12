@@ -137,6 +137,45 @@ export function useTwitchConnect(
   }
 }
 
+/**
+ * Keeps the legacy implicit authorize/paste flow available without competing
+ * with the code flow for attention. Used by Profile and Settings.
+ */
+export function TwitchConnectAdvanced({
+  connect,
+}: {
+  connect: TwitchConnectController
+}) {
+  return (
+    <details className="advanced-connect">
+      <summary>Advanced / desktop: paste a Twitch URL instead</summary>
+      <div className="advanced-connect-body">
+        <p className="muted small">
+          Use this fallback only if the code screen is unavailable. It opens
+          Twitch in a new tab and asks you to paste the redirect URL.
+        </p>
+        <div className="auth-actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={connect.start}
+            disabled={connect.starting}
+          >
+            <Icon name="twitch" size={16} />
+            {connect.starting
+              ? 'Opening Twitch…'
+              : connect.connect
+                ? 'Reopen Twitch authorization'
+                : 'Continue with Twitch URL'}
+          </button>
+        </div>
+
+        <TwitchConnect connect={connect} />
+      </div>
+    </details>
+  )
+}
+
 export function TwitchConnect({ connect }: { connect: TwitchConnectController }) {
   const isLogin = connect.mode === 'login'
   const authorizeUrl = safeExternalUrl(connect.connect?.authorize_url)

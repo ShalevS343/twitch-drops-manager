@@ -1967,6 +1967,109 @@ code {
   color: var(--text);
 }
 
+/* ------------------------------------------------------- device-code login */
+
+.device-connect {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.device-start {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.device-start .btn-primary {
+  min-height: 40px;
+}
+
+.device-start .invite-field {
+  width: 100%;
+  margin-top: 0;
+}
+
+.device-alert-action {
+  margin-left: auto;
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.device-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  background: var(--bg);
+}
+
+.device-code-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.device-code {
+  display: inline-flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  line-height: 1.2;
+  user-select: all;
+}
+
+.device-instructions {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.device-instructions code {
+  color: var(--text);
+}
+
+.advanced-connect {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.advanced-connect summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.advanced-connect summary:hover {
+  color: var(--text);
+}
+
+.advanced-connect-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.advanced-connect-body > .muted {
+  margin: 0;
+}
+
 /* --------------------------------------------------------------- alerts */
 
 .alert {

@@ -1,12 +1,22 @@
 import { useState } from 'react'
 
 import { useAuth } from '../auth/AuthContext'
+import { DeviceConnect, useDeviceConnect } from '../components/DeviceConnect'
 import { TwitchConnect, useTwitchConnect } from '../components/TwitchConnect'
 import { Icon } from '../components/ui/Icon'
 
 export function AuthPage() {
   const { login, registration, notice, clearNotice, error, refresh } = useAuth()
   const [retrying, setRetrying] = useState(false)
+  const closed = !registration.open && !error
+
+  // Code login is the primary path on phones and desktop; the implicit
+  // authorize/paste flow stays available under Advanced / desktop.
+  const device = useDeviceConnect({
+    mode: 'login',
+    inviteRequired: registration.invite_required && !closed,
+    onConnected: clearNotice,
+  })
 
   const connect = useTwitchConnect({
     mode: 'login',
@@ -14,8 +24,6 @@ export function AuthPage() {
     authenticate: login,
     onConnected: clearNotice,
   })
-
-  const closed = !registration.open && !error
 
   async function handleRetry() {
     setRetrying(true)
@@ -81,26 +89,39 @@ export function AuthPage() {
           </p>
         )}
 
-        <div className="auth-actions">
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={connect.start}
-            disabled={connect.starting}
-          >
-            <Icon name="twitch" size={16} />
-            {connect.starting
-              ? 'Opening Twitch…'
-              : connect.connect
-                ? 'Reopen Twitch authorization'
-                : 'Continue with Twitch'}
-          </button>
-          {registration.invite_required && !closed && (
-            <span className="muted small">An invite code is required for new accounts.</span>
-          )}
-        </div>
+        <DeviceConnect connect={device} />
 
-        <TwitchConnect connect={connect} />
+        <details className="advanced-connect">
+          <summary>Advanced / desktop: paste a Twitch URL instead</summary>
+          <div className="advanced-connect-body">
+            <p className="muted small">
+              Use this fallback only if the code screen is unavailable. It opens
+              Twitch in a new tab and asks you to paste the redirect URL.
+            </p>
+            <div className="auth-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={connect.start}
+                disabled={connect.starting}
+              >
+                <Icon name="twitch" size={16} />
+                {connect.starting
+                  ? 'Opening Twitch…'
+                  : connect.connect
+                    ? 'Reopen Twitch authorization'
+                    : 'Continue with Twitch URL'}
+              </button>
+              {registration.invite_required && !closed && (
+                <span className="muted small">
+                  An invite code is required for new accounts.
+                </span>
+              )}
+            </div>
+
+            <TwitchConnect connect={connect} />
+          </div>
+        </details>
 
         <p className="muted small auth-foot">
           The Twitch token is stored on this server for your account. Sign-in uses a
