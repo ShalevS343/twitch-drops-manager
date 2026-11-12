@@ -1,14 +1,12 @@
 # Status / handoff
 
 Last updated: **2026-11-12**
-Source of truth for this work: `feat/multi-user`. The auth, frontend, and
-deploy/docs lanes are integrated there at the fix-wave HEAD; `main` remains the
-single-user release. Deployment config and docs are committed on the branch,
-but **nothing is deployed yet**.
+Source of truth: `main`, merged from `feat/multi-user` in `78d2603`. Deployment
+config and docs are committed; **nothing is deployed yet**.
 
 ## Current state
 
-### Multi-user accounts (integrated on `feat/multi-user`, **not deployed**)
+### Multi-user accounts (merged to `main`, **not deployed**)
 
 - Twitch is the only identity provider: no passwords or email accounts. The first
   user becomes `admin`; later users need `REGISTRATION_CODE` unless
@@ -39,7 +37,7 @@ but **nothing is deployed yet**.
 
 ### Validation
 
-- Integrated on `feat/multi-user` at the fix-wave HEAD.
+- Merged to `main` in `78d2603`.
 - Backend suite: **193 tests passed** (`pytest -q`); `ruff check app tests` is
   clean.
 - Frontend: `npm run build` passes.
@@ -51,7 +49,7 @@ but **nothing is deployed yet**.
 ### Live deployment
 
 - **Not deployed.** The Portainer stack `twitch-drops-manager` still runs the
-  single-user build from `main`. The branch removes nginx basic auth; once
+  single-user build from `main`. `main` removes nginx basic auth; once
   deployed, the public UI is reachable and the app's Twitch login + invite code
   are the access gate.
 - Public URL (when deployed): `https://pi.taile9ec1c.ts.net` via Tailscale

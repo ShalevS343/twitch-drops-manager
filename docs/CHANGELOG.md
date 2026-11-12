@@ -12,11 +12,10 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## 2026-11-12
 
-### Integration — multi-user branch and fix wave
+### Integration — multi-user merge and fix wave
 
-- Integrated the auth, frontend, and deploy/docs lanes on `feat/multi-user` at
-  the fix-wave HEAD. Backend suite: **193 passed**; `ruff` clean; frontend
-  `npm run build` passes.
+- Merged `feat/multi-user` into `main` in `78d2603`. Backend suite: **193
+  passed**; `ruff` clean; frontend `npm run build` passes.
 - Fix wave: Origin checks accept `PUBLIC_ORIGIN` **or** `CORS_ORIGINS` (LAN
   login/mutations work); default games seed once via `users.games_seeded` so a
   cleared selection stays cleared; disabling an account clears pending campaign
