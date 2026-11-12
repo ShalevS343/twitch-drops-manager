@@ -22,6 +22,7 @@ import {
   type TwitchStatusQuery,
 } from '../hooks/useApi'
 import { formatDateTime, formatSeconds } from '../lib/format'
+import { safeExternalUrl } from '../lib/url'
 
 interface Props {
   status: StatusQuery
@@ -95,6 +96,7 @@ export function SettingsPage({ status, twitch }: Props) {
   const statusData = status.data
 
   const savedChatId = user?.telegram_chat_id?.trim() ?? ''
+  const blockedUrl = safeExternalUrl(blockedLink)
   const telegramDirty = telegramEnabled !== (user?.telegram_enabled ?? false)
   const canSaveTelegram =
     !updateMe.isPending && Boolean(savedChatId) && telegramDirty
@@ -118,12 +120,17 @@ export function SettingsPage({ status, twitch }: Props) {
     if (tab) tab.opener = null
     try {
       const link = await createLink.mutateAsync()
+      const deepLink = safeExternalUrl(link.deep_link)
+      if (!deepLink) {
+        tab?.close()
+        return
+      }
       if (tab) {
-        tab.location.href = link.deep_link
+        tab.location.href = deepLink
         setWaitingForTelegram(true)
       } else {
         setWaitingForTelegram(false)
-        setBlockedLink(link.deep_link)
+        setBlockedLink(deepLink)
       }
     } catch {
       tab?.close()
@@ -250,13 +257,13 @@ export function SettingsPage({ status, twitch }: Props) {
             </>
           )}
 
-          {blockedLink && (
+          {blockedUrl && (
             <p className="alert alert-warning" role="status">
               <Icon name="alert" size={15} />
               <span>
                 Your browser blocked the Telegram tab.{' '}
                 <a
-                  href={blockedLink}
+                  href={blockedUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => {

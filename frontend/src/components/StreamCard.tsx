@@ -1,8 +1,11 @@
 import type { Stream } from '../api/types'
+import { safeExternalUrl } from '../lib/url'
 import { Badge } from './ui/Badge'
 import { Icon } from './ui/Icon'
 
 export function StreamCard({ stream }: { stream: Stream }) {
+  const streamUrl = safeExternalUrl(stream.url)
+
   return (
     <article className="card stream-card">
       <header className="card-head">
@@ -41,15 +44,17 @@ export function StreamCard({ stream }: { stream: Stream }) {
       </div>
 
       <div className="card-footer">
-        <a
-          className="btn btn-primary btn-sm"
-          href={stream.url}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <Icon name="play" size={14} />
-          Open stream on Twitch
-        </a>
+        {streamUrl && (
+          <a
+            className="btn btn-primary btn-sm"
+            href={streamUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Icon name="play" size={14} />
+            Open stream on Twitch
+          </a>
+        )}
       </div>
     </article>
   )

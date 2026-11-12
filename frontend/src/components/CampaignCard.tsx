@@ -6,6 +6,7 @@ import {
   formatTimeUntil,
   titleCase,
 } from '../lib/format'
+import { safeExternalUrl } from '../lib/url'
 import { Badge, type BadgeTone } from './ui/Badge'
 import { Icon } from './ui/Icon'
 
@@ -22,6 +23,7 @@ export function CampaignCard({ campaign }: { campaign: Campaign }) {
   const completed = campaign.completed === true
   const isEndingSoon =
     !completed && phase === 'active' && endsSoon(campaign.ends_at)
+  const detailsUrl = safeExternalUrl(campaign.details_url)
 
   return (
     <article className={`card campaign-card${completed ? ' completed' : ''}`}>
@@ -75,15 +77,19 @@ export function CampaignCard({ campaign }: { campaign: Campaign }) {
 
       {campaign.details_url && (
         <div className="card-footer">
-          <a
-            className="btn btn-secondary btn-sm"
-            href={campaign.details_url}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <Icon name="external" size={14} />
-            View campaign on Twitch
-          </a>
+          {detailsUrl ? (
+            <a
+              className="btn btn-secondary btn-sm"
+              href={detailsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Icon name="external" size={14} />
+              View campaign on Twitch
+            </a>
+          ) : (
+            <span className="muted small">{campaign.name}</span>
+          )}
         </div>
       )}
     </article>

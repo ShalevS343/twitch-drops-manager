@@ -147,7 +147,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [endSession])
 
   // Another tab may sign out or the session may expire while this tab is in the
-  // background. Re-check whenever the tab regains focus or becomes visible.
+  // background. Re-check whenever the tab regains focus, becomes visible, or is
+  // restored from the back/forward cache. A BFCache restore keeps the frozen
+  // React state, so without `pageshow` it could keep showing the previous user.
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -157,13 +159,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleFocus = () => {
       void refresh()
     }
+    const handlePageShow = (event: PageTransitionEvent) => {
+      // A normal page load already runs the initial load effect above; only a
+      // restored page needs an extra check.
+      if (event.persisted) {
+        void refresh()
+      }
+    }
 
     document.addEventListener('visibilitychange', handleVisibility)
     window.addEventListener('focus', handleFocus)
+    window.addEventListener('pageshow', handlePageShow)
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility)
       window.removeEventListener('focus', handleFocus)
+      window.removeEventListener('pageshow', handlePageShow)
     }
   }, [refresh])
 

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 
+import { safeExternalUrl } from '../../lib/url'
+
 interface AvatarProps {
   name?: string | null
   src?: string | null
@@ -16,13 +18,14 @@ function initials(name: string): string {
 
 export function Avatar({ name, src, size = 'md', className = '' }: AvatarProps) {
   const label = name || 'Twitch user'
+  const imageSrc = safeExternalUrl(src)
   const [imageFailed, setImageFailed] = useState(false)
 
   useEffect(() => {
     setImageFailed(false)
   }, [src])
 
-  const showImage = Boolean(src) && !imageFailed
+  const showImage = Boolean(imageSrc) && !imageFailed
 
   return (
     <span className={`avatar avatar-${size} ${className}`.trim()} title={label}>
@@ -30,7 +33,7 @@ export function Avatar({ name, src, size = 'md', className = '' }: AvatarProps) 
         // Twitch avatar URLs are remote assets. An empty alt keeps the name as
         // the accessible label via the wrapper title.
         <img
-          src={src ?? undefined}
+          src={imageSrc ?? undefined}
           alt=""
           loading="lazy"
           referrerPolicy="no-referrer"
