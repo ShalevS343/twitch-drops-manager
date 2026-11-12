@@ -13,6 +13,7 @@ from app.core.exceptions import (
     ProviderError,
     ReconnectRequiredError,
 )
+from app.core.rate_limit import enforce_user_action_limit
 from app.domain.models import Campaign, UserDropProgress, UserProgressSnapshot
 from app.domain.parsing import campaign_gql_id_from_external_id
 from app.domain.schemas import (
@@ -173,7 +174,10 @@ async def list_progress(
 
 
 @router.post("/progress/refresh", response_model=ProgressRefreshOut)
-async def refresh_progress(service: ProgressServiceDep) -> ProgressRefreshOut:
+async def refresh_progress(
+    user: CurrentUserDep, service: ProgressServiceDep
+) -> ProgressRefreshOut:
+    enforce_user_action_limit("progress.refresh", user.id)
     try:
         result = await service.run()
     except ReconnectRequiredError as exc:

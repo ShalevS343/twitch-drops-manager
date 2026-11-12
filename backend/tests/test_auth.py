@@ -96,6 +96,7 @@ def _settings(**overrides) -> Settings:
         "_env_file": None,
         "registration_code": "",
         "registration_open": False,
+        "owner_twitch_id": "123",
         "default_games": "",
         "telegram_chat_id": "",
         "twitch_gql_client_id": "client",
@@ -197,11 +198,14 @@ async def test_second_user_requires_a_valid_invite_code(monkeypatch):
         return left == right
 
     monkeypatch.setattr("app.services.auth_service.compare_secrets", fake_compare)
-    settings = _settings(registration_code="secret-code")
+    settings = _settings(registration_code="secret-code", owner_twitch_id="")
 
     async with factory() as session:
         first = FakeTwitchProvider()
-        await AuthService(session, settings=settings, provider=first).connect("url", "")
+        await AuthService(session, settings=settings, provider=first).connect(
+            "url", "secret-code"
+        )
+        calls.clear()
 
         second = FakeTwitchProvider(
             info={
@@ -853,6 +857,40 @@ async def test_last_active_admin_cannot_be_disabled():
             await service.set_user_active(admin.id, False)
 
         assert (await UserRepository(session).get(admin.id)).is_active is True
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_deactivate_unless_last_admin_uses_a_conditional_update():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        repo = UserRepository(session)
+        first = await repo.create(
+            twitch_user_id="1", login="first", role="admin"
+        )
+        second = await repo.create(
+            twitch_user_id="2", login="second", role="admin"
+        )
+        regular = await repo.create(twitch_user_id="3", login="regular")
+        await session.commit()
+
+        assert await repo.deactivate_unless_last_admin(first.id) is True
+        # Only one active admin remains, so the guard refuses the second update.
+        assert await repo.deactivate_unless_last_admin(second.id) is False
+        # A regular user is always safe to disable.
+        assert await repo.deactivate_unless_last_admin(regular.id) is True
+        # Repeating a disable is idempotent.
+        assert await repo.deactivate_unless_last_admin(regular.id) is False
+        await session.commit()
+
+        await session.refresh(first)
+        await session.refresh(second)
+        await session.refresh(regular)
+        assert first.is_active is False
+        assert second.is_active is True
+        assert regular.is_active is False
 
     await engine.dispose()
 

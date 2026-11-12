@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUserDep, TelegramLinkServiceDep
 from app.core.exceptions import NotConfiguredError, ProviderError
-from app.core.rate_limit import get_auth_limiter
+from app.core.rate_limit import enforce_user_action_limit
 from app.domain.schemas import TelegramLinkOut
 
 router = APIRouter()
@@ -14,15 +14,7 @@ router = APIRouter()
 async def create_telegram_link(
     user: CurrentUserDep, service: TelegramLinkServiceDep
 ) -> TelegramLinkOut:
-    limiter = get_auth_limiter()
-    key = f"telegram-link:{user.id}"
-    if not limiter.check(key):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many link requests; try again later",
-            headers={"Retry-After": str(limiter.retry_after(key))},
-        )
-
+    enforce_user_action_limit("telegram.link", user.id)
     try:
         return await service.create_link(user.id)
     except NotConfiguredError as exc:
@@ -37,6 +29,7 @@ async def create_telegram_link(
 
 @router.post("/telegram/unlink")
 async def unlink_telegram(user: CurrentUserDep, service: TelegramLinkServiceDep) -> dict:
+    enforce_user_action_limit("telegram.unlink", user.id)
     try:
         await service.unlink(user.id)
     except LookupError as exc:

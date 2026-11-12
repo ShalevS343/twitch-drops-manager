@@ -135,13 +135,20 @@ class SunkwiProvider:
                         exc.response.status_code,
                     )
                     return cached
-                raise ProviderError(f"Drops API request failed: {exc}") from exc
+                raise ProviderError(
+                    f"Drops API request failed ({type(exc).__name__})"
+                ) from None
             except httpx.HTTPError as exc:
                 cached = self._fallback()
                 if cached is not None:
-                    logger.warning("Drops API unreachable; serving cached data: %s", exc)
+                    logger.warning(
+                        "Drops API unreachable; serving cached data (%s)",
+                        type(exc).__name__,
+                    )
                     return cached
-                raise ProviderError(f"Drops API request failed: {exc}") from exc
+                raise ProviderError(
+                    f"Drops API request failed ({type(exc).__name__})"
+                ) from None
 
             games = payload.get("games") if isinstance(payload, dict) else None
             if not isinstance(games, list):

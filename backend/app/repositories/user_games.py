@@ -4,6 +4,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models import Game, User, UserGame
+from app.domain.schemas import MAX_GAME_NAME_LENGTH, MAX_GAMES
 
 
 class UserGameRepository:
@@ -60,8 +61,16 @@ class UserGameRepository:
         wanted: dict[str, str] = {}
         for raw in names:
             name = raw.strip()
-            if name:
-                wanted.setdefault(name.casefold(), name)
+            if not name:
+                continue
+            if len(name) > MAX_GAME_NAME_LENGTH:
+                raise ValueError(
+                    f"Game names must be at most {MAX_GAME_NAME_LENGTH} characters"
+                )
+            wanted.setdefault(name.casefold(), name)
+
+        if len(wanted) > MAX_GAMES:
+            raise ValueError(f"At most {MAX_GAMES} games can be selected")
 
         games = list(
             (

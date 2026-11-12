@@ -9,6 +9,7 @@ from collections.abc import Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotConfiguredError, ProviderError
+from app.core.rate_limit import SlidingWindowRateLimiter
 from app.domain.models import AppMeta
 from app.providers.telegram import TelegramConflictError, TelegramProvider
 from app.services.telegram_link_service import TelegramLinkService
@@ -19,6 +20,7 @@ OFFSET_KEY = "telegram_update_offset"
 POLL_TIMEOUT = 25
 INITIAL_BACKOFF_SECONDS = 5.0
 MAX_BACKOFF_SECONDS = 300.0
+REPLY_LIMIT_PER_MINUTE = 10
 
 
 class TelegramPoller:
@@ -36,6 +38,9 @@ class TelegramPoller:
         self.provider = provider
         self.session_factory = session_factory
         self._stopped = asyncio.Event()
+        # Bound replies rather than updates: a repeatedly invalid code or
+        # command must not let one chat generate unlimited outbound messages.
+        self._reply_limiter = SlidingWindowRateLimiter(REPLY_LIMIT_PER_MINUTE)
 
     async def stop(self) -> None:
         self._stopped.set()
@@ -134,12 +139,12 @@ class TelegramPoller:
                         "Twitch Drops Manager and click Connect Telegram."
                     )
                 )
-                await self._send(message_text, chat_id_text)
+                await self._reply(message_text, chat_id_text)
                 return
             async with self.session_factory() as session:
                 service = TelegramLinkService(session, provider=self.provider)
                 result = await service.link_chat(argument, chat_id_text, chat_type)
-            await self._send(result.message, chat_id_text)
+            await self._reply(result.message, chat_id_text)
             return
 
         if command == "/stop":
@@ -152,7 +157,7 @@ class TelegramPoller:
                 if user is not None
                 else "This chat is not linked to Twitch Drops Manager."
             )
-            await self._send(message_text, chat_id_text)
+            await self._reply(message_text, chat_id_text)
             return
 
         if command == "/unlink":
@@ -165,8 +170,14 @@ class TelegramPoller:
                 if user is not None
                 else "This chat is not linked to Twitch Drops Manager."
             )
-            await self._send(message_text, chat_id_text)
+            await self._reply(message_text, chat_id_text)
             return
+
+    async def _reply(self, message: str, chat_id: str) -> None:
+        """Send a command reply unless this chat is already over its budget."""
+        if not self._reply_limiter.check(chat_id):
+            return
+        await self._send(message, chat_id)
 
     async def _send(self, message: str, chat_id: str) -> None:
         try:

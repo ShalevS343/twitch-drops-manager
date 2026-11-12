@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models import TwitchAccount, User, UserWatchFocus
@@ -86,6 +86,30 @@ class UserRepository:
             .where(User.role == "admin", User.is_active.is_(True))
         )
         return int(result.scalar_one())
+
+    async def deactivate_unless_last_admin(self, user_id: int) -> bool:
+        """Atomically disable a user unless they are the last active admin.
+
+        Returns ``True`` when the row was updated. ``False`` means the user was
+        already inactive or the guard refused the update (last active admin).
+        """
+        active_admins = (
+            select(func.count())
+            .select_from(User)
+            .where(User.role == "admin", User.is_active.is_(True))
+            .scalar_subquery()
+        )
+        result = await self.session.execute(
+            update(User)
+            .where(
+                User.id == user_id,
+                User.is_active.is_(True),
+                or_(User.role != "admin", active_admins > 1),
+            )
+            .values(is_active=False)
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount == 1
 
     async def claim_first_admin_slot(self) -> bool:
         """Atomically claim the one-time first-admin bootstrap.

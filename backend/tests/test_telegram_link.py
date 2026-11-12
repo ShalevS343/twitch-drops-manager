@@ -12,7 +12,6 @@ from sqlalchemy import select
 from app.api.v1.router import api_router
 from app.core.db import get_session
 from app.core.middleware import CSRFMiddleware
-from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.security import create_auth_session
 from app.domain.models import TelegramLinkCode, User, UserCampaignStart
 from app.repositories.telegram_links import TelegramLinkRepository
@@ -196,6 +195,87 @@ async def test_another_users_chat_id_cannot_be_claimed():
 
 
 @pytest.mark.asyncio
+async def test_link_code_cannot_replace_a_different_existing_chat():
+    engine, factory = await make_engine()
+    async with factory() as session:
+        user = await create_user(
+            session,
+            twitch_user_id="1",
+            login="one",
+            telegram_chat_id="111",
+            telegram_enabled=True,
+        )
+        await session.commit()
+        service, _out, code = await _link_target(session, user)
+
+        result = await service.link_chat(code, "222")
+
+        assert result.ok is False
+        assert "different" in result.message.lower()
+        assert "unlink" in result.message.lower()
+        assert "settings" in result.message.lower()
+        refreshed = await session.get(User, user.id)
+        assert refreshed.telegram_chat_id == "111"
+        assert refreshed.telegram_enabled is True
+        row = (await session.execute(select(TelegramLinkCode))).scalar_one()
+        assert row.used_at is None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_link_code_can_relink_and_enable_the_same_chat():
+    engine, factory = await make_engine()
+    async with factory() as session:
+        user = await create_user(
+            session,
+            twitch_user_id="1",
+            login="one",
+            telegram_chat_id="111",
+            telegram_enabled=False,
+        )
+        await session.commit()
+        service, _out, code = await _link_target(session, user)
+
+        result = await service.link_chat(code, "111")
+
+        assert result.ok is True
+        refreshed = await session.get(User, user.id)
+        assert refreshed.telegram_chat_id == "111"
+        assert refreshed.telegram_enabled is True
+        row = (await session.execute(select(TelegramLinkCode))).scalar_one()
+        assert row.used_at is not None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_disabled_accounts_cannot_drive_chat_commands():
+    engine, factory = await make_engine()
+    async with factory() as session:
+        user = await create_user(
+            session,
+            twitch_user_id="1",
+            login="one",
+            telegram_chat_id="42",
+            telegram_enabled=True,
+        )
+        user.is_active = False
+        await session.commit()
+        service = TelegramLinkService(session, provider=FakeTelegram())
+
+        assert await service.enable_for_chat("42") is None
+        assert await service.disable_for_chat("42") is None
+        assert await service.unlink_chat("42") is None
+
+        refreshed = await session.get(User, user.id)
+        assert refreshed.telegram_chat_id == "42"
+        assert refreshed.telegram_enabled is True
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_unknown_code_is_rejected():
     engine, factory = await make_engine()
     async with factory() as session:
@@ -354,10 +434,10 @@ async def test_link_endpoint_returns_429_when_rate_limited(monkeypatch):
     provider = FakeApiProvider()
     engine, factory, app = await _api_stack(provider)
     _user_id, token, csrf = await _login(factory)
-    limiter = SlidingWindowRateLimiter(1)
-    monkeypatch.setattr(
-        "app.api.v1.telegram.get_auth_limiter", lambda: limiter
-    )
+    from app.core import rate_limit
+
+    monkeypatch.setitem(rate_limit.ACTION_LIMITS, "telegram.link", 1)
+    rate_limit.reset_action_limiters()
 
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver"

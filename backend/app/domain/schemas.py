@@ -1,9 +1,29 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
+
+from app.core.exceptions import sanitize_scan_error
+
+MAX_GAMES = 50
+MAX_GAME_NAME_LENGTH = 100
+
+GameName = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=MAX_GAME_NAME_LENGTH,
+    ),
+]
 
 
 class GameOut(BaseModel):
@@ -69,6 +89,11 @@ class ScanRunOut(BaseModel):
     campaign_count: int = 0
     stream_count: int = 0
 
+    @field_validator("error", mode="before")
+    @classmethod
+    def _redact_error(cls, value: object) -> str | None:
+        return sanitize_scan_error(None if value is None else str(value))
+
 
 class ScanResultOut(BaseModel):
     ok: bool = True
@@ -98,9 +123,14 @@ class StatusOut(BaseModel):
     min_watcher_poll_seconds: int = 30
     drops_api_keyed: bool = False
 
+    @field_validator("last_error", mode="before")
+    @classmethod
+    def _redact_last_error(cls, value: object) -> str | None:
+        return sanitize_scan_error(None if value is None else str(value))
+
 
 class GamesUpdate(BaseModel):
-    games: list[str] = Field(default_factory=list)
+    games: list[GameName] = Field(default_factory=list, max_length=MAX_GAMES)
 
 
 class ProgressDropOut(BaseModel):

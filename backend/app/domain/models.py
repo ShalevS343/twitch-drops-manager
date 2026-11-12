@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -166,6 +167,16 @@ class User(Base):
     __table_args__ = (
         CheckConstraint(
             "length(twitch_user_id) > 0", name="ck_users_twitch_user_id_nonempty"
+        ),
+        # A chat may be linked to at most one account, but many users have no
+        # chat (landing on the same empty string). The link service trims chat
+        # ids before saving; this index is a race-safe backstop.
+        Index(
+            "uq_users_telegram_chat_id",
+            "telegram_chat_id",
+            unique=True,
+            sqlite_where=text("telegram_chat_id <> ''"),
+            postgresql_where=text("telegram_chat_id <> ''"),
         ),
     )
 

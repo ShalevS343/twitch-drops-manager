@@ -42,6 +42,13 @@ tables are frozen after migration and are not read by current code (see
 | `created_at`, `updated_at` | datetime | |
 | `last_login_at` | datetime, nullable | admin list uses created/last login |
 
+`users.telegram_chat_id` has a partial unique index over non-empty values
+(`uq_users_telegram_chat_id`) so two accounts cannot claim the same chat. The
+link service also checks the trimmed value before writing and treats a database
+`IntegrityError` as "chat already linked". If a legacy database contains
+duplicate non-empty chat ids, index creation is skipped with a warning at
+startup; cleaning the rows lets the next restart create it.
+
 ### `user_sessions`
 
 Server-side sessions. The raw token exists only in the browser cookie.

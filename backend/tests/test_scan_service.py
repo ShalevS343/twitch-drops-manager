@@ -481,6 +481,7 @@ async def test_scan_creates_starts_only_for_opted_in_tracking_users():
             session,
             twitch_user_id="2",
             login="opted-out",
+            telegram_chat_id="222",
             telegram_enabled=False,
         )
         no_chat = await _seed_user(

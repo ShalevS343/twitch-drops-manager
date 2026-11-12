@@ -65,6 +65,7 @@ def _settings(**overrides) -> Settings:
         "_env_file": None,
         "registration_code": "",
         "registration_open": False,
+        "owner_twitch_id": "123",
         "default_games": "",
         "twitch_gql_client_id": "client",
         "telegram_bot_token": "",
@@ -259,7 +260,7 @@ async def test_connect_rate_limit_returns_429(monkeypatch):
     engine, _factory, app = await _stack(monkeypatch, settings, provider)
     limiter = SlidingWindowRateLimiter(1)
     monkeypatch.setattr(
-        "app.api.v1.auth.get_auth_limiter",
+        "app.core.rate_limit.get_auth_limiter",
         lambda: limiter,
     )
 
