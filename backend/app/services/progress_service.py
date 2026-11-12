@@ -5,7 +5,11 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.exceptions import ProviderError, ReconnectRequiredError
+from app.core.exceptions import (
+    NotConfiguredError,
+    ProviderError,
+    ReconnectRequiredError,
+)
 from app.domain.models import TwitchAccount, User
 from app.domain.parsing import (
     campaign_gql_id_from_external_id,
@@ -26,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 SNAPSHOT_RETENTION = timedelta(hours=24)
 RECONNECT_MESSAGE = "Twitch login expired; reconnect your account"
+SYNC_ERROR_MESSAGE = "Twitch inventory sync failed"
 
 
 @dataclass
@@ -72,9 +77,16 @@ class ProgressService:
         account = await self._ensure_token(account)
         try:
             inventory = await self.provider.fetch_inventory(account.access_token)
+        except NotConfiguredError:
+            # Global provider misconfiguration is not a per-user reconnect.
+            raise
         except ReconnectRequiredError as exc:
             await self._mark_reconnect()
             raise ReconnectRequiredError(RECONNECT_MESSAGE) from exc
+        except ProviderError as exc:
+            await self.accounts.mark_error(self.user_id, SYNC_ERROR_MESSAGE)
+            await self.session.commit()
+            raise ProviderError(SYNC_ERROR_MESSAGE) from exc
 
         campaigns = inventory.get("dropCampaignsInProgress") or []
         if not isinstance(campaigns, list):
@@ -259,7 +271,9 @@ class ProgressService:
         message = "\n".join(lines)
 
         try:
-            await self.telegram.send(message, user.telegram_chat_id)
+            await self.telegram.send(
+                message, user.telegram_chat_id.strip()
+            )
         except ProviderError as exc:
             logger.warning("Telegram notification failed: %s", exc)
             for key, _ in claimed:

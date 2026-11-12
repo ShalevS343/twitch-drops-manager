@@ -6,7 +6,11 @@ import pytest
 from sqlalchemy import func, select
 
 from app.core.config import Settings
-from app.core.exceptions import NotConfiguredError, ReconnectRequiredError
+from app.core.exceptions import (
+    NotConfiguredError,
+    ProviderError,
+    ReconnectRequiredError,
+)
 from app.domain.models import (
     Campaign,
     Game,
@@ -20,6 +24,9 @@ from app.domain.models import (
 from app.repositories.campaign_completions import CampaignCompletionRepository
 from app.repositories.notifications import NotificationRepository
 from app.repositories.progress import ProgressRepository
+from app.repositories.twitch_accounts import TwitchAccountRepository
+from app.repositories.user_games import UserGameRepository
+from app.repositories.users import UserRepository
 from app.repositories.watch_focus import WatchFocusRepository
 from app.services.progress_service import ProgressService
 from app.services.watch_focus_service import WatchFocusService
@@ -306,10 +313,15 @@ async def test_expired_token_marks_reconnect_and_success_clears_it():
         assert account.reconnect_required is True
         assert "reconnect" in account.last_error.lower()
 
-        # A successful connection/sync clears the flag and records the time.
-        account.access_token = "fresh-token"
-        account.expires_at = future()
-        account.reconnect_required = False
+        # A successful reconnect (token refresh through the repository) clears
+        # the flag; the next sync records last_synced_at and clears last_error.
+        await TwitchAccountRepository(session).upsert(
+            user_id=user.id,
+            access_token="fresh-token",
+            expires_at=future(),
+            reconnect_required=False,
+            last_error="",
+        )
         await session.commit()
 
         result = await _run_progress(session, user, InventoryProvider({}))
@@ -319,6 +331,55 @@ async def test_expired_token_marks_reconnect_and_success_clears_it():
         assert account.reconnect_required is False
         assert account.last_error == ""
         assert account.last_synced_at is not None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_generic_sync_failure_stores_a_sanitized_last_error():
+    engine, factory = await make_engine()
+
+    async with factory() as session:
+        user = await create_user(session, twitch_user_id="1", login="viewer")
+        account = await connect_account(session, user, expires_at=future())
+        await session.commit()
+
+        provider = InventoryProvider(
+            error=ProviderError(
+                "request to https://gql.twitch.tv/fail?token=secret failed"
+            )
+        )
+
+        with pytest.raises(ProviderError):
+            await _run_progress(session, user, provider)
+
+        await session.refresh(account)
+        assert account.reconnect_required is False
+        assert account.last_error == "Twitch inventory sync failed"
+        assert "secret" not in account.last_error
+        assert "https://" not in account.last_error
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_whitespace_chat_ids_are_not_telegram_ready():
+    engine, factory = await make_engine()
+
+    async with factory() as session:
+        user = await create_user(
+            session,
+            twitch_user_id="1",
+            login="viewer",
+            telegram_chat_id="   ",
+            telegram_enabled=True,
+            games=["Rust"],
+        )
+        await session.commit()
+
+        assert await UserRepository(session).list_active_with_telegram() == []
+        assert await UserGameRepository(session).telegram_targets() == {}
+        assert user.telegram_chat_id.strip() == ""
 
     await engine.dispose()
 

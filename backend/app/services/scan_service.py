@@ -83,17 +83,18 @@ class ScanService:
             await campaign_repo.delete_stale({item["external_id"] for item in parsed})
 
             started = self._started_campaigns(parsed, existing_status)
-            targets = await UserGameRepository(self.session).telegram_targets()
-            for user_id, names in targets.items():
-                tracked = {name.casefold() for name in names}
-                items = [
-                    item
-                    for item in started
-                    if self._campaign_game_name(item).casefold() in tracked
-                ]
-                await CampaignStartRepository(
-                    self.session, user_id
-                ).add_pending(items)
+            if self.telegram.configured:
+                targets = await UserGameRepository(self.session).telegram_targets()
+                for user_id, names in targets.items():
+                    tracked = {name.casefold() for name in names}
+                    items = [
+                        item
+                        for item in started
+                        if self._campaign_game_name(item).casefold() in tracked
+                    ]
+                    await CampaignStartRepository(
+                        self.session, user_id
+                    ).add_pending(items)
             await CampaignStartRepository.delete_all_orphans(self.session)
             await self.session.commit()
 
@@ -271,6 +272,7 @@ class ScanService:
                     already_notified.add(start.external_id)
             if already_notified:
                 await start_repo.delete(already_notified)
+                await self.session.commit()
             if not claimed:
                 continue
 
@@ -286,17 +288,21 @@ class ScanService:
 
             try:
                 await self.telegram.send(
-                    "\n".join(lines), user.telegram_chat_id
+                    "\n".join(lines), user.telegram_chat_id.strip()
                 )
             except ProviderError as exc:
                 logger.warning("Telegram notification failed: %s", exc)
                 for _, dedupe_key in claimed:
                     await repo.release(dedupe_key)
+                await self.session.commit()
                 continue
 
             await start_repo.delete(
                 {campaign.external_id for campaign, _ in claimed}
             )
+            # Persist each user's claim/deletion immediately so a later user's
+            # failure cannot cause this digest to be sent again on retry.
+            await self.session.commit()
             total += len(claimed)
 
         return total

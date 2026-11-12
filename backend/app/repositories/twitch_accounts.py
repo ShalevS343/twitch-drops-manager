@@ -55,6 +55,14 @@ class TwitchAccountRepository:
         account.last_error = error
         await self.session.flush()
 
+    async def mark_error(self, user_id: int, error: str) -> None:
+        """Record a generic sync failure without changing reconnect state."""
+        account = await self.get_for_user(user_id)
+        if account is None:
+            return
+        account.last_error = error
+        await self.session.flush()
+
     async def mark_synced(self, user_id: int) -> None:
         account = await self.get_for_user(user_id)
         if account is None:

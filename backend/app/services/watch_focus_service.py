@@ -210,7 +210,7 @@ class WatchFocusService:
             return True
 
         try:
-            await self.telegram.send(message, user.telegram_chat_id)
+            await self.telegram.send(message, user.telegram_chat_id.strip())
         except ProviderError as exc:
             logger.warning("Watcher notification failed: %s", exc)
             await repo.release(dedupe_key)

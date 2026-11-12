@@ -222,6 +222,9 @@ async def test_campaigns_and_streams_are_filtered_per_user(monkeypatch):
         streams = (await client.get("/api/v1/streams")).json()
         assert [row["name"] for row in campaigns] == ["Rust Drops"]
         assert [row["user_login"] for row in streams] == ["rust-stream"]
+        # The Minecraft campaign is uncompleted for this caller, but the game
+        # is not selected, so its live stream must stay hidden.
+        assert "mc-stream" not in {row["user_login"] for row in streams}
 
     async with _client(app) as client:
         await _login(client, factory, second_id)

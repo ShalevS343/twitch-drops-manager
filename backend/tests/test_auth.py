@@ -563,6 +563,75 @@ async def test_reconnecting_clears_the_reconnect_required_flag():
 
 
 @pytest.mark.asyncio
+async def test_connect_seeds_default_games_for_an_existing_user_with_none():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        user = await UserRepository(session).create(
+            twitch_user_id="123", login="viewer"
+        )
+        await session.commit()
+        assert await UserGameRepository(session).selected_names(user.id) == []
+
+        service = AuthService(
+            session,
+            settings=_settings(default_games="Rust,Minecraft"),
+            provider=FakeTwitchProvider(),
+        )
+        await service.connect("url")
+
+        assert set(await UserGameRepository(session).selected_names(user.id)) == {
+            "Rust",
+            "Minecraft",
+        }
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_clearing_the_chat_id_while_enabled_clears_pending_starts():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        user = await UserRepository(session).create(
+            twitch_user_id="123",
+            login="viewer",
+            telegram_chat_id="555",
+            telegram_enabled=True,
+        )
+        session.add(UserCampaignStart(user_id=user.id, external_id="campaign-1"))
+        await session.commit()
+
+        service = AuthService(session, settings=_settings(), provider=FakeTwitchProvider())
+        updated = await service.update_telegram(user.id, "   ", True)
+
+        assert updated.telegram_enabled is True
+        assert updated.telegram_chat_id == ""
+        rows = (await session.execute(select(UserCampaignStart))).scalars().all()
+        assert rows == []
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_telegram_chat_id_is_normalized_on_write():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        user = await UserRepository(session).create(
+            twitch_user_id="123", login="viewer"
+        )
+        await session.commit()
+
+        service = AuthService(session, settings=_settings(), provider=FakeTwitchProvider())
+        updated = await service.update_telegram(user.id, "  12345  ", True)
+
+        assert updated.telegram_chat_id == "12345"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_registration_state_matches_the_registration_table():
     engine, factory = await _session()
 

@@ -7,12 +7,18 @@ import logging
 from functools import lru_cache
 
 from app.core.db import SessionLocal
-from app.core.exceptions import NotConfiguredError, ProviderError
+from app.core.exceptions import (
+    NotConfiguredError,
+    ProviderError,
+    ReconnectRequiredError,
+)
 from app.repositories.twitch_accounts import TwitchAccountRepository
 from app.repositories.users import UserRepository
 from app.services.factory import get_twitch_user_provider
 
 logger = logging.getLogger(__name__)
+
+RECONNECT_MESSAGE = "Twitch login expired; reconnect your account"
 
 
 class ProfileService:
@@ -45,6 +51,11 @@ class ProfileService:
                 )
                 display_name = str(profile.get("displayName") or display_name)
                 profile_image_url = str(profile.get("profileImageURL") or "")
+            except ReconnectRequiredError:
+                await TwitchAccountRepository(session).mark_reconnect(
+                    user_id, RECONNECT_MESSAGE
+                )
+                display_name = display_name or user.login or user.twitch_user_id
             except (NotConfiguredError, ProviderError):
                 # Mark the profile as checked so a failing provider is not
                 # retried on every status poll.

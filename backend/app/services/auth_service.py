@@ -133,7 +133,10 @@ class AuthService:
                 role="admin" if first_user else "user",
             )
             created = True
-            await self.games.seed_defaults(user.id, self.settings.default_game_list)
+
+        # Placeholder/migrated users may have no games yet; seed defaults on
+        # every successful connect without overwriting an existing selection.
+        await self.games.seed_defaults(user.id, self.settings.default_game_list)
 
         display_name, profile_image_url = await self._profile(
             token, twitch_user_id, login
@@ -194,7 +197,7 @@ class AuthService:
             raise InvalidAuthRequestError("User not found")
 
         await self.users.set_telegram(user, chat_id, enabled)
-        if not enabled:
+        if not enabled or not chat_id.strip():
             await self.session.execute(
                 delete(UserCampaignStart).where(
                     UserCampaignStart.user_id == user_id

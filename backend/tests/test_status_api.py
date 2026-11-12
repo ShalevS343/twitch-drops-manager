@@ -1,11 +1,13 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import select
 
 from app.api.v1.progress import twitch_status
 from app.api.v1.status import status
 from app.core.config import Settings
-from app.core.exceptions import ProviderError
+from app.core.exceptions import ProviderError, ReconnectRequiredError
+from app.domain.models import TwitchAccount
 from app.services.profile_service import ProfileService
 from tests.support import (
     connect_account,
@@ -226,6 +228,35 @@ async def test_profile_service_refresh_marks_failure_without_retrying_forever():
         assert stored is not None
         assert stored.display_name == "viewer"
         assert stored.profile_image_url == ""
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_profile_service_marks_reconnect_when_the_user_token_is_rejected():
+    engine, factory = await _session()
+    provider = FakeTwitchUserProvider(
+        error=ReconnectRequiredError("Twitch rejected the saved token")
+    )
+
+    async with factory() as session:
+        user = await create_user(
+            session, twitch_user_id="123", login="viewer", display_name=""
+        )
+        await connect_account(session, user, expires_at=None)
+        await session.commit()
+        user_id = user.id
+
+    await ProfileService().refresh(user_id, provider, session_factory=factory)
+
+    async with factory() as session:
+        account = (
+            await session.execute(
+                select(TwitchAccount).where(TwitchAccount.user_id == user_id)
+            )
+        ).scalar_one()
+        assert account.reconnect_required is True
+        assert account.last_error == "Twitch login expired; reconnect your account"
 
     await engine.dispose()
 

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models import Game, User, UserGame
@@ -41,20 +39,6 @@ class UserGameRepository:
         )
         return set(result.scalars().all())
 
-    async def names_by_user(self, user_ids: Iterable[int]) -> dict[int, set[str]]:
-        ids = list(user_ids)
-        if not ids:
-            return {}
-        result = await self.session.execute(
-            select(UserGame.user_id, Game.name)
-            .join(Game, Game.id == UserGame.game_id)
-            .where(UserGame.user_id.in_(ids))
-        )
-        names: dict[int, set[str]] = {}
-        for user_id, name in result.all():
-            names.setdefault(int(user_id), set()).add(str(name))
-        return names
-
     async def telegram_targets(self) -> dict[int, set[str]]:
         """Selected game names for active users who can receive Telegram."""
         result = await self.session.execute(
@@ -64,7 +48,7 @@ class UserGameRepository:
             .where(
                 User.is_active.is_(True),
                 User.telegram_enabled.is_(True),
-                User.telegram_chat_id != "",
+                func.trim(User.telegram_chat_id) != "",
             )
         )
         names: dict[int, set[str]] = {}

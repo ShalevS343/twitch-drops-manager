@@ -48,7 +48,7 @@ class UserRepository:
             .where(
                 User.is_active.is_(True),
                 User.telegram_enabled.is_(True),
-                User.telegram_chat_id != "",
+                func.trim(User.telegram_chat_id) != "",
             )
             .order_by(User.id)
         )
@@ -124,7 +124,7 @@ class UserRepository:
             display_name=(display_name or login).strip(),
             profile_image_url=profile_image_url,
             role=role,
-            telegram_chat_id=telegram_chat_id,
+            telegram_chat_id=(telegram_chat_id or "").strip(),
             telegram_enabled=telegram_enabled,
         )
         self.session.add(user)

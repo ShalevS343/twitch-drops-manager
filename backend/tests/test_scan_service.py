@@ -423,6 +423,25 @@ async def test_scan_does_not_notify_untracked_game_start():
 
 
 @pytest.mark.asyncio
+async def test_scan_does_not_create_starts_when_the_bot_token_is_absent():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        await _seed_user(session)
+        telegram = FakeTelegram()  # configured = False
+
+        result = await _run_scan(session, telegram)
+
+        assert result.notified_count == 0
+        starts = await session.scalar(
+            select(func.count()).select_from(UserCampaignStart)
+        )
+        assert starts == 0
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_scan_retries_campaign_start_after_send_failure():
     engine, factory = await _scan_session()
 

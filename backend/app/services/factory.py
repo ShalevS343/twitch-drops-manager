@@ -7,7 +7,6 @@ from app.providers.sunkwi import SunkwiProvider
 from app.providers.telegram import TelegramProvider
 from app.providers.twitch import TwitchProvider
 from app.providers.twitch_user import TwitchUserProvider
-from app.services.auth_service import AuthService
 from app.services.progress_service import ProgressService
 from app.services.scan_service import ScanService
 from app.services.watch_focus_service import WatchFocusService
@@ -60,14 +59,4 @@ def build_watch_focus_service(
 ) -> WatchFocusService:
     return WatchFocusService(
         session, user_id, telegram=get_telegram_provider()
-    )
-
-
-def build_auth_service(
-    session: AsyncSession, provider: TwitchUserProvider | None = None
-) -> AuthService:
-    return AuthService(
-        session,
-        settings=get_settings(),
-        provider=provider or get_twitch_user_provider(),
     )

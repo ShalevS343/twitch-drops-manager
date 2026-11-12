@@ -4,7 +4,6 @@ from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.domain.models import (
     Campaign,
@@ -18,26 +17,6 @@ from app.domain.models import (
 class StreamRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
-
-    async def list(
-        self, game_name: str | None = None, live: bool | None = True
-    ) -> list[Stream]:
-        stmt = (
-            select(Stream)
-            .options(
-                selectinload(Stream.game),
-                selectinload(Stream.matches).selectinload(StreamCampaignMatch.campaign),
-            )
-            .order_by(Stream.viewers.desc())
-        )
-
-        if live is not None:
-            stmt = stmt.where(Stream.live.is_(live))
-        if game_name:
-            stmt = stmt.join(Game).where(func.lower(Game.name) == game_name.lower())
-
-        result = await self.session.execute(stmt)
-        return list(result.scalars().unique().all())
 
     async def list_rows(
         self,

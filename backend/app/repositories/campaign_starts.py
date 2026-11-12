@@ -51,15 +51,6 @@ class CampaignStartRepository:
             )
         )
 
-    async def delete_orphans(self) -> None:
-        campaign_ids = select(Campaign.external_id)
-        await self.session.execute(
-            delete(UserCampaignStart).where(
-                UserCampaignStart.user_id == self.user_id,
-                UserCampaignStart.external_id.not_in(campaign_ids),
-            )
-        )
-
     @staticmethod
     async def delete_all_orphans(session: AsyncSession) -> None:
         """Remove start rows whose campaign no longer exists (all users)."""

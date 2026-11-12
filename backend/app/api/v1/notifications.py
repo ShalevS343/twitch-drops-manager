@@ -22,7 +22,7 @@ async def test_notification(user: CurrentUserDep, telegram: TelegramDep) -> dict
     try:
         await telegram.send(
             "Twitch Drops Manager: Telegram test message.",
-            user.telegram_chat_id,
+            user.telegram_chat_id.strip(),
         )
     except (NotConfiguredError, ProviderError) as exc:
         raise HTTPException(
