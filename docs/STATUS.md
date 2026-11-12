@@ -2,20 +2,26 @@
 
 Last updated: **2026-11-12**
 Source of truth: `main`, multi-user merged in `78d2603`, Telegram auto-link in
-`f1278a8`, and link-only chat ID in `b558ca0`. Deployment config and docs are
-committed; **nothing is deployed yet**.
+`f1278a8`, link-only chat ID in `b558ca0`, and security hardening in `5fe3bc7`.
+Deployment config and docs are committed; **nothing is deployed yet**.
 
 ## Current state
 
 ### Multi-user accounts (merged to `main`, **not deployed**)
 
 - Twitch is the only identity provider: no passwords or email accounts. The first
-  user becomes `admin`; later users need `REGISTRATION_CODE` unless
-  `REGISTRATION_OPEN=true`. Empty code = closed.
+  user becomes `admin` only with a matching `OWNER_TWITCH_ID`, a valid invite
+  code, or explicit open registration; later users need `REGISTRATION_CODE`
+  unless `REGISTRATION_OPEN=true`.
 - Server-side sessions: opaque `tdm_session` (`HttpOnly`, absolute
   `SESSION_TTL_DAYS`), CSRF token in `tdm_csrf` echoed as `X-CSRF-Token`;
-  `Secure` derived from `X-Forwarded-Proto` (`SESSION_COOKIE_SECURE=auto`).
+  `SESSION_COOKIE_SECURE=true` by default for the public deployment.
   `API_TOKEN` / `VITE_API_TOKEN` retired.
+- Security hardening: Twitch client secret moved out of query params/errors;
+  scan errors sanitized; first-user bootstrap gated; Telegram link codes cannot
+  replace an existing chat; per-user action limits; global auth ceiling; game
+  list/name caps; nginx CSP/security headers; frontend binds loopback; `.env.*`
+  ignored; `npm ci` and `.dockerignore` added; `details_url` scheme validation.
 - Personal data is user-scoped: selected games, Twitch token/profile, progress,
   snapshots, completions, focus, notification claims, campaign starts.
   Catalog (`games`, `campaigns`, `rewards`), streams/matches, and scan runs are
@@ -43,8 +49,8 @@ committed; **nothing is deployed yet**.
 ### Validation
 
 - Merged to `main` in `78d2603` (multi-user), `f1278a8` (Telegram auto-link),
-  and `b558ca0` (link-only chat ID).
-- Backend suite: **224 tests passed** (`pytest -q`); `ruff check app tests` is
+  `b558ca0` (link-only chat ID), and `5fe3bc7` (security hardening).
+- Backend suite: **252 tests passed** (`pytest -q`); `ruff check app tests` is
   clean.
 - Frontend: `npm run build` passes.
 - `docker compose --project-directory infra -f infra/docker-compose.yml config -q`
@@ -66,14 +72,17 @@ committed; **nothing is deployed yet**.
 ## Pending work
 
 1. **Deploy** with the pre-upgrade backup, `OWNER_TWITCH_ID`, `PUBLIC_ORIGIN`,
-   `ALLOWED_HOSTS`, `SESSION_COOKIE_SECURE=auto`, and a random
-   `REGISTRATION_CODE`. Verify the owner sees old data. **Not performed.**
+   `ALLOWED_HOSTS`, `SESSION_COOKIE_SECURE=true`, and a random
+   `REGISTRATION_CODE`. The frontend now binds `127.0.0.1:8282`; reach it through
+   the public HTTPS URL. Verify the owner sees old data. **Not performed.**
 2. **Basic auth** is removed from `frontend/nginx.conf` and Compose; the host
    htpasswd files are no longer used. **Done in config, pending deploy.**
 3. **Rollback/soak**: keep legacy tables until the soak period ends; rollback
    that keeps post-upgrade data requires the pre-upgrade backup. Then plan a
    cleanup release.
-4. Rotate the Telegram bot token if it appeared in pre-fix logs.
+4. Rotate the Twitch client secret if a token request failed on the old build
+   (the secret could appear in logs/scan errors), and rotate the Telegram bot
+   token if it appeared in pre-fix logs.
 5. Carry over performance work (P1 response cache/ETag, P2 dashboard snapshot) as
    separate follow-ups; multi-user adds per-user loop cost.
 

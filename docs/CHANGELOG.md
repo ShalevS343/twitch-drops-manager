@@ -12,6 +12,28 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## 2026-11-12
 
+### Security hardening — audit fixes
+
+- Merged backend/frontend/infra remediation in `5fe3bc7`; backend suite **252
+  passed**, ruff clean, frontend build passes, nginx config validates.
+- First-user bootstrap now requires a matching `OWNER_TWITCH_ID`, a valid invite
+  code, or explicit open registration; an empty DB is not implicitly open.
+- Twitch client credentials moved to the POST body; provider/scan errors are
+  sanitized so client secrets cannot reach logs or `/status`/`/scans/latest`.
+- Telegram link codes can no longer replace a different existing linked chat;
+  disabled accounts cannot drive bot commands; per-chat command cooldown added.
+- Added per-user action limits and a global auth ceiling; capped selected-game
+  count/name length; atomic last-admin disable; non-empty chat-id uniqueness.
+- Frontend validates API-controlled URLs (no `javascript:`/`data:`), adds a
+  `pageshow` auth refresh, and restricts links/avatars to http(s).
+- Nginx adds CSP, HSTS, nosniff, frame-deny, referrer and permissions headers,
+  disables version tokens; frontend binds `127.0.0.1:8282`; `SESSION_COOKIE_SECURE`
+  defaults to `true`.
+- `.env.*` backups are gitignored; `.env` is `chmod 600`; `npm ci` and
+  `.dockerignore` files added.
+- **Not deployed.** Production still needs the rollout and a Twitch client-secret
+  rotation if a token request ever failed in the old build.
+
 ### Integration — multi-user merge and fix wave
 
 - Merged `feat/multi-user` into `main` in `78d2603`. Backend suite: **193
