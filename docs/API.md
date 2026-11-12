@@ -389,8 +389,12 @@ rewards (all drops claimed, sorted last).
 { "connected": true, "campaign_count": 1, "drop_count": 7, "notified_count": 0 }
 ```
 
-Errors: `400` Twitch not connected or `reconnect_required`, `502` GQL/provider
-failure. One user's failure does not affect other users' syncs.
+Returns `200` with `connected: false` when the current user has no Twitch
+connection or is already flagged `reconnect_required`. Errors: `400` when the
+call itself detects a missing/expired token or the global client is not
+configured, `502` GQL/provider failure. One user's failure does not affect other
+users' syncs. Clients should show a reconnect warning for `connected: false`,
+not a success message.
 
 ## Watch queue
 
