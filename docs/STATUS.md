@@ -32,8 +32,8 @@ but **nothing is deployed yet**.
   keys with cache clearing on logout/user change, per-user Telegram settings,
   admin Users list, admin-only scan action, profile/sign-out/disconnect.
 - Deployment: compose passes the new auth env vars; `VITE_API_TOKEN` build arg
-  removed; nginx preserves inbound `X-Forwarded-Proto`; basic auth kept for the
-  staged rollout.
+  removed; nginx preserves inbound `X-Forwarded-Proto`; nginx basic auth has been
+  removed. Access is Twitch login + invite code, with `/health` public.
 - Docs/ADR updated: API, data model, backend, architecture, frontend, operations,
   decisions (ADR-019), README, AGENTS.
 
@@ -51,21 +51,21 @@ but **nothing is deployed yet**.
 ### Live deployment
 
 - **Not deployed.** The Portainer stack `twitch-drops-manager` still runs the
-  single-user build from `main`; nginx basic auth is still required on all routes.
+  single-user build from `main`. The branch removes nginx basic auth; once
+  deployed, the public UI is reachable and the app's Twitch login + invite code
+  are the access gate.
 - Public URL (when deployed): `https://pi.taile9ec1c.ts.net` via Tailscale
   Funnel → port `8282`; API stays on `127.0.0.1:8000`.
-- Staged rollout: backup → set env/owner/registration code → deploy with basic
-  auth → verify owner migration, a second user, isolation, Telegram, CSRF, worker,
-  Secure cookies → remove basic auth (nginx + compose mount) and verify public
-  login.
+- Rollout: backup → set env/owner/registration code → deploy → verify owner
+  migration, a second user, isolation, Telegram, CSRF, worker, Secure cookies.
 
 ## Pending work
 
-1. **Deploy stage 1** with the pre-upgrade backup, `OWNER_TWITCH_ID`,
-   `PUBLIC_ORIGIN`, `ALLOWED_HOSTS`, `SESSION_COOKIE_SECURE=auto`, and a random
+1. **Deploy** with the pre-upgrade backup, `OWNER_TWITCH_ID`, `PUBLIC_ORIGIN`,
+   `ALLOWED_HOSTS`, `SESSION_COOKIE_SECURE=auto`, and a random
    `REGISTRATION_CODE`. Verify the owner sees old data. **Not performed.**
-2. **Remove basic auth** (stage 2) after app login is verified; update
-   `docs/OPERATIONS.md` if the exact steps change. **Pending.**
+2. **Basic auth** is removed from `frontend/nginx.conf` and Compose; the host
+   htpasswd files are no longer used. **Done in config, pending deploy.**
 3. **Rollback/soak**: keep legacy tables until the soak period ends; rollback
    that keeps post-upgrade data requires the pre-upgrade backup. Then plan a
    cleanup release.

@@ -55,8 +55,8 @@ never automates watching.
 - **`frontend`** — nginx serving the Vite build; gzip + immutable hashed assets;
   proxies `/api/` to `api:8000` with HTTP/1.1 keepalive. It preserves the inbound
   `X-Forwarded-Proto` (falling back to `$scheme`) so HTTPS behind Tailscale
-  Funnel marks session cookies `Secure`. It still requires basic auth during the
-  staged rollout; that is removed after app login is verified.
+  Funnel marks session cookies `Secure`. There is no shared basic-auth prompt;
+  the app's Twitch login and invite code are the access gate.
 - **`api`** — FastAPI application (`uvicorn app.main:app`). Serves auth, the
   session-scoped app endpoints, and admin endpoints. One uvicorn worker.
 - **`worker`** — same backend image, `python -m app.worker.scheduler`. Scans the
@@ -257,8 +257,8 @@ id, and logout/user change clears the query cache. See [FRONTEND.md](FRONTEND.md
 - `Secure` cookies on public HTTPS via preserved `X-Forwarded-Proto`;
   `PUBLIC_ORIGIN`/`ALLOWED_HOSTS` pin production origin/host checks.
 - Auth endpoints are rate-limited per client IP (`AUTH_RATE_LIMIT_PER_MINUTE`).
-- nginx basic auth remains as a staged outer gate until app login is verified;
-  remove it after the rollout check.
+- The public static UI is reachable without a shared password; personal API
+  endpoints require a session, and new accounts require the invite code.
 - Twitch tokens are plaintext in SQLite; protect the volume and host. Never log
   tokens. Telegram errors are redacted so the bot token never reaches logs.
 - Each user can only read/write their own personal data; admins see only safe

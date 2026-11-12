@@ -10,6 +10,10 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-12-multi-user-accounts-design.md`
 
+> **Post-approval update:** nginx basic auth was removed from the branch. The
+> public UI is gated by Twitch sign-in + invite code; personal API endpoints
+> require a session. The staged-removal steps below are historical.
+
 ## Global Constraints
 
 - No new runtime dependencies. No Alembic; new tables are created with `create_all` and data is migrated by a one-transaction helper.

@@ -51,10 +51,12 @@ the repo and use **Pull and redeploy**.
 | `TWITCH_DEVICE_CLIENT_ID` | optional | built-in first-party client | Advanced progress login override |
 | `TWITCH_DEVICE_CLIENT_SECRET` | optional | empty | Advanced |
 | `DATABASE_URL` | compose | `sqlite+aiosqlite:////data/drops.db` | do not override casually |
-| `DROPS_AUTH_FILE` | staged | `/home/server/twitch-drops-auth/htpasswd` | Host basic-auth file; remove after stage 2 |
 
 `.env` and `.env.save` are local secrets and must never be committed.
-`API_TOKEN` and `VITE_API_TOKEN` are retired; remove them from the stack env.
+`API_TOKEN`, `VITE_API_TOKEN`, and `DROPS_AUTH_FILE` are retired; remove them
+from the stack env. There is no shared basic-auth password. Access is gated by
+Twitch sign-in, with new accounts requiring `REGISTRATION_CODE` unless
+`REGISTRATION_OPEN=true`.
 
 ## First-time setup
 
@@ -138,8 +140,8 @@ or let the first sign-in become admin.
 
 In Portainer (or local `.env`): add `REGISTRATION_CODE`, `REGISTRATION_OPEN`,
 `OWNER_TWITCH_ID`, `SESSION_TTL_DAYS`, `SESSION_COOKIE_SECURE`, `PUBLIC_ORIGIN`,
-`ALLOWED_HOSTS`, and `AUTH_RATE_LIMIT_PER_MINUTE`. Remove `API_TOKEN`. Keep the
-nginx basic-auth htpasswd mount for this stage.
+`ALLOWED_HOSTS`, and `AUTH_RATE_LIMIT_PER_MINUTE`. Remove `API_TOKEN`,
+`VITE_API_TOKEN`, and `DROPS_AUTH_FILE`.
 
 For the public Pi:
 
@@ -158,9 +160,10 @@ REGISTRATION_CODE=<openssl rand -base64 24>
 REGISTRATION_OPEN=false
 ```
 
-### 3. Deploy stage 1 (basic auth still on)
+### 3. Deploy and verify app login
 
-Pull and redeploy. Then verify:
+Pull and redeploy. The public site no longer has an nginx basic-auth prompt; the
+sign-in gate is Twitch + the invite code. Then verify:
 
 1. API/worker logs show no migration abort. Confirm the flag:
 
@@ -188,19 +191,13 @@ Pull and redeploy. Then verify:
    `reconnect_required` and other users continue.
 8. Header/HTTPS: the public login sets `Secure` on both cookies (see below).
 
-### 4. Deploy stage 2 (remove basic auth)
+### 4. Shared basic auth is removed
 
-After stage 1 is verified, remove the outer gate in the repo:
-
-1. In `infra/docker-compose.yml`, delete the frontend htpasswd `volumes:` entry
-   (and the `DROPS_AUTH_FILE` setting).
-2. In `frontend/nginx.conf`, delete `auth_basic` and `auth_basic_user_file`.
-3. Pull and redeploy (the frontend image must be rebuilt for nginx changes).
-4. Verify the public HTTPS URL works without basic-auth credentials and app login
-   is required.
-
-Keep the host htpasswd/password files until the soak period ends; they are no
-longer used by the container.
+`frontend/nginx.conf` no longer has `auth_basic`, and Compose no longer mounts an
+htpasswd file. The public UI is reachable, but personal API endpoints require a
+Twitch session and new accounts require the invite code. The host
+`/home/server/twitch-drops-auth/` files are no longer used; delete them when you
+are comfortable doing so.
 
 ### 5. Cookie / proxy verification
 
@@ -287,28 +284,17 @@ the existing project name (`twitch-drops-manager`).
 Public access is through Tailscale Funnel at
 `https://pi.taile9ec1c.ts.net`, proxying local port `8282`.
 
-- During stage 1, nginx still requires HTTP Basic Auth for every route, including
-  `/api`.
-- Username: `admin`
-- Password file: `/home/server/twitch-drops-auth/password.txt` (mode `600`)
-- htpasswd file: `/home/server/twitch-drops-auth/htpasswd` (mode `644`, mounted
-  read-only; hash only, not committed)
-- Rotate the password:
-
-  ```bash
-  PASSWORD="$(openssl rand -base64 24 | tr -d '\n')"
-  printf 'admin:%s\n' "$(openssl passwd -apr1 "$PASSWORD")" \
-    > /home/server/twitch-drops-auth/htpasswd
-  printf '%s\n' "$PASSWORD" > /home/server/twitch-drops-auth/password.txt
-  chmod 644 /home/server/twitch-drops-auth/htpasswd
-  chmod 600 /home/server/twitch-drops-auth/password.txt
-  docker restart twitch-drops-manager-frontend-1
-  ```
-
+- There is no shared nginx basic-auth password. The public UI is reachable; the
+  app's Twitch login is the gate for personal data.
+- New accounts need `REGISTRATION_CODE` unless `REGISTRATION_OPEN=true`. Keep
+  `REGISTRATION_OPEN=false` on a public URL. Rotate the code and redeploy to stop
+  new signups; clear it to close registration entirely.
+- Existing users sign in with Twitch. A session cookie (`tdm_session`) is
+  required for personal API endpoints; `/health` stays public for Kuma.
 - Re-enable Funnel after a reset with: `sudo tailscale funnel --bg 8282`
 - Only port `8282` is public. The API is loopback-only.
-- Basic auth is temporary; stage 2 removes it. The app's Twitch login and
-  `SESSION_COOKIE_SECURE` are the long-term gate.
+- `SESSION_COOKIE_SECURE=auto` marks cookies `Secure` on the public HTTPS URL
+  via the preserved `X-Forwarded-Proto`; use `true` if you only serve HTTPS.
 
 ## Health and monitoring
 

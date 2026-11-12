@@ -1,8 +1,13 @@
 # Multi-user Accounts — Twitch Login + Per-user Data
 
 **Date:** 2026-11-12
-**Status:** Draft for approval
+**Status:** Approved and implemented
 **Supersedes:** ADR-009 (no local user accounts)
+
+> **Post-approval update:** the shared nginx basic-auth prompt was removed from
+> the branch at the owner's request. The public site is now gated by Twitch
+> sign-in plus the invite code; personal API endpoints still require a session.
+> The staged rollout text below is historical.
 
 ## Intent
 

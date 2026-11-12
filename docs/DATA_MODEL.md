@@ -273,7 +273,7 @@ If there is no legacy token:
   with that Twitch id and no token. Connecting that Twitch account claims the
   row and its data.
 - Otherwise the first person to connect becomes admin. Set `OWNER_TWITCH_ID`
-  before removing basic auth if the owner identity matters.
+  before going live if the owner identity matters.
 
 Legacy tables are frozen after migration. The old owner signs in once; the
 matching `twitch_user_id` resolves to the migrated row and their progress.

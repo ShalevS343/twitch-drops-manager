@@ -23,8 +23,11 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   starts; first-sync background tasks are cancelled on shutdown; frontend shows
   a reconnect warning instead of a green "Synced 0 drops", requires Telegram
   opt-in for tests, and refreshes game-dependent caches.
-- **Not deployed.** Production still runs the single-user build; staged rollout,
-  basic-auth removal, rollback/soak, and the pre-upgrade backup remain pending.
+- **Not deployed.** Production still runs the single-user build; rollout,
+  rollback/soak, and the pre-upgrade backup remain pending.
+- **Removed the shared nginx basic-auth prompt** from `frontend/nginx.conf` and
+  the htpasswd mount from Compose. The public UI is gated by Twitch sign-in and
+  the invite code; personal API endpoints still require a session.
 
 ### Accounts — multi-user Twitch login + per-user data
 
@@ -52,9 +55,10 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 - Frontend: auth gate + sign-in screen, cookie/CSRF client, user-scoped query
   keys with cache clearing, per-user Telegram settings, admin Users section,
   admin-only scan action, profile sign-out/disconnect.
-- Deployment: new auth env vars in compose and `.env.example`; `VITE_API_TOKEN`
-  removed; nginx preserves inbound `X-Forwarded-Proto` (fallback `$scheme`);
-  basic auth kept for the staged rollout.
+- Deployment: new auth env vars in compose and `.env.example`; `API_TOKEN` /
+  `VITE_API_TOKEN` removed; nginx preserves inbound `X-Forwarded-Proto`
+  (fallback `$scheme`); shared basic auth removed. Public access is Twitch login
+  + invite code.
 - Docs/ADR: new ADR-019 (supersedes ADR-009) and updates to API, data model,
   backend, architecture, frontend, operations, README, AGENTS, and status.
 - **Not deployed.** Production still runs the single-user build until the staged
