@@ -28,7 +28,7 @@ The backend is **not generally slow**: most endpoints answer in 7–23 ms. The p
 **Highest-impact, lowest-risk fixes**
 
 1. Rewrite `/watch-queue` with a flat join and no full-campaign loading → **100 ms → ~20 ms, 11 → 3 queries**.
-2. Persist the Twitch display name/avatar in the existing `twitch_auth` row → cold `/twitch/status` **693 ms → ~7 ms**.
+2. Persist the Twitch display name/avatar on the user row (originally in `twitch_auth`; superseded by ADR-019) → cold `/twitch/status` **693 ms → ~7 ms**.
 3. Enable gzip + immutable asset caching in nginx → **JS 245 KB → 72 KB, CSS 28 KB → 6 KB, `/games` 17.7 KB → 2.7 KB**.
 4. Defer/remove `Campaign.raw` → ~20 ms saved on every full campaign load, 715 KB not read.
 5. Add a short server-side response cache / ETag → repeat polls **< 5 ms**.
@@ -184,6 +184,11 @@ Same flat-join pattern for `/streams`; only load campaign names/GQL IDs. Expecte
 `raw` is write-only. Add `deferred=True` to the column (or move it to a side table / stop storing it). This avoids ~20 ms and 715 KB on every full campaign load. Verify no test reads `.raw`.
 
 #### 4. Persist Twitch profile (S–M)
+
+**Superseded by ADR-019 (2026-11-12):** profiles now live on `users` and tokens
+on `twitch_accounts`; do not add profile columns to the legacy `twitch_auth`
+table. The cold-profile target below still applies.
+
 Add `display_name` and `profile_image_url` to the existing `twitch_auth` row, populated during `/twitch/connect` (no new user table). `/twitch/status` then reads the DB only. Optionally refresh it daily in the worker.
 
 Expected cold `/twitch/status`: **693 ms → ~7 ms**. This removes the worst cold-start latency.

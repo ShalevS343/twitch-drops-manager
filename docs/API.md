@@ -13,6 +13,10 @@ Public endpoints: `GET /health`, `GET /auth/me`,
 requires an active session. Admin-only: `POST /scans`, `GET /admin/users`,
 `PATCH /admin/users/{id}`.
 
+`GET /auth/me` is the exception to `401`: when reachable it always returns `200`,
+with `authenticated: false` and `user: null` when there is no valid session. It
+never redirects or `401`s; the SPA uses it to decide whether to show the gate.
+
 Sign-in:
 
 1. The SPA calls `GET /auth/me`; without a session it shows the sign-in screen.
@@ -182,8 +186,9 @@ not send a backlog.
 `POST /auth/logout` (session) — deletes the current session and clears both
 cookies. Other users' sessions are untouched.
 
-`POST /auth/twitch/disconnect` (session) — clears the current user's token,
-profile, progress, snapshots, completions, and focus; the local account and
+`POST /auth/twitch/disconnect` (session) — clears the current user's stored
+Twitch account/token and personal progress, snapshots, completions,
+notifications, focus, and pending starts. The local user, profile fields, and
 session remain. The UI then shows "reconnect Twitch".
 
 ## Admin
@@ -208,7 +213,7 @@ Never returns tokens, chat ids, progress, or session data.
 - `{is_active}` is the only accepted change.
 - Disabling deletes that user's sessions, disables their focus, and skips them
   in worker loops; it does not delete their rows or data.
-- Admins cannot disable themselves (`403`); non-admins get `403`.
+- Admins cannot disable themselves (`400`); non-admins get `403`.
 
 ## Status
 
@@ -243,9 +248,12 @@ Never returns tokens, chat ids, progress, or session data.
 }
 ```
 
-`games_selected`/counts are per current user; catalog/stream counts are shared.
-`telegram_ready` means the bot token exists **and** this user has opted in with a
-chat id. Twitch connection details are per user in `/twitch/status`.
+`games_selected`, `campaign_count`, and `stream_count` are per current user
+(selected games and their catalog/live counts). `last_scan` is the shared scan
+run and its `campaign_count`/`stream_count` cover the union of all users'
+tracked games; `last_error` is shared scan state. `telegram_ready` means the bot
+token exists **and** this user has opted in with a chat id. Twitch connection
+details are per user in `/twitch/status`.
 
 ## Games
 
@@ -450,7 +458,9 @@ user's chat, and does not auto-move.
 - Profile: persisted on `users`; in-memory GQL cache is only used for the initial
   fetch.
 - Auth: `AUTH_RATE_LIMIT_PER_MINUTE` (default 10) attempts per client IP per
-  minute; exceeding it returns `429`.
+  minute; exceeding it returns `429`. nginx forwards one resolved client address
+  (see [OPERATIONS.md](OPERATIONS.md)); if the TLS proxy cannot supply the client
+  IP, public requests can share one bucket.
 - Authenticated responses: `Cache-Control: no-store`.
 - nginx gzips JSON/JS/CSS and caches hashed assets immutably.
 

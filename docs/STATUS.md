@@ -1,14 +1,15 @@
 # Status / handoff
 
 Last updated: **2026-11-12**
-Source of truth: `feat/multi-user` (integration branch) and its worktrees; `main`
-still carries the single-user release until the branch is merged and deployed.
-Design + plan: `28b1618`. Deployment config on `feat/multi-user-deploy-docs`:
-`3a892af` (docs follow in the same branch).
+Source of truth for this work: the lane branches `feat/multi-user-auth`,
+`feat/multi-user-frontend`, and `feat/multi-user-deploy-docs`. `feat/multi-user`
+is the integration target and is still at the design/plan commit (`28b1618`)
+until the lanes merge; `main` remains the single-user release. Deployment config
+and docs are committed on `feat/multi-user-deploy-docs`; nothing is deployed yet.
 
 ## Current state
 
-### Multi-user accounts (implemented on the branch, **not deployed**)
+### Multi-user accounts (implemented on the lane branches, **not deployed**)
 
 - Twitch is the only identity provider: no passwords or email accounts. The first
   user becomes `admin`; later users need `REGISTRATION_CODE` unless

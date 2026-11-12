@@ -301,7 +301,8 @@ and is the only writer of focused mode:
   forwarded HTTPS, Origin/Host, rate limit),
 - migration (legacy fixture, no-token bootstrap, empty `user_id`, expired token,
   conflicting user, partial failure/rerun, concurrent startup),
-- admin (403, no self-disable, session revocation, no token/chat-id leakage),
+- admin (non-admin `403`, self-disable `400`, session revocation, no
+  token/chat-id leakage),
 - worker loops (one user fails, others continue; Telegram target/redaction).
 
 Run:

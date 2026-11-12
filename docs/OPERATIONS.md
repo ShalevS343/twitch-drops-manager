@@ -41,13 +41,13 @@ the repo and use **Pull and redeploy**.
 | `WATCHER_POLL_SECONDS` | optional | `60` | Per-user focus reconcile interval (min 30) |
 | `REGISTRATION_CODE` | optional | empty | Shared invite code; **empty = closed**, never open |
 | `REGISTRATION_OPEN` | optional | `false` | Explicitly allow signup without a code |
-| `OWNER_TWITCH_ID` | recommended | empty | Bootstrap/claim the first admin |
+| `OWNER_TWITCH_ID` | recommended | empty | Bootstrap/claim the first admin on a **no-legacy-token** install; cannot repair an empty legacy row |
 | `SESSION_TTL_DAYS` | optional | `30` | Absolute session lifetime |
 | `SESSION_COOKIE_SECURE` | optional | `auto` | `auto` (forwarded scheme), `true`, or `false` |
-| `PUBLIC_ORIGIN` | production | empty | Origin for Origin/Host checks, e.g. `https://pi.taile9ec1c.ts.net` |
-| `ALLOWED_HOSTS` | recommended | empty | Comma-separated Host allowlist for `TrustedHostMiddleware` |
-| `AUTH_RATE_LIMIT_PER_MINUTE` | optional | `10` | Registration/login attempts per IP per minute |
-| `CORS_ORIGINS` | optional | `http://localhost:5173` | Comma-separated; local dev only |
+| `PUBLIC_ORIGIN` | production | empty | Single public HTTPS origin for Origin checks, e.g. `https://pi.taile9ec1c.ts.net`; add LAN origins to `CORS_ORIGINS` |
+| `ALLOWED_HOSTS` | recommended | empty | Comma-separated Host allowlist, e.g. `pi.taile9ec1c.ts.net,100.115.65.82,localhost,127.0.0.1` |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | optional | `10` | Registration/login attempts per client IP per minute; may be effectively shared behind Funnel (see below) |
+| `CORS_ORIGINS` | optional | `http://localhost:5173` | Comma-separated; add the LAN origin if you mutate via LAN |
 | `TWITCH_DEVICE_CLIENT_ID` | optional | built-in first-party client | Advanced progress login override |
 | `TWITCH_DEVICE_CLIENT_SECRET` | optional | empty | Advanced |
 | `DATABASE_URL` | compose | `sqlite+aiosqlite:////data/drops.db` | do not override casually |
@@ -64,7 +64,9 @@ the repo and use **Pull and redeploy**.
    Each user supplies their own chat id in Settings → Telegram.
 3. Set `OWNER_TWITCH_ID` to the numeric Twitch id that should own the migrated
    data/first admin (see below), `PUBLIC_ORIGIN` to the public URL, and
-   `ALLOWED_HOSTS` to the hostnames that should be accepted.
+   `ALLOWED_HOSTS` to the hostnames that should be accepted (including the LAN
+   address). If mutations will be made through the LAN URL, add that origin to
+   `CORS_ORIGINS`; `PUBLIC_ORIGIN` holds only the public HTTPS origin.
 4. Set a long random `REGISTRATION_CODE` (`openssl rand -base64 24`) if friends
    should be able to join, or leave it empty for a closed deployment.
 5. `cp .env.example .env` and fill values; deploy the stack.
@@ -109,10 +111,28 @@ print(row)
 PY
 ```
 
-If the legacy `user_id` is empty, fix it or set `OWNER_TWITCH_ID` before
-deploying. The migration aborts rather than guessing an owner. If there is no
-legacy token, either set `OWNER_TWITCH_ID` for a placeholder admin or let the
-first sign-in become admin.
+If the legacy `user_id` is empty, **fix the legacy row** (set `user_id` to the
+owner's numeric Twitch id and `login` to their login) and restart, or restore the
+pre-upgrade backup and correct it before retrying. The migration aborts on the
+empty `user_id` before it considers `OWNER_TWITCH_ID`; that env var only creates a
+placeholder admin on installs with **no** legacy token, and it cannot repair an
+empty legacy row. Deleting/clearing the legacy row also converts the install to
+the no-token path, but then the old progress is not migrated. Example (stack
+stopped, backup already taken):
+
+```bash
+docker run --rm -v twitch-drops-manager_drops_data:/data \
+  twitch-drops-backend:local python - <<'PY'
+import sqlite3
+c = sqlite3.connect('/data/drops.db')
+c.execute("UPDATE twitch_auth SET user_id=?, login=? WHERE id=1",
+          ("<numeric id>", "<login>"))
+c.commit(); c.close()
+PY
+```
+
+If there is no legacy token, either set `OWNER_TWITCH_ID` for a placeholder admin
+or let the first sign-in become admin.
 
 ### 2. Set the new stack environment
 
@@ -126,7 +146,11 @@ For the public Pi:
 ```text
 OWNER_TWITCH_ID=<numeric id>
 PUBLIC_ORIGIN=https://pi.taile9ec1c.ts.net
-ALLOWED_HOSTS=pi.taile9ec1c.ts.net,localhost,127.0.0.1
+ALLOWED_HOSTS=pi.taile9ec1c.ts.net,100.115.65.82,localhost,127.0.0.1
+# Add the LAN origin only if you sign in/mutate via http://100.115.65.82:8282;
+# PUBLIC_ORIGIN covers the public HTTPS URL. Use the public URL instead if you
+# do not want to allow a LAN origin.
+CORS_ORIGINS=http://100.115.65.82:8282
 SESSION_COOKIE_SECURE=auto
 SESSION_TTL_DAYS=30
 AUTH_RATE_LIMIT_PER_MINUTE=10
@@ -199,6 +223,27 @@ If the cookie is not `Secure` on HTTPS:
 
 LAN HTTP development can use `SESSION_COOKIE_SECURE=false`; do not use that on
 the public host.
+
+### 6. Client address / auth rate limiting
+
+The backend's limiter uses the **first** `X-Forwarded-For` value, falling back to
+the socket peer. nginx must therefore pass exactly one trustworthy address:
+
+- `frontend/nginx.conf` trusts only loopback proxies (`set_real_ip_from
+  127.0.0.1`/`::1`, `real_ip_header X-Forwarded-For`, `real_ip_recursive on`) and
+  forwards `X-Forwarded-For $remote_addr`. A client-supplied XFF from any other
+  source is ignored, so the header cannot be spoofed.
+- If Tailscale Funnel supplies the real client in `X-Forwarded-For`, the limiter
+  is per client. If the proxy source is not loopback, add its address to
+  `set_real_ip_from`; do not use `0.0.0.0/0`.
+- If Funnel does **not** forward the client IP, every public request appears as
+  the loopback proxy and shares one auth bucket (effectively 10 attempts/minute
+  for all public users). Keep the limit suitable for the group size, or raise it
+  deliberately; `AUTH_RATE_LIMIT_PER_MINUTE` is a guard rail, not a per-user
+  quota. Direct API access is loopback-only, so only the nginx path matters.
+
+Verify the forwarded header on the wire with a temporary access-log format if
+needed; do not expose port 8000 to add an untrusted hop.
 
 ## Registration management
 
@@ -296,7 +341,7 @@ older log ever exposed it.
 | Twitch Helix | app token; normal Helix limits (shared scan) |
 | Twitch GQL | internal API; one call per active user per progress run; profile cached/persisted per user |
 | Telegram | Bot API; per-user digests, atomically deduped |
-| Auth | `AUTH_RATE_LIMIT_PER_MINUTE` per client IP per minute (`429`) |
+| Auth | `AUTH_RATE_LIMIT_PER_MINUTE` per client IP per minute (`429`); nginx forwards one resolved address, but the bucket is shared if the proxy cannot supply the client IP |
 
 The worker cadence (scan 15m, per-user progress 5m, watcher 1m) stays below the
 catalog window. Runtime grows with the number of active users; the practical
@@ -360,12 +405,12 @@ release.
 
 | Symptom | Likely cause | Action |
 |---|---|---|
-| Startup stops with a migration/owner error | legacy `twitch_auth.user_id` empty or conflicting user | Set `OWNER_TWITCH_ID` or fix the legacy row, then restart; restore backup if needed |
-| `/auth/me` returns 401 after login | cookie not stored, expired session, or disabled user | Check cookie `Secure`/domain and `SESSION_COOKIE_SECURE`; sign in again; check admin active state |
+| Startup stops with a migration/owner error | legacy `twitch_auth.user_id` empty or conflicting user | Fix the legacy row (id/login) or restore the backup; `OWNER_TWITCH_ID` does not repair an empty legacy row |
+| `/status` or data calls return 401 after login | cookie not stored, expired session, or disabled user | Check cookie `Secure`/domain and `SESSION_COOKIE_SECURE`; sign in again; check admin active state. (`/auth/me` itself returns `200` with `authenticated:false`.) |
 | `403` on a mutation | missing/mismatched `X-CSRF-Token`, or non-admin scan | Ensure the client echoes `tdm_csrf`; use an admin for scans |
 | `403` registration closed | empty `REGISTRATION_CODE`, `REGISTRATION_OPEN=false` | Set a code or open registration intentionally |
 | `409` connecting Twitch | a different Twitch account is already signed in | Sign out, then connect |
-| `429` on login | auth rate limit | Wait a minute; raise `AUTH_RATE_LIMIT_PER_MINUTE` only if appropriate |
+| `429` on login | auth rate limit (shared if Funnel cannot supply the client IP) | Wait a minute; raise `AUTH_RATE_LIMIT_PER_MINUTE` deliberately or fix the trusted-proxy/`X-Forwarded-For` path |
 | Public cookie is not `Secure` | forwarded scheme not preserved, or Funnel changed | Check nginx `X-Forwarded-Proto` map/Funnel; set `SESSION_COOKIE_SECURE=true` if needed |
 | One user's progress stops | expired/invalid user token | Profile shows reconnect; the worker skips only that user |
 | `429 Too Many Requests` from `drops.sunkwi.com` | catalog limit (1/300s) | Cache should serve stale; wait for reset; cold cache can fail |

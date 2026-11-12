@@ -80,8 +80,12 @@ Progress requires each person to sign in with Twitch once: approve the authorize
 page, then paste the resulting `https://www.twitch.tv/#access_token=...` URL back
 into the app. The token is stored server-side for that user's account; there are
 no passwords. The first user becomes admin. Later users need a valid
-`REGISTRATION_CODE` unless `REGISTRATION_OPEN=true`; an empty code means
-registration is closed. Each user sets their own Telegram chat id in Settings.
+`REGISTRATION_CODE` unless `REGISTRATION_OPEN=true`; an empty code alone never
+opens registration. Each user sets their own Telegram chat id in Settings.
+
+During the staged rollout, nginx still requires HTTP Basic Auth in front of the
+app. It is removed only after Twitch login, per-user isolation, and the public
+HTTPS cookie path are verified (see [`docs/OPERATIONS.md`](docs/OPERATIONS.md)).
 
 ## Documentation
 

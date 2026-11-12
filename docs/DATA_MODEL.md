@@ -247,8 +247,10 @@ serializes them; the first process sets the flag.
 1. Open one transaction with `BEGIN IMMEDIATE` semantics and check
    `app_meta['multi_user_v1']` inside it. If set, commit and return.
 2. If legacy `twitch_auth` exists with a row:
-   - Require a non-empty `user_id`. If empty, abort with a clear operator error
-     (set `OWNER_TWITCH_ID` or fix the row, then restart). Do not guess an owner.
+   - Require a non-empty `user_id`. If empty, abort with a clear operator error:
+     fix the legacy row's `user_id`/`login` (or restore the backup and correct
+     it), then restart. `OWNER_TWITCH_ID` only bootstraps an install with **no**
+     legacy token; it cannot repair an empty legacy row. Do not guess an owner.
    - If `users` is empty, create the owner (`admin`, active) from the legacy
      `user_id`/`login` and profile.
    - If `users` is non-empty, require a matching `twitch_user_id`; otherwise
