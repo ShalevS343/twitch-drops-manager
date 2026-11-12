@@ -19,8 +19,8 @@ from app.repositories.users import UserRepository
 LINK_TTL = timedelta(minutes=10)
 
 INVALID_CODE_MESSAGE = (
-    "This link code is invalid or has expired. "
-    "Open Telegram and send /start to the bot for a new code."
+    "This link code is invalid or has expired. Open Settings → Telegram and "
+    "click Connect Telegram for a new link."
 )
 
 
@@ -34,7 +34,7 @@ class LinkResult:
 def _aware(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
-    return value
+    return value.astimezone(timezone.utc)
 
 
 class TelegramLinkService:
@@ -76,7 +76,8 @@ class TelegramLinkService:
 
         return TelegramLinkOut(
             deep_link=f"https://t.me/{username}?start={code}",
-            expires_at=row.expires_at,
+            expires_at=_aware(row.expires_at),
+            bot_username=username,
         )
 
     async def link_chat(
@@ -107,7 +108,7 @@ class TelegramLinkService:
             await self.session.execute(
                 select(User)
                 .where(
-                    User.telegram_chat_id == chat_id,
+                    func.trim(User.telegram_chat_id) == chat_id,
                     User.id != user.id,
                 )
                 .limit(1)
@@ -157,6 +158,16 @@ class TelegramLinkService:
 
         user.telegram_enabled = False
         await self._delete_pending_starts(user.id)
+        await self.session.commit()
+        return user
+
+    async def enable_for_chat(self, chat_id: str) -> User | None:
+        """Turn alerts back on for the user owning this chat id."""
+        user = await self._user_for_chat(chat_id)
+        if user is None:
+            return None
+
+        user.telegram_enabled = True
         await self.session.commit()
         return user
 

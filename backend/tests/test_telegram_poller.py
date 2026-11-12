@@ -131,6 +131,34 @@ async def test_start_without_a_code_replies_with_the_numeric_chat_id():
     chat_id, message = provider.sent[0]
     assert chat_id == "42"
     assert "42" in message
+    assert "settings" in message.lower()
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_start_without_a_code_reenables_alerts_for_a_linked_chat():
+    engine, factory = await make_engine()
+    async with factory() as session:
+        user = await create_user(
+            session,
+            twitch_user_id="1",
+            login="one",
+            telegram_chat_id="42",
+            telegram_enabled=False,
+        )
+        await session.commit()
+        user_id = user.id
+    provider = FakePollingTelegram([[_message(5, "/start")]])
+
+    poller = TelegramPoller(provider, factory)
+    await _run(poller, provider)
+
+    async with factory() as session:
+        user = await session.get(User, user_id)
+        assert user.telegram_enabled is True
+        assert user.telegram_chat_id == "42"
+    assert provider.sent == [("42", "Alerts are on.")]
 
     await engine.dispose()
 
@@ -286,5 +314,72 @@ async def test_unknown_updates_and_send_failures_do_not_stop_the_poller():
     await _run(poller, provider)
 
     assert await _offset(factory) == "14"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_offset_save_failure_does_not_terminate_the_next_iteration(
+    monkeypatch, caplog
+):
+    from app.worker import telegram_poller as poller_module
+
+    monkeypatch.setattr(poller_module, "INITIAL_BACKOFF_SECONDS", 0.01)
+    engine, factory = await make_engine()
+    provider = FakePollingTelegram(
+        [[_message(10, "hello")], [_message(11, "hello")]]
+    )
+
+    class FailingSavePoller(TelegramPoller):
+        def __init__(self, provider, factory):
+            super().__init__(provider, factory)
+            self.remaining_failures = 1
+
+        async def _save_offset(self, offset):
+            if self.remaining_failures:
+                self.remaining_failures -= 1
+                raise RuntimeError("database unavailable")
+            await super()._save_offset(offset)
+
+    poller = FailingSavePoller(provider, factory)
+    with caplog.at_level("WARNING", logger="app.worker.telegram_poller"):
+        await _run(poller, provider)
+
+    assert provider.offsets == [None, 11, 12]
+    assert await _offset(factory) == "12"
+    assert "RuntimeError" in caplog.text
+    assert "database unavailable" not in caplog.text
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_poll_errors_back_off_exponentially_with_a_cap(monkeypatch):
+    from app.worker import telegram_poller as poller_module
+
+    monkeypatch.setattr(poller_module, "INITIAL_BACKOFF_SECONDS", 5.0)
+    monkeypatch.setattr(poller_module, "MAX_BACKOFF_SECONDS", 15.0)
+    engine, factory = await make_engine()
+
+    class AlwaysFailing(FakePollingTelegram):
+        async def get_updates(self, offset, timeout=25):
+            from app.core.exceptions import ProviderError
+
+            self.offsets.append(offset)
+            raise ProviderError("temporary failure")
+
+    provider = AlwaysFailing()
+    poller = TelegramPoller(provider, factory)
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        if len(sleeps) >= 4:
+            await poller.stop()
+
+    poller._sleep = fake_sleep  # type: ignore[method-assign]
+    await asyncio.wait_for(poller.run(), timeout=2)
+
+    assert sleeps == [5.0, 10.0, 15.0, 15.0]
 
     await engine.dispose()

@@ -221,6 +221,7 @@ export interface AuthUser {
 export interface TelegramLink {
   deep_link: string
   expires_at: string
+  bot_username: string
 }
 
 export interface Registration {

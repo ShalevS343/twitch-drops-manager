@@ -37,5 +37,10 @@ async def create_telegram_link(
 
 @router.post("/telegram/unlink")
 async def unlink_telegram(user: CurrentUserDep, service: TelegramLinkServiceDep) -> dict:
-    await service.unlink(user.id)
+    try:
+        await service.unlink(user.id)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        ) from exc
     return {"unlinked": True}

@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 OFFSET_KEY = "telegram_update_offset"
 POLL_TIMEOUT = 25
-ERROR_BACKOFF_SECONDS = 5
+INITIAL_BACKOFF_SECONDS = 5.0
+MAX_BACKOFF_SECONDS = 300.0
 
 
 class TelegramPoller:
@@ -44,12 +45,37 @@ class TelegramPoller:
             logger.info("Telegram poller disabled: bot token is not configured")
             return
 
-        offset = await self._load_offset()
+        offset: int | None = None
+        offset_loaded = False
+        backoff = INITIAL_BACKOFF_SECONDS
         while not self._stopped.is_set():
             try:
+                if not offset_loaded:
+                    offset = await self._load_offset()
+                    offset_loaded = True
+
                 updates = await self.provider.get_updates(
                     offset, timeout=POLL_TIMEOUT
                 )
+
+                for update in updates:
+                    if not isinstance(update, dict):
+                        continue
+                    try:
+                        await self._handle_update(update)
+                    except Exception as exc:  # noqa: BLE001 - keep polling
+                        # Never log update text or the bot token; only the type.
+                        logger.warning(
+                            "Telegram update handling failed (%s)",
+                            type(exc).__name__,
+                        )
+                    update_id = update.get("update_id")
+                    if isinstance(update_id, int):
+                        offset = max(offset or 0, update_id + 1)
+
+                if updates:
+                    await self._save_offset(offset)
+                backoff = INITIAL_BACKOFF_SECONDS
             except TelegramConflictError as exc:
                 logger.error(
                     "Telegram poller stopped: %s. Delete the bot webhook "
@@ -60,28 +86,13 @@ class TelegramPoller:
             except NotConfiguredError:
                 logger.info("Telegram poller disabled: bot token is not configured")
                 return
-            except ProviderError as exc:
-                logger.warning("Telegram polling failed: %s", exc)
-                await self._sleep(ERROR_BACKOFF_SECONDS)
-                continue
-
-            for update in updates:
-                if not isinstance(update, dict):
-                    continue
-                try:
-                    await self._handle_update(update)
-                except Exception as exc:  # noqa: BLE001 - keep polling
-                    # Never log update text or the bot token; only the error type.
-                    logger.warning(
-                        "Telegram update handling failed (%s)",
-                        type(exc).__name__,
-                    )
-                update_id = update.get("update_id")
-                if isinstance(update_id, int):
-                    offset = max(offset or 0, update_id + 1)
-
-            if updates:
-                await self._save_offset(offset)
+            except Exception as exc:  # noqa: BLE001 - DB/provider hiccups
+                # Never log update text or the bot token; only the error type.
+                logger.warning(
+                    "Telegram polling failed (%s)", type(exc).__name__
+                )
+                await self._sleep(backoff)
+                backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
 
     async def _handle_update(self, update: dict) -> None:
         message = update.get("message")
@@ -112,12 +123,19 @@ class TelegramPoller:
 
         if command == "/start":
             if not argument:
-                await self._send(
-                    "Your Telegram chat id is "
-                    f"{chat_id_text}. Paste it in Settings → Telegram, "
-                    "or use the Connect Telegram button.",
-                    chat_id_text,
+                async with self.session_factory() as session:
+                    service = TelegramLinkService(session, provider=self.provider)
+                    user = await service.enable_for_chat(chat_id_text)
+                message_text = (
+                    "Alerts are on."
+                    if user is not None
+                    else (
+                        "Your Telegram chat id is "
+                        f"{chat_id_text}. To link this chat, open "
+                        "Settings → Telegram and click Connect Telegram."
+                    )
                 )
+                await self._send(message_text, chat_id_text)
                 return
             async with self.session_factory() as session:
                 service = TelegramLinkService(session, provider=self.provider)
@@ -130,7 +148,8 @@ class TelegramPoller:
                 service = TelegramLinkService(session, provider=self.provider)
                 user = await service.disable_for_chat(chat_id_text)
             message_text = (
-                "Alerts are off. Send /start to the bot to enable them again."
+                "Alerts are off. Send /start to the bot to turn them back on, "
+                "or manage alerts in Settings → Telegram."
                 if user is not None
                 else "This chat is not linked to Twitch Drops Manager."
             )
@@ -142,8 +161,8 @@ class TelegramPoller:
                 service = TelegramLinkService(session, provider=self.provider)
                 user = await service.unlink_chat(chat_id_text)
             message_text = (
-                "This chat is no longer linked. Send /start with a new code "
-                "from Settings to reconnect."
+                "This chat is no longer linked. Open Settings → Telegram and "
+                "click Connect Telegram for a new link."
                 if user is not None
                 else "This chat is not linked to Twitch Drops Manager."
             )

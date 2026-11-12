@@ -11,10 +11,13 @@ from sqlalchemy import select
 
 from app.api.v1.router import api_router
 from app.core.db import get_session
+from app.core.exceptions import AccountConflictError
 from app.core.middleware import CSRFMiddleware
+from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.security import create_auth_session
 from app.domain.models import TelegramLinkCode, User, UserCampaignStart
 from app.repositories.telegram_links import TelegramLinkRepository
+from app.services.auth_service import AuthService
 from app.services.factory import get_telegram_provider
 from app.services.telegram_link_service import TelegramLinkService
 from tests.support import create_user, make_engine
@@ -61,6 +64,9 @@ async def test_create_link_returns_deep_link_and_stores_only_a_hash():
         service, out, code = await _link_target(session, user)
 
         assert out.deep_link == f"https://t.me/{BOT_USERNAME}?start={code}"
+        assert out.bot_username == BOT_USERNAME
+        assert out.expires_at.tzinfo is not None
+        assert out.expires_at.utcoffset() == timedelta(0)
         assert len(code) >= 32
         rows = (await session.execute(select(TelegramLinkCode))).scalars().all()
         assert len(rows) == 1
@@ -172,7 +178,7 @@ async def test_another_users_chat_id_cannot_be_claimed():
             session,
             twitch_user_id="1",
             login="owner",
-            telegram_chat_id="555",
+            telegram_chat_id=" 555 ",
             telegram_enabled=True,
         )
         second = await create_user(session, twitch_user_id="2", login="second")
@@ -186,7 +192,7 @@ async def test_another_users_chat_id_cannot_be_claimed():
         refreshed = await session.get(User, second.id)
         assert refreshed.telegram_chat_id == ""
         owner_row = await session.get(User, owner.id)
-        assert owner_row.telegram_chat_id == "555"
+        assert owner_row.telegram_chat_id.strip() == "555"
 
     await engine.dispose()
 
@@ -202,6 +208,32 @@ async def test_unknown_code_is_rejected():
         result = await service.link_chat("not-a-real-code", "42")
         assert result.ok is False
         assert "invalid" in result.message.lower()
+        assert "settings" in result.message.lower()
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_manual_chat_id_owned_by_another_user_is_rejected():
+    engine, factory = await make_engine()
+    async with factory() as session:
+        await create_user(
+            session,
+            twitch_user_id="1",
+            login="owner",
+            telegram_chat_id=" 555 ",
+            telegram_enabled=True,
+        )
+        second = await create_user(session, twitch_user_id="2", login="second")
+        await session.commit()
+        service = AuthService(session)
+
+        with pytest.raises(AccountConflictError):
+            await service.update_telegram(second.id, " 555 ", True)
+
+        refreshed = await session.get(User, second.id)
+        assert refreshed.telegram_chat_id == ""
+        assert refreshed.telegram_enabled is False
 
     await engine.dispose()
 
@@ -334,11 +366,75 @@ async def test_link_endpoint_returns_a_deep_link_for_the_current_user():
     assert payload["deep_link"].startswith(
         f"https://t.me/{BOT_USERNAME}?start="
     )
+    assert payload["bot_username"] == BOT_USERNAME
     assert "expires_at" in payload
 
     async with factory() as session:
         row = (await session.execute(select(TelegramLinkCode))).scalar_one()
         assert row.user_id == user_id
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_link_endpoint_returns_429_when_rate_limited(monkeypatch):
+    provider = FakeApiProvider()
+    engine, factory, app = await _api_stack(provider)
+    _user_id, token, csrf = await _login(factory)
+    limiter = SlidingWindowRateLimiter(1)
+    monkeypatch.setattr(
+        "app.api.v1.telegram.get_auth_limiter", lambda: limiter
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        client.cookies.set("tdm_session", token)
+        client.cookies.set("tdm_csrf", csrf)
+        first = await client.post(
+            "/api/v1/telegram/link", headers={"X-CSRF-Token": csrf}
+        )
+        second = await client.post(
+            "/api/v1/telegram/link", headers={"X-CSRF-Token": csrf}
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert "retry-after" in second.headers
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_update_me_rejects_a_chat_owned_by_another_user():
+    engine, factory, app = await _api_stack(FakeApiProvider())
+    user_id, token, csrf = await _login(factory)
+
+    async with factory() as session:
+        await create_user(
+            session,
+            twitch_user_id="2",
+            login="owner",
+            telegram_chat_id="555",
+            telegram_enabled=True,
+        )
+        await session.commit()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        client.cookies.set("tdm_session", token)
+        client.cookies.set("tdm_csrf", csrf)
+        response = await client.patch(
+            "/api/v1/auth/me",
+            json={"telegram_chat_id": " 555 ", "telegram_enabled": True},
+            headers={"X-CSRF-Token": csrf},
+        )
+
+    assert response.status_code == 409
+    async with factory() as session:
+        user = await session.get(User, user_id)
+        assert user.telegram_chat_id == ""
+        assert user.telegram_enabled is False
 
     await engine.dispose()
 

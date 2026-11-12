@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -200,8 +200,25 @@ class AuthService:
         if user is None:
             raise InvalidAuthRequestError("User not found")
 
+        chat_id = (chat_id or "").strip()
+        if chat_id:
+            owner = (
+                await self.session.execute(
+                    select(User)
+                    .where(
+                        func.trim(User.telegram_chat_id) == chat_id,
+                        User.id != user.id,
+                    )
+                    .limit(1)
+                )
+            ).scalars().first()
+            if owner is not None:
+                raise AccountConflictError(
+                    "This Telegram chat is already linked to another account"
+                )
+
         await self.users.set_telegram(user, chat_id, enabled)
-        if not enabled or not chat_id.strip():
+        if not enabled or not chat_id:
             await self.session.execute(
                 delete(UserCampaignStart).where(
                     UserCampaignStart.user_id == user_id

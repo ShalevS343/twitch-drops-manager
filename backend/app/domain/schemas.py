@@ -284,6 +284,7 @@ class TelegramSettingsIn(BaseModel):
 class TelegramLinkOut(BaseModel):
     deep_link: str
     expires_at: datetime
+    bot_username: str
 
 
 class AdminUserOut(BaseModel):

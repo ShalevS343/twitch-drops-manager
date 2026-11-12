@@ -59,6 +59,8 @@ export function SettingsPage({ status, twitch }: Props) {
   const [telegramEnabled, setTelegramEnabled] = useState(user?.telegram_enabled ?? false)
   const [waitingForTelegram, setWaitingForTelegram] = useState(false)
   const [linkTimedOut, setLinkTimedOut] = useState(false)
+  const [blockedLink, setBlockedLink] = useState<string | null>(null)
+  const botUsername = createLink.data?.bot_username
 
   useEffect(() => {
     setChatId(user?.telegram_chat_id ?? '')
@@ -120,16 +122,19 @@ export function SettingsPage({ status, twitch }: Props) {
     if (!telegramBotConfigured || createLink.isPending) return
 
     setLinkTimedOut(false)
+    setBlockedLink(null)
     // Open the tab before awaiting so popup blockers still allow the redirect.
     const tab = window.open('about:blank', '_blank')
+    if (tab) tab.opener = null
     try {
       const link = await createLink.mutateAsync()
       if (tab) {
         tab.location.href = link.deep_link
+        setWaitingForTelegram(true)
       } else {
-        window.open(link.deep_link, '_blank', 'noopener,noreferrer')
+        setWaitingForTelegram(false)
+        setBlockedLink(link.deep_link)
       }
-      setWaitingForTelegram(true)
     } catch {
       tab?.close()
     }
@@ -139,6 +144,7 @@ export function SettingsPage({ status, twitch }: Props) {
     if (unlink.isPending) return
     setWaitingForTelegram(false)
     setLinkTimedOut(false)
+    setBlockedLink(null)
     unlink.mutate()
   }
 
@@ -239,10 +245,40 @@ export function SettingsPage({ status, twitch }: Props) {
                 {createLink.isPending ? 'Opening Telegram…' : 'Connect Telegram'}
               </button>
               <p className="muted small">
-                Opens <code>@raspberrypitwitchbot</code> in a new tab. Press Start
-                there to finish.
+                {botUsername ? (
+                  <>
+                    Opens <code>@{botUsername}</code> in a new tab. Press Start
+                    there to finish.
+                  </>
+                ) : (
+                  <>
+                    Opens the Telegram bot in a new tab. Press Start there to
+                    finish.
+                  </>
+                )}
               </p>
             </>
+          )}
+
+          {blockedLink && (
+            <p className="alert alert-warning" role="status">
+              <Icon name="alert" size={15} />
+              <span>
+                Your browser blocked the Telegram tab.{' '}
+                <a
+                  href={blockedLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    setBlockedLink(null)
+                    setWaitingForTelegram(true)
+                  }}
+                >
+                  Open Telegram
+                </a>{' '}
+                to finish linking, then come back here.
+              </span>
+            </p>
           )}
 
           {linkTimedOut && !savedChatId && !waitingForTelegram && (
@@ -284,7 +320,8 @@ export function SettingsPage({ status, twitch }: Props) {
           />
           <p className="muted small">
             Prefer automatic setup: click Connect Telegram. To do it manually, send{' '}
-            <code>/start</code> to <code>@raspberrypitwitchbot</code> and it replies
+            <code>/start</code> to{' '}
+            {botUsername ? <code>@{botUsername}</code> : 'the bot'} and it replies
             with your chat ID.
           </p>
 

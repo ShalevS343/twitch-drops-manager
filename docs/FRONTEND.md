@@ -129,9 +129,12 @@ missing dates render `Unknown`; token expiry can be absent for legacy tokens.
 
 ## Per-user settings and admin controls
 
-- **Settings → Telegram** (all users): numeric chat id, opt-in toggle, and
-  **Send test message** (`PATCH /auth/me`, `POST /notifications/test`). The helper
-  copy explains how to get a chat id and that alerts go only to that chat.
+- **Settings → Telegram** (all users): numeric chat id, opt-in toggle,
+  **Connect Telegram**, and **Send test message** (`PATCH /auth/me`,
+  `POST /telegram/link`, `POST /notifications/test`). Connect opens the bot from
+  the API's `deep_link` with `opener` cleared; when the popup is blocked the deep
+  link is shown as a manual fallback. The helper copy uses `bot_username` from
+  the link response and explains that alerts go only to that chat.
 - **Settings → Users** (admins only): list local users with login, display name,
   role, active state, created/last login, and Telegram enabled; toggle
   enable/disable. Admins cannot disable themselves. The list never renders

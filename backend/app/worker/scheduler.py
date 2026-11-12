@@ -19,6 +19,20 @@ from app.worker.telegram_poller import TelegramPoller
 logger = logging.getLogger(__name__)
 
 
+def _log_poller_exit(task: asyncio.Task[None]) -> None:
+    """Surface an unexpected poller death instead of letting it fail silently."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(
+            "Telegram poller terminated unexpectedly (%s)",
+            type(exc).__name__,
+        )
+    else:
+        logger.info("Telegram poller stopped")
+
+
 async def run_scan(session_factory=None) -> None:
     factory = session_factory or SessionLocal
     async with factory() as session:
@@ -133,6 +147,7 @@ async def main() -> None:
     if settings.telegram_bot_token:
         poller = TelegramPoller(get_telegram_provider(), SessionLocal)
         poller_task = asyncio.create_task(poller.run())
+        poller_task.add_done_callback(_log_poller_exit)
         logger.info("Telegram poller started")
     else:
         logger.info("Telegram poller disabled: bot token is not configured")
