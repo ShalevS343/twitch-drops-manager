@@ -68,7 +68,7 @@ class AuthService:
     async def registration_state(self) -> RegistrationState:
         if await self.users.count() == 0:
             return RegistrationState(open=True, invite_required=False)
-        if self.settings.registration_code:
+        if self.settings.registration_code.strip():
             return RegistrationState(open=True, invite_required=True)
         return RegistrationState(
             open=bool(self.settings.registration_open), invite_required=False
@@ -227,7 +227,7 @@ class AuthService:
         if await self.users.count() == 0:
             return True
 
-        configured = self.settings.registration_code
+        configured = self.settings.registration_code.strip()
         if configured:
             supplied = (invite_code or "").strip()
             if not supplied:

@@ -517,6 +517,25 @@ async def test_registration_state_matches_the_registration_table():
 
 
 @pytest.mark.asyncio
+async def test_whitespace_registration_code_is_treated_as_empty():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        await UserRepository(session).create(twitch_user_id="123", login="viewer")
+        await session.commit()
+        service = AuthService(
+            session,
+            settings=_settings(registration_code="   ", registration_open=False),
+            provider=FakeTwitchProvider(),
+        )
+        assert await service.registration_state() == RegistrationState(
+            open=False, invite_required=False
+        )
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_registration_state_reports_invite_required():
     engine, factory = await _session()
 
