@@ -321,8 +321,8 @@ export function SettingsPage({ status, twitch }: Props) {
           <p className="muted small">
             Prefer automatic setup: click Connect Telegram. To do it manually, send{' '}
             <code>/start</code> to{' '}
-            {botUsername ? <code>@{botUsername}</code> : 'the bot'} and it replies
-            with your chat ID.
+            {botUsername ? <code>@{botUsername}</code> : 'the bot'}; it replies with
+            your chat ID or turns alerts back on if this chat is already linked.
           </p>
 
           <label className="toggle-row" htmlFor="telegram-enabled">
