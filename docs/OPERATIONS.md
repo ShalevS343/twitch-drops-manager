@@ -12,15 +12,16 @@ the repo and use **Pull and redeploy**.
 |---|---|---|---|
 | `api` | `twitch-drops-backend:local` | `127.0.0.1:8000` | FastAPI/uvicorn |
 | `worker` | `twitch-drops-backend:local` | — | `python -m app.worker.scheduler` |
-| `frontend` | built from `frontend/` | `8282:80` | nginx + SPA |
+| `frontend` | built from `frontend/` | `127.0.0.1:8282` | nginx + SPA |
 
 - Shared named volume: `twitch-drops-manager_drops_data` → `/data` (SQLite
   `/data/drops.db` + `sunkwi_cache.json`).
 - Portainer stack environment is the source for runtime secrets. Local
   `infra/.env` (a symlink to the root `.env`) is only for local runs; never
   commit either.
-- Only port `8282` is public. The API is published on loopback and reached by
-  nginx over the Compose network.
+- The frontend binds loopback (`127.0.0.1:8282`) and is not reachable over
+  plaintext HTTP from the LAN; Tailscale Funnel is the only public entry point.
+  The API is published on loopback and reached by nginx over the Compose network.
 - Labels:
   - Homepage: group/name/icon/href/description (Homepage discovers these).
   - Kuma: none required. `kuma-sync` auto-creates monitors for every running
@@ -43,17 +44,19 @@ the repo and use **Pull and redeploy**.
 | `REGISTRATION_OPEN` | optional | `false` | Explicitly allow signup without a code |
 | `OWNER_TWITCH_ID` | recommended | empty | Bootstrap/claim the first admin on a **no-legacy-token** install; cannot repair an empty legacy row |
 | `SESSION_TTL_DAYS` | optional | `30` | Absolute session lifetime |
-| `SESSION_COOKIE_SECURE` | optional | `auto` | `auto` (forwarded scheme), `true`, or `false` |
-| `PUBLIC_ORIGIN` | production | empty | Single public HTTPS origin for Origin checks, e.g. `https://pi.taile9ec1c.ts.net`; add LAN origins to `CORS_ORIGINS` |
-| `ALLOWED_HOSTS` | recommended | empty | Comma-separated Host allowlist, e.g. `pi.taile9ec1c.ts.net,100.115.65.82,localhost,127.0.0.1` |
+| `SESSION_COOKIE_SECURE` | optional | `true` | `true` (always Secure, public deployment), `auto` (forwarded scheme), or `false` (local HTTP development only) |
+| `PUBLIC_ORIGIN` | production | empty | Single public HTTPS origin for Origin checks, e.g. `https://pi.taile9ec1c.ts.net`; the loopback-bound frontend needs no LAN origin |
+| `ALLOWED_HOSTS` | recommended | empty | Comma-separated Host allowlist, e.g. `pi.taile9ec1c.ts.net,localhost,127.0.0.1` |
 | `AUTH_RATE_LIMIT_PER_MINUTE` | optional | `10` | Registration/login attempts per client IP per minute; may be effectively shared behind Funnel (see below) |
 | `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE` | optional | `120` | Deployment-wide auth ceiling per minute, checked after the per-IP bucket; a single IP is stopped by its own limit first |
-| `CORS_ORIGINS` | optional | `http://localhost:5173` | Comma-separated; add the LAN origin if you mutate via LAN |
+| `CORS_ORIGINS` | optional | `http://localhost:5173,http://localhost:8282` | Comma-separated; local development only. The frontend is loopback-bound in production. |
 | `TWITCH_DEVICE_CLIENT_ID` | optional | built-in first-party client | Advanced progress login override |
 | `TWITCH_DEVICE_CLIENT_SECRET` | optional | empty | Advanced |
 | `DATABASE_URL` | compose | `sqlite+aiosqlite:////data/drops.db` | do not override casually |
 
-`.env` and `.env.save` are local secrets and must never be committed.
+`.env` and `.env.save` are local secrets and must never be committed; they are
+ignored by git (`.env` and `.env.*`, with `.env.example` explicitly kept). Create
+the file yourself and restrict it to the owner: `chmod 600 .env`.
 `API_TOKEN`, `VITE_API_TOKEN`, and `DROPS_AUTH_FILE` are retired; remove them
 from the stack env. There is no shared basic-auth password. Access is gated by
 Twitch sign-in, with new accounts requiring `REGISTRATION_CODE` unless
@@ -69,12 +72,11 @@ Twitch sign-in, with new accounts requiring `REGISTRATION_CODE` unless
    Telegram. Chat ids are not editable.
 3. Set `OWNER_TWITCH_ID` to the numeric Twitch id that should own the migrated
    data/first admin (see below), `PUBLIC_ORIGIN` to the public URL, and
-   `ALLOWED_HOSTS` to the hostnames that should be accepted (including the LAN
-   address). If mutations will be made through the LAN URL, add that origin to
-   `CORS_ORIGINS`; `PUBLIC_ORIGIN` holds only the public HTTPS origin.
+   `ALLOWED_HOSTS` to the hostnames that should be accepted. The frontend binds
+   loopback, so use the public HTTPS URL for the UI; no LAN origin is needed.
 4. Set a long random `REGISTRATION_CODE` (`openssl rand -base64 24`) if friends
    should be able to join, or leave it empty for a closed deployment.
-5. `cp .env.example .env` and fill values; deploy the stack.
+5. `cp .env.example .env && chmod 600 .env` and fill values; deploy the stack.
 6. Open the UI → sign in with Twitch, approve, paste the redirect URL. The first
    user becomes admin; later users need the invite code.
 7. Select games in **Settings → Games** and run **Scan for new drops** (admin).
@@ -151,12 +153,10 @@ For the public Pi:
 ```text
 OWNER_TWITCH_ID=<numeric id>
 PUBLIC_ORIGIN=https://pi.taile9ec1c.ts.net
-ALLOWED_HOSTS=pi.taile9ec1c.ts.net,100.115.65.82,localhost,127.0.0.1
-# Add the LAN origin only if you sign in/mutate via http://100.115.65.82:8282;
-# PUBLIC_ORIGIN covers the public HTTPS URL. Use the public URL instead if you
-# do not want to allow a LAN origin.
-CORS_ORIGINS=http://100.115.65.82:8282
-SESSION_COOKIE_SECURE=auto
+ALLOWED_HOSTS=pi.taile9ec1c.ts.net,localhost,127.0.0.1
+# The frontend is loopback-only, so production traffic is same-origin on the
+# public HTTPS URL and needs no CORS entry. Leave CORS_ORIGINS for local Vite.
+SESSION_COOKIE_SECURE=true
 SESSION_TTL_DAYS=30
 AUTH_RATE_LIMIT_PER_MINUTE=10
 REGISTRATION_CODE=<openssl rand -base64 24>
@@ -206,9 +206,10 @@ are comfortable doing so.
 ### 5. Cookie / proxy verification
 
 Tailscale Funnel terminates TLS and sends `X-Forwarded-Proto: https`; nginx
-preserves only `http`/`https` and falls back to `$scheme`. With
-`SESSION_COOKIE_SECURE=auto`, the login response should set `Secure` on
-`tdm_session` and `tdm_csrf` on the public URL.
+preserves only `http`/`https` and falls back to `$scheme`. With the compose
+default `SESSION_COOKIE_SECURE=true`, the login response always sets `Secure` on
+`tdm_session` and `tdm_csrf`. `auto` is available if you explicitly prefer
+scheme-derived behavior.
 
 Check in a browser: DevTools → Application → Cookies shows `tdm_session`
 (HttpOnly, Secure, SameSite=Lax) and `tdm_csrf` (readable, Secure). Also inspect
@@ -216,14 +217,16 @@ the Network request headers for `X-CSRF-Token` on a save/test action.
 
 If the cookie is not `Secure` on HTTPS:
 
-- confirm Funnel still sends `X-Forwarded-Proto` (or set
-  `SESSION_COOKIE_SECURE=true` for a public HTTPS-only deployment);
+- confirm `SESSION_COOKIE_SECURE` is `true` (the compose default) or `auto` with
+  Funnel still sending `X-Forwarded-Proto`;
 - inspect the generated nginx config with
   `docker exec twitch-drops-manager-frontend-1 nginx -T | grep -A3 forwarded_proto`;
-- do not work around it by disabling `Secure` on the public URL.
+- do not work around it by setting `false` on the public URL.
 
-LAN HTTP development can use `SESSION_COOKIE_SECURE=false`; do not use that on
-the public host.
+Local HTTP development (Vite or `docker compose` on `localhost`) must set
+`SESSION_COOKIE_SECURE=false` (or `auto`) or the browser will drop the cookie;
+never use `false` on the public host. `auto` works for a local HTTP proxy but
+`false` is the simplest local override.
 
 ### 6. Client address / auth rate limiting
 
@@ -283,10 +286,17 @@ The DB volume persists. `init_db` adds new tables/indexes and runs the one-time
 migration. If the compose project name differs, volume/network names change; use
 the existing project name (`twitch-drops-manager`).
 
+Frontend images install with `npm ci` from the committed `package-lock.json`, so
+dependency changes must update and commit the lockfile; `npm install` is not used
+in the image build. Both images build from `.dockerignore`-filtered contexts that
+exclude `node_modules`, build output, caches, tests, and `.env*`.
+
 ## Public access (Tailscale Funnel)
 
 Public access is through Tailscale Funnel at
-`https://pi.taile9ec1c.ts.net`, proxying local port `8282`.
+`https://pi.taile9ec1c.ts.net`, proxying local port `8282`. The container port is
+published on `127.0.0.1:8282` only, so the UI is never exposed as plaintext HTTP
+to the LAN.
 
 - There is no shared nginx basic-auth password. The public UI is reachable; the
   app's Twitch login is the gate for personal data.
@@ -298,9 +308,15 @@ Public access is through Tailscale Funnel at
 - Existing users sign in with Twitch. A session cookie (`tdm_session`) is
   required for personal API endpoints; `/health` stays public for Kuma.
 - Re-enable Funnel after a reset with: `sudo tailscale funnel --bg 8282`
-- Only port `8282` is public. The API is loopback-only.
-- `SESSION_COOKIE_SECURE=auto` marks cookies `Secure` on the public HTTPS URL
-  via the preserved `X-Forwarded-Proto`; use `true` if you only serve HTTPS.
+- Only loopback port `8282` is published; the API is loopback-only on `8000`.
+- `SESSION_COOKIE_SECURE=true` (compose default) marks both cookies `Secure` on
+  the public HTTPS URL. `auto` derives it from the preserved
+  `X-Forwarded-Proto`; `false` is for local HTTP development only.
+- FastAPI's interactive docs (`/docs`, `/openapi.json`) are served by uvicorn on
+  `127.0.0.1:8000` and are **not** proxied by nginx; they remain backend-only.
+- nginx sends `X-Content-Type-Options`, `X-Frame-Options: DENY`,
+  `Referrer-Policy`, `Permissions-Policy`, HSTS, and a same-origin CSP with
+  `frame-ancestors 'none'`, also on `/assets/` and `/index.html`.
 
 ## Health and monitoring
 
@@ -383,11 +399,18 @@ release.
 - Session cookies are the browser auth: `HttpOnly` session + CSRF header. There
   is no API token in the frontend bundle.
 - Set `PUBLIC_ORIGIN` and `ALLOWED_HOSTS` in production; keep
-  `SESSION_COOKIE_SECURE=auto` (or `true`) on HTTPS.
+  `SESSION_COOKIE_SECURE=true` on HTTPS (the compose default).
 - Keep `REGISTRATION_OPEN=false` and a long random `REGISTRATION_CODE` (or a
   matching `OWNER_TWITCH_ID` for a single-owner install); clear the code to close
   registration.
-- Never commit `.env`/`.env.save`; use `.env.example`.
+- Never commit `.env`/`.env.save` or other `.env.*` backups; use `.env.example`,
+  and `chmod 600 .env` on the host.
+- The frontend publishes only on `127.0.0.1:8282`; reach it through the public
+  HTTPS URL. nginx disables version tokens, sends HSTS and the browser security
+  headers (including a same-origin CSP with `frame-ancestors 'none'`), and does
+  not proxy FastAPI's `/docs`.
+- The auth limiter has a per-IP bucket plus `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE`
+  so a single client cannot exhaust the deployment-wide login budget first.
 - Rotate the Telegram bot token if it appears in logs, and rotate the invite code
   if it leaks.
 - Revoke the Twitch app authorization at Twitch → Settings → Connections if
@@ -405,7 +428,7 @@ release.
 | `403` registration closed | empty `REGISTRATION_CODE`, `REGISTRATION_OPEN=false` | Set a code or open registration intentionally |
 | `409` connecting Twitch | a different Twitch account is already signed in | Sign out, then connect |
 | `429` on login | auth rate limit (shared if Funnel cannot supply the client IP) | Wait a minute; raise `AUTH_RATE_LIMIT_PER_MINUTE` / `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE` deliberately or fix the trusted-proxy/`X-Forwarded-For` path |
-| Public cookie is not `Secure` | forwarded scheme not preserved, or Funnel changed | Check nginx `X-Forwarded-Proto` map/Funnel; set `SESSION_COOKIE_SECURE=true` if needed |
+| Public cookie is not `Secure` | `SESSION_COOKIE_SECURE` is `false`/`auto`, forwarded scheme missing, or Funnel changed | Set `SESSION_COOKIE_SECURE=true`; check the nginx `X-Forwarded-Proto` map/Funnel |
 | One user's progress stops | expired/invalid user token | Profile shows reconnect; the worker skips only that user |
 | `429 Too Many Requests` from `drops.sunkwi.com` | catalog limit (1/300s) | Cache should serve stale; wait for reset; cold cache can fail |
 | Telegram messages missing for one user | no chat id or opt-out | Settings → Telegram; send test; check worker logs |
