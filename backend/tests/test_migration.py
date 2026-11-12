@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -9,6 +10,7 @@ from app.core import migrations
 from app.core.config import Settings
 from app.core.db import Base
 from app.core.migrations import run_multi_user_migration
+from app.domain import models  # noqa: F401  (registers the tables on Base)
 
 NEW_TABLE_NAMES = {
     "users",
@@ -432,6 +434,17 @@ async def test_migration_aborts_on_empty_legacy_user_id(monkeypatch):
         async with engine.begin() as connection:
             await run_multi_user_migration(connection)
 
+    # The failed transaction rolled the migration flag and all copies back.
+    async with engine.connect() as connection:
+        assert (
+            await _scalar(
+                connection,
+                "SELECT COUNT(*) FROM app_meta WHERE key = 'multi_user_v1'",
+            )
+            == 0
+        )
+        assert await _scalar(connection, "SELECT COUNT(*) FROM users") == 0
+
     await engine.dispose()
 
 
@@ -463,6 +476,62 @@ async def test_migration_aborts_when_existing_users_conflict(monkeypatch):
     with pytest.raises(RuntimeError, match="twitch_user_id"):
         async with engine.begin() as connection:
             await run_multi_user_migration(connection)
+
+    async with engine.connect() as connection:
+        assert (
+            await _scalar(
+                connection,
+                "SELECT COUNT(*) FROM app_meta WHERE key = 'multi_user_v1'",
+            )
+            == 0
+        )
+        assert await _scalar(connection, "SELECT COUNT(*) FROM users") == 1
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_startup_runs_the_migration_once(monkeypatch, tmp_path):
+    _settings(monkeypatch, telegram_chat_id="555")
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'drops.db'}",
+        connect_args={"timeout": 30},
+    )
+    async with engine.begin() as connection:
+        for ddl in LEGACY_DDL.values():
+            await connection.execute(text(ddl))
+        new_tables = [
+            table
+            for name, table in Base.metadata.tables.items()
+            if name in NEW_TABLE_NAMES
+        ]
+        await connection.run_sync(
+            lambda sync_connection: Base.metadata.create_all(
+                sync_connection, tables=new_tables
+            )
+        )
+        await _seed_legacy_owner(
+            connection, expires_at=_now_iso(timedelta(days=1))
+        )
+
+    async def migrate():
+        async with engine.begin() as connection:
+            await run_multi_user_migration(connection)
+
+    await asyncio.gather(migrate(), migrate())
+
+    async with engine.connect() as connection:
+        assert await _scalar(connection, "SELECT COUNT(*) FROM users") == 1
+        assert await _scalar(connection, "SELECT COUNT(*) FROM user_games") == 2
+        assert await _scalar(connection, "SELECT COUNT(*) FROM user_notifications") == 2
+        assert (
+            await _scalar(
+                connection,
+                "SELECT COUNT(*) FROM app_meta WHERE key = 'multi_user_v1' "
+                "AND value = 'done'",
+            )
+            == 1
+        )
 
     await engine.dispose()
 
