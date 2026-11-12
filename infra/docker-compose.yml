@@ -12,7 +12,15 @@ x-backend-env: &backend-env
   PROGRESS_POLL_SECONDS: ${PROGRESS_POLL_SECONDS:-300}
   WATCHER_POLL_SECONDS: ${WATCHER_POLL_SECONDS:-60}
   CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8282}
-  API_TOKEN: ${API_TOKEN:-}
+  # Multi-user auth (see docs/OPERATIONS.md).
+  REGISTRATION_CODE: ${REGISTRATION_CODE:-}
+  REGISTRATION_OPEN: ${REGISTRATION_OPEN:-false}
+  OWNER_TWITCH_ID: ${OWNER_TWITCH_ID:-}
+  SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-auto}
+  PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-}
+  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
+  AUTH_RATE_LIMIT_PER_MINUTE: ${AUTH_RATE_LIMIT_PER_MINUTE:-10}
 
 services:
   api:
@@ -42,8 +50,6 @@ services:
   frontend:
     build:
       context: ../frontend
-      args:
-        VITE_API_TOKEN: ${API_TOKEN:-}
     ports:
       - "8282:80"
     volumes:
