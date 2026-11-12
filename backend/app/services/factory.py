@@ -42,14 +42,21 @@ def build_scan_service(session: AsyncSession) -> ScanService:
     )
 
 
-def build_progress_service(session: AsyncSession) -> ProgressService:
+def build_progress_service(
+    session: AsyncSession, user_id: int
+) -> ProgressService:
     return ProgressService(
         session=session,
+        user_id=user_id,
         settings=get_settings(),
         provider=get_twitch_user_provider(),
         telegram=get_telegram_provider(),
     )
 
 
-def build_watch_focus_service(session: AsyncSession) -> WatchFocusService:
-    return WatchFocusService(session, telegram=get_telegram_provider())
+def build_watch_focus_service(
+    session: AsyncSession, user_id: int
+) -> WatchFocusService:
+    return WatchFocusService(
+        session, user_id, telegram=get_telegram_provider()
+    )

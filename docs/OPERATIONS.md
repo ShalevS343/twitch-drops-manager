@@ -10,55 +10,251 @@ the repo and use **Pull and redeploy**.
 
 | Service | Image | Port | Notes |
 |---|---|---|---|
-| `api` | `twitch-drops-backend:local` | `8000:8000` | FastAPI/uvicorn |
+| `api` | `twitch-drops-backend:local` | `127.0.0.1:8000` | FastAPI/uvicorn |
 | `worker` | `twitch-drops-backend:local` | — | `python -m app.worker.scheduler` |
 | `frontend` | built from `frontend/` | `8282:80` | nginx + SPA |
 
 - Shared named volume: `twitch-drops-manager_drops_data` → `/data` (SQLite
   `/data/drops.db` + `sunkwi_cache.json`).
-- The old Postgres `db` service was removed when the project moved to SQLite.
 - Portainer stack environment is the source for runtime secrets. Local
   `infra/.env` (a symlink to the root `.env`) is only for local runs; never
   commit either.
+- Only port `8282` is public. The API is published on loopback and reached by
+  nginx over the Compose network.
 - Labels:
   - Homepage: group/name/icon/href/description (Homepage discovers these).
-  - Kuma: none required. `kuma-sync` auto-creates Docker monitors for every
-    running container except `kuma-sync` and `uptime-kuma`. Use
-    `kuma.enable=false` only as an opt-out.
+  - Kuma: none required. `kuma-sync` auto-creates monitors for every running
+    container except `kuma-sync`/`uptime-kuma`.
 
 ## Environment variables
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
-| `TWITCH_CLIENT_ID` | for streams | — | Helix app client id |
+| `TWITCH_CLIENT_ID` | for streams | — | Helix app client id (shared) |
 | `TWITCH_CLIENT_SECRET` | for streams | — | Helix app secret |
-| `TELEGRAM_BOT_TOKEN` | for alerts | — | Telegram bot token (secret) |
-| `TELEGRAM_CHAT_ID` | for alerts | — | Target chat id |
+| `TELEGRAM_BOT_TOKEN` | for alerts | — | One bot token for all users (secret) |
+| `TELEGRAM_CHAT_ID` | optional | empty | **Seed only** for the migrating owner; not a global recipient |
 | `DROPS_API_KEY` | optional | empty | Sunkwi API key (rate-limit tier) |
-| `DEFAULT_GAMES` | optional | `Rust,Minecraft` | First-run whitelist |
+| `DEFAULT_GAMES` | optional | `Rust,Minecraft` | New-user default whitelist |
 | `POLL_SECONDS` | optional | `900` | Scan interval (min 300) |
-| `PROGRESS_POLL_SECONDS` | optional | `300` | Progress interval (min 60) |
-| `WATCHER_POLL_SECONDS` | optional | `60` | Focused-watcher monitor interval (min 30) |
-| `CORS_ORIGINS` | optional | `http://localhost:5173` | Comma-separated |
-| `API_TOKEN` | optional | empty | Require `X-API-Token` on mutations |
+| `PROGRESS_POLL_SECONDS` | optional | `300` | Per-user progress interval (min 60) |
+| `WATCHER_POLL_SECONDS` | optional | `60` | Per-user focus reconcile interval (min 30) |
+| `REGISTRATION_CODE` | optional | empty | Shared invite code; **empty = closed**, never open |
+| `REGISTRATION_OPEN` | optional | `false` | Explicitly allow signup without a code |
+| `OWNER_TWITCH_ID` | recommended | empty | Bootstrap/claim the first admin on a **no-legacy-token** install; cannot repair an empty legacy row |
+| `SESSION_TTL_DAYS` | optional | `30` | Absolute session lifetime |
+| `SESSION_COOKIE_SECURE` | optional | `auto` | `auto` (forwarded scheme), `true`, or `false` |
+| `PUBLIC_ORIGIN` | production | empty | Single public HTTPS origin for Origin checks, e.g. `https://pi.taile9ec1c.ts.net`; add LAN origins to `CORS_ORIGINS` |
+| `ALLOWED_HOSTS` | recommended | empty | Comma-separated Host allowlist, e.g. `pi.taile9ec1c.ts.net,100.115.65.82,localhost,127.0.0.1` |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | optional | `10` | Registration/login attempts per client IP per minute; may be effectively shared behind Funnel (see below) |
+| `CORS_ORIGINS` | optional | `http://localhost:5173` | Comma-separated; add the LAN origin if you mutate via LAN |
 | `TWITCH_DEVICE_CLIENT_ID` | optional | built-in first-party client | Advanced progress login override |
 | `TWITCH_DEVICE_CLIENT_SECRET` | optional | empty | Advanced |
 | `DATABASE_URL` | compose | `sqlite+aiosqlite:////data/drops.db` | do not override casually |
-| `DROPS_AUTH_FILE` | optional | `/home/server/twitch-drops-auth/htpasswd` | host basic-auth file mounted into the frontend |
 
 `.env` and `.env.save` are local secrets and must never be committed.
+`API_TOKEN`, `VITE_API_TOKEN`, and `DROPS_AUTH_FILE` are retired; remove them
+from the stack env. There is no shared basic-auth password. Access is gated by
+Twitch sign-in, with new accounts requiring `REGISTRATION_CODE` unless
+`REGISTRATION_OPEN=true`.
 
 ## First-time setup
 
 1. Create a Twitch application at <https://dev.twitch.tv/console/apps>; copy the
-   client id/secret into `.env` (used for Helix stream discovery).
-2. Optional: create a Telegram bot with @BotFather; put the token in `.env` and
-   get the chat id (send `/start`, then inspect `getUpdates` or the bot API).
-3. `cp .env.example .env` and fill values.
-4. Deploy the stack (Portainer or compose).
-5. Open the UI → **Profile → Connect Twitch**, approve, paste the redirect URL.
-   This is a one-time read-only authorization; no password is stored.
-6. Select games in **Settings → Games** and run **Scan now**.
+   client id/secret into `.env` (used for shared Helix stream discovery).
+2. Optional: create a Telegram bot with @BotFather; put the token in `.env`.
+   Each user supplies their own chat id in Settings → Telegram.
+3. Set `OWNER_TWITCH_ID` to the numeric Twitch id that should own the migrated
+   data/first admin (see below), `PUBLIC_ORIGIN` to the public URL, and
+   `ALLOWED_HOSTS` to the hostnames that should be accepted (including the LAN
+   address). If mutations will be made through the LAN URL, add that origin to
+   `CORS_ORIGINS`; `PUBLIC_ORIGIN` holds only the public HTTPS origin.
+4. Set a long random `REGISTRATION_CODE` (`openssl rand -base64 24`) if friends
+   should be able to join, or leave it empty for a closed deployment.
+5. `cp .env.example .env` and fill values; deploy the stack.
+6. Open the UI → sign in with Twitch, approve, paste the redirect URL. The first
+   user becomes admin; later users need the invite code.
+7. Select games in **Settings → Games** and run **Scan for new drops** (admin).
+
+There is no password to set or reset. A user who signs in with a different Twitch
+account gets a different local account; sign out first.
+
+## Upgrade to multi-user (staged rollout)
+
+Deployment is **not performed** by this change. Run this runbook when deploying.
+
+### 1. Back up before upgrading
+
+Use the WAL-safe backup procedure below (SQLite `.backup`, not a live file copy).
+Verify the copy opens and keep it until the soak period ends.
+
+```bash
+docker exec twitch-drops-manager-api-1 python - <<'PY'
+import sqlite3
+src = sqlite3.connect('/data/drops.db')
+dst = sqlite3.connect('/data/backup.db')
+src.backup(dst)
+dst.close(); src.close()
+PY
+docker cp twitch-drops-manager-api-1:/data/backup.db ./drops-backup-pre-multiuser.db
+docker exec twitch-drops-manager-api-1 rm -f /data/backup.db
+docker run --rm -v "$PWD":/b twitch-drops-backend:local \
+  python -c "import sqlite3; c=sqlite3.connect('/b/drops-backup-pre-multiuser.db'); print(c.execute('pragma integrity_check').fetchone())"
+```
+
+Find the owner's numeric Twitch id (do **not** print the token):
+
+```bash
+docker exec twitch-drops-manager-api-1 python - <<'PY'
+import sqlite3
+row = sqlite3.connect('/data/drops.db').execute(
+    'select user_id, login from twitch_auth limit 1').fetchone()
+print(row)
+PY
+```
+
+If the legacy `user_id` is empty, **fix the legacy row** (set `user_id` to the
+owner's numeric Twitch id and `login` to their login) and restart, or restore the
+pre-upgrade backup and correct it before retrying. The migration aborts on the
+empty `user_id` before it considers `OWNER_TWITCH_ID`; that env var only creates a
+placeholder admin on installs with **no** legacy token, and it cannot repair an
+empty legacy row. Deleting/clearing the legacy row also converts the install to
+the no-token path, but then the old progress is not migrated. Example (stack
+stopped, backup already taken):
+
+```bash
+docker run --rm -v twitch-drops-manager_drops_data:/data \
+  twitch-drops-backend:local python - <<'PY'
+import sqlite3
+c = sqlite3.connect('/data/drops.db')
+c.execute("UPDATE twitch_auth SET user_id=?, login=? WHERE id=1",
+          ("<numeric id>", "<login>"))
+c.commit(); c.close()
+PY
+```
+
+If there is no legacy token, either set `OWNER_TWITCH_ID` for a placeholder admin
+or let the first sign-in become admin.
+
+### 2. Set the new stack environment
+
+In Portainer (or local `.env`): add `REGISTRATION_CODE`, `REGISTRATION_OPEN`,
+`OWNER_TWITCH_ID`, `SESSION_TTL_DAYS`, `SESSION_COOKIE_SECURE`, `PUBLIC_ORIGIN`,
+`ALLOWED_HOSTS`, and `AUTH_RATE_LIMIT_PER_MINUTE`. Remove `API_TOKEN`,
+`VITE_API_TOKEN`, and `DROPS_AUTH_FILE`.
+
+For the public Pi:
+
+```text
+OWNER_TWITCH_ID=<numeric id>
+PUBLIC_ORIGIN=https://pi.taile9ec1c.ts.net
+ALLOWED_HOSTS=pi.taile9ec1c.ts.net,100.115.65.82,localhost,127.0.0.1
+# Add the LAN origin only if you sign in/mutate via http://100.115.65.82:8282;
+# PUBLIC_ORIGIN covers the public HTTPS URL. Use the public URL instead if you
+# do not want to allow a LAN origin.
+CORS_ORIGINS=http://100.115.65.82:8282
+SESSION_COOKIE_SECURE=auto
+SESSION_TTL_DAYS=30
+AUTH_RATE_LIMIT_PER_MINUTE=10
+REGISTRATION_CODE=<openssl rand -base64 24>
+REGISTRATION_OPEN=false
+```
+
+### 3. Deploy and verify app login
+
+Pull and redeploy. The public site no longer has an nginx basic-auth prompt; the
+sign-in gate is Twitch + the invite code. Then verify:
+
+1. API/worker logs show no migration abort. Confirm the flag:
+
+   ```bash
+   docker exec twitch-drops-manager-api-1 python - <<'PY'
+   import sqlite3
+   c = sqlite3.connect('/data/drops.db')
+   print(c.execute("select value from app_meta where key='multi_user_v1'").fetchone())
+   print(c.execute("select count(*) from users").fetchone())
+   print(c.execute("select count(*) from user_games").fetchone())
+   PY
+   ```
+
+2. The owner signs in with Twitch and sees their existing games, progress,
+   completions, and focus.
+3. A second test user joins with the invite code, connects their own Twitch
+   account, and sees only their own personal data.
+4. Isolation: the two users can have different games, progress, focus, and
+   Telegram destinations at the same time.
+5. Telegram: set a chat id in Settings → Telegram, opt in, send a test; only that
+   user receives it. Campaign starts go only to opted-in tracking users.
+6. CSRF: after login, `tdm_session` is `HttpOnly`; `tdm_csrf` is readable; unsafe
+   requests send `X-CSRF-Token`. A missing/mismatched token returns `403`.
+7. Worker: progress syncs both users; one bad token marks only that user
+   `reconnect_required` and other users continue.
+8. Header/HTTPS: the public login sets `Secure` on both cookies (see below).
+
+### 4. Shared basic auth is removed
+
+`frontend/nginx.conf` no longer has `auth_basic`, and Compose no longer mounts an
+htpasswd file. The public UI is reachable, but personal API endpoints require a
+Twitch session and new accounts require the invite code. The host
+`/home/server/twitch-drops-auth/` files are no longer used; delete them when you
+are comfortable doing so.
+
+### 5. Cookie / proxy verification
+
+Tailscale Funnel terminates TLS and sends `X-Forwarded-Proto: https`; nginx
+preserves only `http`/`https` and falls back to `$scheme`. With
+`SESSION_COOKIE_SECURE=auto`, the login response should set `Secure` on
+`tdm_session` and `tdm_csrf` on the public URL.
+
+Check in a browser: DevTools → Application → Cookies shows `tdm_session`
+(HttpOnly, Secure, SameSite=Lax) and `tdm_csrf` (readable, Secure). Also inspect
+the Network request headers for `X-CSRF-Token` on a save/test action.
+
+If the cookie is not `Secure` on HTTPS:
+
+- confirm Funnel still sends `X-Forwarded-Proto` (or set
+  `SESSION_COOKIE_SECURE=true` for a public HTTPS-only deployment);
+- inspect the generated nginx config with
+  `docker exec twitch-drops-manager-frontend-1 nginx -T | grep -A3 forwarded_proto`;
+- do not work around it by disabling `Secure` on the public URL.
+
+LAN HTTP development can use `SESSION_COOKIE_SECURE=false`; do not use that on
+the public host.
+
+### 6. Client address / auth rate limiting
+
+The backend's limiter uses the **last** `X-Forwarded-For` hop (or the single
+address nginx forwards), falling back to the socket peer. nginx must therefore
+pass exactly one trustworthy address:
+
+- `frontend/nginx.conf` trusts only loopback proxies (`set_real_ip_from
+  127.0.0.1`/`::1`, `real_ip_header X-Forwarded-For`, `real_ip_recursive on`) and
+  forwards `X-Forwarded-For $remote_addr`. A client-supplied XFF from any other
+  source is ignored, so the header cannot be spoofed.
+- If Tailscale Funnel supplies the real client in `X-Forwarded-For`, the limiter
+  is per client. If the proxy source is not loopback, add its address to
+  `set_real_ip_from`; do not use `0.0.0.0/0`.
+- If Funnel does **not** forward the client IP, every public request appears as
+  the loopback proxy and shares one auth bucket (effectively 10 attempts/minute
+  for all public users). Keep the limit suitable for the group size, or raise it
+  deliberately; `AUTH_RATE_LIMIT_PER_MINUTE` is a guard rail, not a per-user
+  quota. Direct API access is loopback-only, so only the nginx path matters.
+
+Verify the forwarded header on the wire with a temporary access-log format if
+needed; do not expose port 8000 to add an untrusted hop.
+
+## Registration management
+
+| Goal | Action |
+|---|---|
+| Invite friends | Set `REGISTRATION_CODE` to a long random value and redeploy |
+| Close registration | Clear `REGISTRATION_CODE` and keep `REGISTRATION_OPEN=false` |
+| Rotate the invite | Replace the code and redeploy; existing sessions/users stay |
+| Intentionally open signup | Set `REGISTRATION_OPEN=true` (not recommended on a public URL) |
+| Stop one user | Sign in as admin → Settings → Users → disable |
+
+Disabling a user deletes their sessions, disables their focus, and skips them in
+worker loops; their rows are kept. Admins cannot disable themselves.
 
 ## Redeploy / upgrade
 
@@ -67,10 +263,10 @@ Portainer (production):
 1. Push/merge to `main`.
 2. Portainer → Stacks → `twitch-drops-manager` → **Pull and redeploy**.
 3. Verify `/api/v1/health`, the UI, and Kuma monitors.
+4. For the multi-user release, follow the staged rollout above (backup first).
 
 Do not edit the stack compose in Portainer or run a manual `docker compose up`
-against the production project; the stack is Git-backed and manual edits are
-overwritten on the next pull.
+against production; the stack is Git-backed.
 
 Local-only validation (not production):
 
@@ -79,50 +275,37 @@ cd /opt/twitch-drops-manager/twitch-drops-manager
 docker compose --project-directory infra -f infra/docker-compose.yml up -d --build
 ```
 
-The DB volume persists. `init_db` adds new tables/indexes on startup. If the
-compose project name differs, the volume/network names change; use the existing
-project name (`twitch-drops-manager`).
+The DB volume persists. `init_db` adds new tables/indexes and runs the one-time
+migration. If the compose project name differs, volume/network names change; use
+the existing project name (`twitch-drops-manager`).
 
 ## Public access (Tailscale Funnel)
 
-Public access is live through Tailscale Funnel at
-`https://pi.taile9ec1c.ts.net`, proxying local port `8282`. The frontend nginx
-requires HTTP Basic Auth for every route, including `/api`. Verified on
-2026-11-07: `401` without credentials, `200` with credentials, and the API proxy
-returns `200`.
+Public access is through Tailscale Funnel at
+`https://pi.taile9ec1c.ts.net`, proxying local port `8282`.
 
-- Username: `admin`
-- Password file: `/home/server/twitch-drops-auth/password.txt` (mode `600`)
-- htpasswd file: `/home/server/twitch-drops-auth/htpasswd` (mode `644`, mounted
-  read-only into the frontend container; hash only, not committed)
-- Rotate the password:
-
-  ```bash
-  PASSWORD="$(openssl rand -base64 24 | tr -d '\n')"
-  printf 'admin:%s\n' "$(openssl passwd -apr1 "$PASSWORD")" \
-    > /home/server/twitch-drops-auth/htpasswd
-  printf '%s\n' "$PASSWORD" > /home/server/twitch-drops-auth/password.txt
-  chmod 644 /home/server/twitch-drops-auth/htpasswd
-  chmod 600 /home/server/twitch-drops-auth/password.txt
-  docker restart twitch-drops-manager-frontend-1
-  ```
-
-- Funnel is enabled. Re-enable it after a reset with:
-  `sudo tailscale funnel --bg 8282`
-- Only port `8282` is public. The API is published on `127.0.0.1:8000` only;
-  the frontend reaches it over the Compose network.
-- Funnel is public. Keep basic auth enabled.
+- There is no shared nginx basic-auth password. The public UI is reachable; the
+  app's Twitch login is the gate for personal data.
+- New accounts need `REGISTRATION_CODE` unless `REGISTRATION_OPEN=true`. Keep
+  `REGISTRATION_OPEN=false` on a public URL. Rotate the code and redeploy to stop
+  new signups; clear it to close registration entirely.
+- Existing users sign in with Twitch. A session cookie (`tdm_session`) is
+  required for personal API endpoints; `/health` stays public for Kuma.
+- Re-enable Funnel after a reset with: `sudo tailscale funnel --bg 8282`
+- Only port `8282` is public. The API is loopback-only.
+- `SESSION_COOKIE_SECURE=auto` marks cookies `Secure` on the public HTTPS URL
+  via the preserved `X-Forwarded-Proto`; use `true` if you only serve HTTPS.
 
 ## Health and monitoring
 
-- `GET /api/v1/health` — DB + provider configuration flags.
-- `GET /api/v1/status` — last scan, counts, connection state, intervals.
-- Kuma monitors (auto-created by `kuma-sync`; no labels required):
+- `GET /api/v1/health` — public; DB + provider configuration flags.
+- `GET /api/v1/status` — signed-in summary, last scan, per-user counts.
+- Kuma monitors (auto-created by `kuma-sync`):
   - `Docker: twitch-drops-manager-api-1`
   - `Docker: twitch-drops-manager-worker-1`
   - `Docker: twitch-drops-manager-frontend-1`
-- If a monitor is deleted later, `kuma-sync` recreates it from the running
-  container on its next sync.
+- `/health` stays public, so Uptime Kuma needs no session. Do not probe personal
+  endpoints without a session.
 
 ## Logs / diagnostics
 
@@ -133,25 +316,27 @@ docker logs --tail 200 twitch-drops-manager-worker-1
 docker logs --tail 100 twitch-drops-manager-frontend-1
 ```
 
-`httpx`/`httpcore` request logging is disabled below WARNING, so bot tokens should
-not appear in logs. Rotate the Telegram token if an older log ever exposed it.
+`httpx`/`httpcore` request logging is disabled below WARNING, so tokens should
+not appear in logs. Telegram errors are redacted. Rotate the Telegram token if an
+older log ever exposed it.
 
 ## Rate limits / external quotas
 
 | Provider | Limit / behavior |
 |---|---|
-| Sunkwi catalog | ~1 request / 300s; code caches in memory and `/data/sunkwi_cache.json`, honors reset headers, serves stale during 429/5xx |
-| Twitch Helix | app token; normal Helix limits |
-| Twitch GQL | internal API; profile cached 10 min in memory, profile persisted in SQLite; token shared across processes |
-| Telegram | Bot API; notifications are digests, atomically deduped |
+| Sunkwi catalog | ~1 request / 300s; cached in memory + `/data/sunkwi_cache.json`, honors reset headers, serves stale during 429/5xx |
+| Twitch Helix | app token; normal Helix limits (shared scan) |
+| Twitch GQL | internal API; one call per active user per progress run; profile cached/persisted per user |
+| Telegram | Bot API; per-user digests, atomically deduped |
+| Auth | `AUTH_RATE_LIMIT_PER_MINUTE` per client IP per minute (`429`); nginx forwards one resolved address, but the bucket is shared if the proxy cannot supply the client IP |
 
-The worker cadence (scan 15m, progress 5m, watcher 1m) stays well below the
-catalog window. The watcher interval only re-reads SQLite and may send a Telegram
-offline/completion alert; it makes no provider requests.
+The worker cadence (scan 15m, per-user progress 5m, watcher 1m) stays below the
+catalog window. Runtime grows with the number of active users; the practical
+ceiling on the Pi is dozens.
 
 ## Backups
 
-Backup the SQLite database (consistent copy via SQLite backup API):
+Back up the SQLite database (consistent copy via the SQLite backup API):
 
 ```bash
 docker exec twitch-drops-manager-api-1 python - <<'PY'
@@ -166,49 +351,66 @@ docker exec twitch-drops-manager-api-1 rm -f /data/backup.db
 ```
 
 Restore with the stack stopped: replace `/data/drops.db` in the volume from the
-backup; keep a copy of the current file first. See [DATA_MODEL.md](DATA_MODEL.md).
+backup; keep a copy of the current file first. See
+[DATA_MODEL.md](DATA_MODEL.md).
+
+Back up **before** the multi-user upgrade and keep that copy until the soak
+period ends; it is the only way to roll back while keeping post-upgrade data.
+
+## Rollback
+
+- **Code rollback:** redeploy the previous commit through Portainer.
+- **Data:** the previous release reads/writes the frozen legacy tables, so it
+  will not see data written after migration. To roll back and keep post-upgrade
+  data, restore the pre-upgrade backup (stop the stack first).
+- New tables are additive; an older release ignores them. Do not drop legacy
+  tables or downgrade the schema without a backup.
+
+After rollback, the app returns to the single-user flow and the old
+`API_TOKEN` behavior; re-add `API_TOKEN` to the stack env only for that old
+release.
 
 ## Security
 
 - Twitch OAuth tokens are stored **plaintext** in SQLite. Protect the volume and
   host access; do not share the DB file.
-- Set `API_TOKEN` if the API is reachable by anything you do not trust; mutating
-  endpoints (games, scans, progress refresh, Twitch connect/logout, Telegram test)
-  then require `X-API-Token`.
+- Session cookies are the browser auth: `HttpOnly` session + CSRF header. There
+  is no API token in the frontend bundle.
+- Set `PUBLIC_ORIGIN` and `ALLOWED_HOSTS` in production; keep
+  `SESSION_COOKIE_SECURE=auto` (or `true`) on HTTPS.
+- Keep `REGISTRATION_OPEN=false` and a long random `REGISTRATION_CODE`; clear the
+  code to close registration.
 - Never commit `.env`/`.env.save`; use `.env.example`.
-- Rotate the Telegram bot token if it appears in logs.
+- Rotate the Telegram bot token if it appears in logs, and rotate the invite code
+  if it leaks.
 - Revoke the Twitch app authorization at Twitch → Settings → Connections if
   needed; then reconnect in the app.
-- Read-only boundary: the app never claims drops or automates watching. Do not
-  add such behavior. The focused watcher is a queue focus pointer only; it never
-  plays streams or sends watch heartbeats.
+- Read-only boundary: the app never claims drops or automates watching. The
+  focused watcher is a queue focus pointer only.
 
 ## Troubleshooting
 
 | Symptom | Likely cause | Action |
 |---|---|---|
-| `429 Too Many Requests` from `drops.sunkwi.com` | catalog limit (1/300s) | P0 cache should serve stale; wait for reset; a cold cache can still fail |
-| `Last error: Twitch login expired; reconnect` | token invalid/expired | Profile → Reconnect (paste new redirect URL) |
-| Cold load ~800ms on `/twitch/status` | first profile fetch before P0/warm-up | On current code the request is non-blocking; profile appears next poll |
-| No live streams | no selected games / no eligible streams / Helix creds missing | Check Settings, `/status`, worker logs |
-| Telegram messages missing | token/chat id missing or wrong | Settings → Test Telegram; check worker logs |
-| Stream alerts missing | new live streams are not sent to Telegram | expected; use the watch queue or the focused watcher’s offline/complete alerts |
-| Duplicate Telegram messages | older build before atomic dedupe | Deploy current `main` (digests + atomic claim) |
-| Kuma monitor missing | labels absent on running container / `kuma-sync` down | Recreate containers with labels; check `kuma-sync` logs |
-| UI shows old assets | browser cache / `index.html` cache | Hard refresh; `index.html` is `no-cache`, hashed assets immutable |
+| Startup stops with a migration/owner error | legacy `twitch_auth.user_id` empty or conflicting user | Fix the legacy row (id/login) or restore the backup; `OWNER_TWITCH_ID` does not repair an empty legacy row |
+| `/status` or data calls return 401 after login | cookie not stored, expired session, or disabled user | Check cookie `Secure`/domain and `SESSION_COOKIE_SECURE`; sign in again; check admin active state. (`/auth/me` itself returns `200` with `authenticated:false`.) |
+| `403` on a mutation | missing/mismatched `X-CSRF-Token`, or non-admin scan | Ensure the client echoes `tdm_csrf`; use an admin for scans |
+| `403` registration closed | empty `REGISTRATION_CODE`, `REGISTRATION_OPEN=false` | Set a code or open registration intentionally |
+| `409` connecting Twitch | a different Twitch account is already signed in | Sign out, then connect |
+| `429` on login | auth rate limit (shared if Funnel cannot supply the client IP) | Wait a minute; raise `AUTH_RATE_LIMIT_PER_MINUTE` deliberately or fix the trusted-proxy/`X-Forwarded-For` path |
+| Public cookie is not `Secure` | forwarded scheme not preserved, or Funnel changed | Check nginx `X-Forwarded-Proto` map/Funnel; set `SESSION_COOKIE_SECURE=true` if needed |
+| One user's progress stops | expired/invalid user token | Profile shows reconnect; the worker skips only that user |
+| `429 Too Many Requests` from `drops.sunkwi.com` | catalog limit (1/300s) | Cache should serve stale; wait for reset; cold cache can fail |
+| Telegram messages missing for one user | no chat id or opt-out | Settings → Telegram; send test; check worker logs |
+| Duplicate Telegram messages | older build before atomic per-user dedupe | Deploy current release |
 | SQLite `database is locked` | long write / snapshot | Retry; keep writes short; check worker logs |
 | `no such column` after deploy | model column added without migration | Use a side table / explicit migration; see DATA_MODEL |
 
-## Rollback
-
-- Container rollback: redeploy the previous commit through Portainer.
-- Data: restore the SQLite backup. New tables are additive; older code ignores
-  them. Do not downgrade the DB schema without a backup.
-
 ## Retention
 
-- Progress snapshots: 24h.
-- Streams/matches: replaced each scan.
-- Drop progress: replaced each progress sync.
+- Progress snapshots: 24h per user.
+- Streams/matches: replaced each scan (shared).
+- Drop progress: replaced each per-user sync.
 - Campaigns: stale rows deleted on scan.
-- Notifications: retained (small); scan runs retained.
+- Sessions: expired rows pruned at startup and during the scan.
+- Notifications/campaign starts: retained/pruned as in [DATA_MODEL.md](DATA_MODEL.md).

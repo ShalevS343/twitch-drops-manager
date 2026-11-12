@@ -10,23 +10,37 @@ class TelegramProvider:
 
     @property
     def configured(self) -> bool:
-        return bool(self.settings.telegram_bot_token and self.settings.telegram_chat_id)
+        """A bot token is all the provider needs; each send names its chat."""
+        return bool(self.settings.telegram_bot_token)
 
-    async def send(self, message: str) -> None:
+    async def send(self, message: str, chat_id: str) -> None:
         if not self.configured:
             raise NotConfiguredError("Telegram credentials not configured")
+        if not (chat_id or "").strip():
+            raise ProviderError("Telegram chat id is not set")
 
-        url = f"https://api.telegram.org/bot{self.settings.telegram_bot_token}/sendMessage"
+        url = (
+            "https://api.telegram.org/bot"
+            f"{self.settings.telegram_bot_token}/sendMessage"
+        )
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 response = await client.post(
                     url,
                     json={
-                        "chat_id": self.settings.telegram_chat_id,
+                        "chat_id": chat_id.strip(),
                         "text": message,
                         "disable_web_page_preview": True,
                     },
                 )
-                response.raise_for_status()
         except httpx.HTTPError as exc:
-            raise ProviderError(f"Telegram request failed: {exc}") from exc
+            # Never include the URL (it contains the bot token) or the raw
+            # exception text, which may also embed the URL.
+            raise ProviderError(
+                f"Telegram request failed ({type(exc).__name__})"
+            ) from None
+
+        if response.status_code >= 400:
+            raise ProviderError(
+                f"Telegram request failed ({response.status_code})"
+            )

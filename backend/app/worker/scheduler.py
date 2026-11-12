@@ -6,6 +6,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.config import get_settings
 from app.core.db import SessionLocal, engine, init_db
 from app.core.logging import configure_logging
+from app.repositories.user_sessions import UserSessionRepository
+from app.repositories.users import UserRepository
 from app.services.factory import (
     build_progress_service,
     build_scan_service,
@@ -15,8 +17,9 @@ from app.services.factory import (
 logger = logging.getLogger(__name__)
 
 
-async def run_scan() -> None:
-    async with SessionLocal() as session:
+async def run_scan(session_factory=None) -> None:
+    factory = session_factory or SessionLocal
+    async with factory() as session:
         service = build_scan_service(session)
         try:
             result = await service.run()
@@ -29,37 +32,58 @@ async def run_scan() -> None:
         except Exception:
             logger.exception("Scheduled scan failed")
 
-
-async def run_progress() -> None:
-    async with SessionLocal() as session:
         try:
-            result = await build_progress_service(session).run()
-            if result.connected:
-                logger.info(
-                    "Progress sync: %d campaigns, %d drops, %d notifications",
-                    result.campaign_count,
-                    result.drop_count,
-                    result.notified_count,
-                )
+            await UserSessionRepository(session).delete_expired()
+            await session.commit()
         except Exception:
-            logger.exception("Progress sync failed")
+            await session.rollback()
+            logger.exception("Expired session cleanup failed")
 
 
-async def run_watcher() -> None:
-    async with SessionLocal() as session:
-        try:
-            state = await build_watch_focus_service(session).reconcile()
-            if state.enabled:
-                focus = state.focus
-                logger.info(
-                    "Watcher reconcile: status=%s target=%s campaign=%s reason=%s",
-                    state.status,
-                    focus.user_login if focus else "-",
-                    focus.campaign_id if focus else "-",
-                    focus.reason if focus else "-",
-                )
-        except Exception:
-            logger.exception("Watcher reconcile failed")
+async def run_progress(session_factory=None) -> None:
+    factory = session_factory or SessionLocal
+    async with factory() as session:
+        user_ids = await UserRepository(session).list_active_ids_with_accounts()
+
+    for user_id in user_ids:
+        async with factory() as session:
+            try:
+                result = await build_progress_service(session, user_id).run()
+                if result.connected:
+                    logger.info(
+                        "Progress sync for user %s: %d campaigns, %d drops, "
+                        "%d notifications",
+                        user_id,
+                        result.campaign_count,
+                        result.drop_count,
+                        result.notified_count,
+                    )
+            except Exception:
+                logger.exception("Progress sync failed for user %s", user_id)
+
+
+async def run_watcher(session_factory=None) -> None:
+    factory = session_factory or SessionLocal
+    async with factory() as session:
+        user_ids = await UserRepository(session).list_active_ids_with_focus()
+
+    for user_id in user_ids:
+        async with factory() as session:
+            try:
+                state = await build_watch_focus_service(session, user_id).reconcile()
+                if state.enabled:
+                    focus = state.focus
+                    logger.info(
+                        "Watcher reconcile for user %s: status=%s target=%s "
+                        "campaign=%s reason=%s",
+                        user_id,
+                        state.status,
+                        focus.user_login if focus else "-",
+                        focus.campaign_id if focus else "-",
+                        focus.reason if focus else "-",
+                    )
+            except Exception:
+                logger.exception("Watcher reconcile failed for user %s", user_id)
 
 
 async def main() -> None:

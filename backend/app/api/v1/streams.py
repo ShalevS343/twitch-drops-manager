@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query
 
-from app.api.deps import SessionDep
+from app.api.deps import CurrentUserDep, SessionDep
 from app.domain.parsing import campaign_gql_id_from_external_id
 from app.domain.schemas import GameOut, StreamOut
 from app.repositories.campaign_completions import CampaignCompletionRepository
@@ -12,13 +12,16 @@ router = APIRouter()
 @router.get("/streams", response_model=list[StreamOut])
 async def list_streams(
     session: SessionDep,
+    user: CurrentUserDep,
     game: str | None = Query(default=None),
     live: bool | None = Query(default=True),
 ) -> list[StreamOut]:
-    rows = await StreamRepository(session).list_rows(game_name=game, live=live)
+    rows = await StreamRepository(session).list_rows(
+        user.id, game_name=game, live=live
+    )
     completed_ids = {
         row.campaign_gql_id
-        for row in await CampaignCompletionRepository(session).list()
+        for row in await CampaignCompletionRepository(session, user.id).list()
     }
 
     streams: dict[int, StreamOut] = {}
@@ -41,7 +44,7 @@ async def list_streams(
                     name=row.game_name,
                     box_art_url=row.box_art_url,
                     twitch_game_id=row.twitch_game_id,
-                    selected=row.selected,
+                    selected=bool(row.selected),
                     # The games endpoint owns campaign_count; this endpoint
                     # never exposed a real value for it.
                     campaign_count=0,

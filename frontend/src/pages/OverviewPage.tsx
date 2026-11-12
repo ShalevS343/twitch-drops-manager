@@ -7,6 +7,7 @@ import {
   useStreams,
   useWatchQueue,
 } from '../hooks/useApi'
+import { useAuth } from '../auth/AuthContext'
 import {
   campaignPhase,
   inProgressDropCount,
@@ -69,6 +70,7 @@ function MiniProgress({ campaign }: { campaign: ProgressCampaign }) {
 }
 
 export function OverviewPage({ status, twitch }: Props) {
+  const { isAdmin } = useAuth()
   const campaignsQuery = useCampaigns()
   const progressQuery = useProgress()
   const streamsQuery = useStreams()
@@ -363,19 +365,25 @@ export function OverviewPage({ status, twitch }: Props) {
                 <Icon name="sparkles" size={18} />
                 Quick actions
               </h2>
-              <p>Scan for campaigns and streams, or sync your drop progress.</p>
+              <p>
+                {isAdmin
+                  ? 'Scan for campaigns and streams, or sync your drop progress.'
+                  : 'Sync your drop progress or manage the games you track.'}
+              </p>
             </div>
           </div>
 
           <div className="quick-actions">
-            <button
-              className="btn btn-primary"
-              onClick={() => scan.mutate()}
-              disabled={scan.isPending}
-            >
-              <Icon name="scan" size={16} />
-              {scan.isPending ? 'Scanning…' : 'Scan for new drops'}
-            </button>
+            {isAdmin && (
+              <button
+                className="btn btn-primary"
+                onClick={() => scan.mutate()}
+                disabled={scan.isPending}
+              >
+                <Icon name="scan" size={16} />
+                {scan.isPending ? 'Scanning…' : 'Scan for new drops'}
+              </button>
+            )}
             <button
               className="btn btn-secondary"
               onClick={() => refresh.mutate()}
@@ -410,13 +418,13 @@ export function OverviewPage({ status, twitch }: Props) {
             </p>
           )}
 
-          {scan.error && (
+          {isAdmin && scan.error && (
             <p className="alert alert-danger" role="alert">
               <Icon name="alert" size={16} />
               <span>{scan.error.message}</span>
             </p>
           )}
-          {scan.data && (
+          {isAdmin && scan.data && (
             <p className="alert alert-success" role="status">
               <Icon name="check" size={16} />
               <span>
@@ -431,7 +439,15 @@ export function OverviewPage({ status, twitch }: Props) {
               <span>{refresh.error.message}</span>
             </p>
           )}
-          {refresh.data && (
+          {refresh.data && !refresh.data.connected && (
+            <p className="alert alert-warning" role="alert">
+              <Icon name="alert" size={16} />
+              <span>
+                Twitch reconnect required before drop progress can sync.
+              </span>
+            </p>
+          )}
+          {refresh.data?.connected && (
             <p className="alert alert-success" role="status">
               <Icon name="check" size={16} />
               <span>

@@ -7,7 +7,11 @@ from typing import Any
 import httpx
 
 from app.core.config import Settings, get_settings
-from app.core.exceptions import NotConfiguredError, ProviderError
+from app.core.exceptions import (
+    NotConfiguredError,
+    ProviderError,
+    ReconnectRequiredError,
+)
 
 AUTHORIZE_URL = "https://id.twitch.tv/oauth2/authorize"
 TOKEN_URL = "https://id.twitch.tv/oauth2/token"
@@ -219,7 +223,7 @@ class TwitchUserProvider:
             raise ProviderError(f"Twitch profile request failed: {exc}") from exc
 
         if response.status_code == 401:
-            raise NotConfiguredError(
+            raise ReconnectRequiredError(
                 "Twitch rejected the saved token; reconnect your account"
             )
         if response.status_code == 429:
@@ -315,7 +319,7 @@ class TwitchUserProvider:
             raise ProviderError(f"Twitch GraphQL request failed: {exc}") from exc
 
         if response.status_code == 401:
-            raise NotConfiguredError(
+            raise ReconnectRequiredError(
                 "Twitch rejected the saved token; reconnect your account"
             )
         if response.status_code == 429:

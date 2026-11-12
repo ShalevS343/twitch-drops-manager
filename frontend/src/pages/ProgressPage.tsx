@@ -100,7 +100,15 @@ export function ProgressPage({ twitch }: Props) {
               <span>{refresh.error.message}</span>
             </p>
           )}
-          {refresh.data && (
+          {refresh.data && !refresh.data.connected && (
+            <p className="alert alert-warning" role="alert">
+              <Icon name="alert" size={16} />
+              <span>
+                Twitch reconnect required before drop progress can sync.
+              </span>
+            </p>
+          )}
+          {refresh.data?.connected && (
             <p className="alert alert-success" role="status">
               <Icon name="check" size={16} />
               <span>

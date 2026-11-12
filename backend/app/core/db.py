@@ -62,6 +62,7 @@ def _create_missing_indexes(connection) -> None:
 
 
 async def init_db() -> None:
+    from app.core.migrations import run_multi_user_migration
     from app.domain import models  # noqa: F401
 
     last_error: OperationalError | None = None
@@ -71,6 +72,7 @@ async def init_db() -> None:
             async with engine.begin() as connection:
                 await connection.run_sync(Base.metadata.create_all)
                 await connection.run_sync(_create_missing_indexes)
+                await run_multi_user_migration(connection)
             return
         except OperationalError as exc:
             last_error = exc

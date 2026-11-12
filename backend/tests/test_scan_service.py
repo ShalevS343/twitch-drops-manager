@@ -1,14 +1,20 @@
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
 from app.core.config import Settings
-from app.core.db import Base
 from app.core.exceptions import ProviderError
-from app.domain.models import Campaign, CampaignStart, DropProgress, Game, Stream
-from app.repositories.games import GameRepository
+from app.core.security import create_auth_session
+from app.domain.models import (
+    Campaign,
+    Game,
+    Stream,
+    UserCampaignStart,
+    UserGame,
+    UserSession,
+)
+from app.repositories.user_games import UserGameRepository
 from app.services.scan_service import ScanService
+from tests.support import create_user, make_engine
 
 
 class FakeSunkwi:
@@ -55,7 +61,7 @@ class MultiStreamTwitch:
 class FakeTelegram:
     configured = False
 
-    async def send(self, message):
+    async def send(self, message, chat_id):
         raise AssertionError("Telegram should not be used in this test")
 
 
@@ -64,9 +70,11 @@ class RecordingTelegram:
 
     def __init__(self) -> None:
         self.messages: list[str] = []
+        self.chat_ids: list[str] = []
 
-    async def send(self, message):
+    async def send(self, message, chat_id):
         self.messages.append(message)
+        self.chat_ids.append(chat_id)
 
 
 def payload():
@@ -106,27 +114,48 @@ def payload():
     }
 
 
+async def _scan_session():
+    return await make_engine()
+
+
+async def _seed_user(
+    session,
+    *,
+    twitch_user_id: str = "1",
+    login: str = "viewer",
+    games: tuple[str, ...] = ("Rust",),
+    telegram_chat_id: str = "111",
+    telegram_enabled: bool = True,
+):
+    user = await create_user(
+        session,
+        twitch_user_id=twitch_user_id,
+        login=login,
+        telegram_chat_id=telegram_chat_id,
+        telegram_enabled=telegram_enabled,
+    )
+    await UserGameRepository(session).replace(user.id, list(games))
+    await session.commit()
+    return user
+
+
+def _service(session, telegram, *, twitch=None, payload_data=None):
+    return ScanService(
+        session=session,
+        settings=Settings(default_games="Rust", _env_file=None),
+        sunkwi=FakeSunkwi(payload_data or payload()),
+        twitch=twitch or FakeTwitch(),
+        telegram=telegram,
+    )
+
+
 @pytest.mark.asyncio
 async def test_scan_persists_campaigns_for_all_games_and_streams_for_selected():
-    engine = create_async_engine(
-        "sqlite+aiosqlite://",
-        poolclass=StaticPool,
-        connect_args={"check_same_thread": False},
-    )
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    engine, factory = await _scan_session()
 
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-
-    async with session_factory() as session:
-        settings = Settings(default_games="Rust", _env_file=None)
-        service = ScanService(
-            session=session,
-            settings=settings,
-            sunkwi=FakeSunkwi(payload()),
-            twitch=FakeTwitch(),
-            telegram=FakeTelegram(),
-        )
+    async with factory() as session:
+        user = await _seed_user(session)
+        service = _service(session, FakeTelegram())
 
         result = await service.run()
 
@@ -137,7 +166,9 @@ async def test_scan_persists_campaigns_for_all_games_and_streams_for_selected():
         campaign_total = await session.scalar(select(func.count()).select_from(Campaign))
         stream_total = await session.scalar(select(func.count()).select_from(Stream))
         selected_total = await session.scalar(
-            select(func.count()).select_from(Game).where(Game.selected.is_(True))
+            select(func.count())
+            .select_from(UserGame)
+            .where(UserGame.user_id == user.id)
         )
 
         assert campaign_total == 2
@@ -147,28 +178,28 @@ async def test_scan_persists_campaigns_for_all_games_and_streams_for_selected():
     await engine.dispose()
 
 
-async def _scan_session():
-    engine = create_async_engine(
-        "sqlite+aiosqlite://",
-        poolclass=StaticPool,
-        connect_args={"check_same_thread": False},
-    )
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    return engine, factory
+async def _run_scan(session, telegram, *, twitch=None, payload_data=None):
+    return await _service(
+        session, telegram, twitch=twitch, payload_data=payload_data
+    ).run()
 
 
-async def _run_scan(session, telegram):
-    service = ScanService(
-        session=session,
-        settings=Settings(default_games="Rust", _env_file=None),
-        sunkwi=FakeSunkwi(payload()),
-        twitch=FakeTwitch(),
-        telegram=telegram,
-    )
-    return await service.run()
+@pytest.mark.asyncio
+async def test_scan_prunes_expired_sessions():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        user = await create_user(session, twitch_user_id="123", login="viewer")
+        await create_auth_session(session, user.id, ttl_days=-1)
+        await create_auth_session(session, user.id, ttl_days=30)
+        await session.commit()
+
+        await _run_scan(session, FakeTelegram())
+
+        remaining = (await session.execute(select(UserSession))).scalars().all()
+        assert len(remaining) == 1
+
+    await engine.dispose()
 
 
 async def _seed_campaign(
@@ -179,7 +210,7 @@ async def _seed_campaign(
     external_id: str = "Rust:1",
     status: str = "ACTIVE",
 ) -> None:
-    game = Game(name=game_name, twitch_game_id=twitch_game_id, selected=True)
+    game = Game(name=game_name, twitch_game_id=twitch_game_id)
     session.add(game)
     await session.flush()
     session.add(
@@ -215,15 +246,19 @@ def warthunder_payload(status: str = "ACTIVE") -> dict:
 class FlakyTelegram:
     configured = True
 
-    def __init__(self) -> None:
+    def __init__(self, failures: int = 1) -> None:
         self.messages: list[str] = []
-        self.fail_next = True
+        self.chat_ids: list[str] = []
+        self.attempted_chat_ids: list[str] = []
+        self.failures = failures
 
-    async def send(self, message):
-        if self.fail_next:
-            self.fail_next = False
+    async def send(self, message, chat_id):
+        self.attempted_chat_ids.append(chat_id)
+        if self.failures:
+            self.failures -= 1
             raise ProviderError("simulated Telegram failure")
         self.messages.append(message)
+        self.chat_ids.append(chat_id)
 
 
 @pytest.mark.asyncio
@@ -232,16 +267,12 @@ async def test_scan_does_not_notify_new_streams():
 
     async with factory() as session:
         await _seed_campaign(session, status="UPCOMING")
+        await _seed_user(session)
         telegram = RecordingTelegram()
-        service = ScanService(
-            session=session,
-            settings=Settings(default_games="Rust", _env_file=None),
-            sunkwi=FakeSunkwi(payload()),
-            twitch=MultiStreamTwitch(),
-            telegram=telegram,
-        )
 
-        first = await service.run()
+        first = await _run_scan(
+            session, telegram, twitch=MultiStreamTwitch()
+        )
         assert first.notified_count == 1  # campaign start only
         assert len(telegram.messages) == 1
         message = telegram.messages[0]
@@ -250,7 +281,9 @@ async def test_scan_does_not_notify_new_streams():
         for login in ("alpha", "beta", "gamma"):
             assert login not in message.lower()
 
-        second = await service.run()
+        second = await _run_scan(
+            session, telegram, twitch=MultiStreamTwitch()
+        )
         assert second.notified_count == 0
         assert len(telegram.messages) == 1
 
@@ -264,15 +297,7 @@ async def test_scan_does_not_notify_streams_without_a_campaign_start():
     async with factory() as session:
         # The campaign is already ACTIVE, so this scan has no start event.
         await _seed_campaign(session)
-        session.add(
-            DropProgress(
-                drop_id="drop-1",
-                campaign_gql_id="1",
-                campaign_name="Rust Drops",
-                game_name="Rust",
-            )
-        )
-        await session.commit()
+        await _seed_user(session)
 
         telegram = RecordingTelegram()
         result = await _run_scan(session, telegram)
@@ -288,17 +313,21 @@ async def test_scan_notifies_when_campaign_starts():
     engine, factory = await _scan_session()
 
     async with factory() as session:
+        await _seed_user(session)
         telegram = RecordingTelegram()
         result = await _run_scan(session, telegram)
 
         assert result.notified_count == 1  # campaign start only
         assert len(telegram.messages) == 1
+        assert telegram.chat_ids == ["111"]
         message = telegram.messages[0]
         assert "New campaign:" in message
         assert "Rust Drops" in message
         assert "Live now" not in message
 
-        starts = await session.scalar(select(func.count()).select_from(CampaignStart))
+        starts = await session.scalar(
+            select(func.count()).select_from(UserCampaignStart)
+        )
         assert starts == 0
 
         second = await _run_scan(session, telegram)
@@ -320,16 +349,14 @@ async def test_scan_notifies_when_upcoming_campaign_becomes_active():
             external_id="War Thunder:wt-1",
             status="UPCOMING",
         )
+        await _seed_user(session, games=("War Thunder",))
         telegram = RecordingTelegram()
-        service = ScanService(
-            session=session,
-            settings=Settings(default_games="Rust", _env_file=None),
-            sunkwi=FakeSunkwi(warthunder_payload("ACTIVE")),
-            twitch=FakeTwitch(),
-            telegram=telegram,
-        )
 
-        result = await service.run()
+        result = await _run_scan(
+            session,
+            telegram,
+            payload_data=warthunder_payload("ACTIVE"),
+        )
 
         assert result.notified_count == 1
         assert "New campaign:" in telegram.messages[0]
@@ -344,30 +371,20 @@ async def test_scan_notifies_for_game_added_by_name():
     engine, factory = await _scan_session()
 
     async with factory() as session:
-        await GameRepository(session).set_selected(["War Thunder"])
-        await session.commit()
-
+        user = await _seed_user(session, games=("War Thunder",))
         telegram = RecordingTelegram()
-        service = ScanService(
-            session=session,
-            settings=Settings(default_games="Rust", _env_file=None),
-            sunkwi=FakeSunkwi(warthunder_payload("ACTIVE")),
-            twitch=FakeTwitch(),
-            telegram=telegram,
-        )
 
-        result = await service.run()
+        result = await _run_scan(
+            session, telegram, payload_data=warthunder_payload("ACTIVE")
+        )
 
         assert result.notified_count == 1
         assert "New campaign:" in telegram.messages[0]
         assert "War Thunder" in telegram.messages[0]
         assert "Live now" not in telegram.messages[0]
 
-        game = await session.scalar(
-            select(Game).where(Game.name == "War Thunder")
-        )
-        assert game is not None
-        assert game.selected is True
+        selected = await UserGameRepository(session).selected_names(user.id)
+        assert selected == ["War Thunder"]
 
     await engine.dispose()
 
@@ -377,7 +394,8 @@ async def test_scan_does_not_notify_untracked_game_start():
     engine, factory = await _scan_session()
 
     async with factory() as session:
-        payload = {
+        await _seed_user(session, games=("Rust",))
+        payload_data = {
             "games": [
                 {
                     "gameDisplayName": "Minecraft",
@@ -393,18 +411,32 @@ async def test_scan_does_not_notify_untracked_game_start():
             ]
         }
         telegram = RecordingTelegram()
-        service = ScanService(
-            session=session,
-            settings=Settings(default_games="Rust", _env_file=None),
-            sunkwi=FakeSunkwi(payload),
-            twitch=FakeTwitch(),
-            telegram=telegram,
-        )
 
-        result = await service.run()
+        result = await _run_scan(
+            session, telegram, payload_data=payload_data
+        )
 
         assert result.notified_count == 0
         assert telegram.messages == []
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scan_does_not_create_starts_when_the_bot_token_is_absent():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        await _seed_user(session)
+        telegram = FakeTelegram()  # configured = False
+
+        result = await _run_scan(session, telegram)
+
+        assert result.notified_count == 0
+        starts = await session.scalar(
+            select(func.count()).select_from(UserCampaignStart)
+        )
+        assert starts == 0
 
     await engine.dispose()
 
@@ -414,43 +446,93 @@ async def test_scan_retries_campaign_start_after_send_failure():
     engine, factory = await _scan_session()
 
     async with factory() as session:
+        await _seed_user(session)
         telegram = FlakyTelegram()
-        service = ScanService(
-            session=session,
-            settings=Settings(default_games="Rust", _env_file=None),
-            sunkwi=FakeSunkwi(payload()),
-            twitch=FakeTwitch(),
-            telegram=telegram,
-        )
 
-        first = await service.run()
+        first = await _run_scan(session, telegram)
         assert first.notified_count == 0
         assert telegram.messages == []
-        starts = await session.scalar(select(func.count()).select_from(CampaignStart))
+        starts = await session.scalar(
+            select(func.count()).select_from(UserCampaignStart)
+        )
         assert starts == 1
 
-        second = await service.run()
+        second = await _run_scan(session, telegram)
         assert second.notified_count == 1
         assert len(telegram.messages) == 1
         assert "New campaign:" in telegram.messages[0]
-        starts = await session.scalar(select(func.count()).select_from(CampaignStart))
+        starts = await session.scalar(
+            select(func.count()).select_from(UserCampaignStart)
+        )
         assert starts == 0
 
     await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_set_selected_creates_tracked_game_without_campaign():
+async def test_scan_creates_starts_only_for_opted_in_tracking_users():
     engine, factory = await _scan_session()
 
     async with factory() as session:
-        selected = await GameRepository(session).set_selected(["War Thunder"])
-        await session.commit()
+        opted_in = await _seed_user(
+            session, twitch_user_id="1", login="opted-in"
+        )
+        opted_out = await _seed_user(
+            session,
+            twitch_user_id="2",
+            login="opted-out",
+            telegram_enabled=False,
+        )
+        no_chat = await _seed_user(
+            session,
+            twitch_user_id="3",
+            login="no-chat",
+            telegram_chat_id="",
+        )
+        telegram = FlakyTelegram(failures=10)
 
-        assert [game.name for game in selected] == ["War Thunder"]
-        game = await session.scalar(select(Game).where(Game.name == "War Thunder"))
-        assert game is not None
-        assert game.selected is True
-        assert game.box_art_url == ""
+        result = await _run_scan(session, telegram)
+
+        # The opted-in user is the only one whose start is attempted (and it
+        # stays pending because the send failed).
+        assert result.notified_count == 0
+        assert telegram.attempted_chat_ids == ["111"]
+
+        rows = (await session.execute(select(UserCampaignStart))).scalars().all()
+        assert {row.user_id for row in rows} == {opted_in.id}
+        assert opted_out.id not in {row.user_id for row in rows}
+        assert no_chat.id not in {row.user_id for row in rows}
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scan_continues_after_one_users_telegram_fails():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        first = await _seed_user(
+            session,
+            twitch_user_id="1",
+            login="first",
+            telegram_chat_id="111",
+        )
+        second = await _seed_user(
+            session,
+            twitch_user_id="2",
+            login="second",
+            telegram_chat_id="222",
+        )
+        telegram = FlakyTelegram(failures=1)
+
+        result = await _run_scan(session, telegram)
+
+        assert result.notified_count == 1
+        assert telegram.chat_ids == ["222"]
+
+        rows = (await session.execute(select(UserCampaignStart))).scalars().all()
+        # The failed user keeps their pending start for the next scan.
+        assert {row.user_id for row in rows} == {first.id}
+        assert second.id not in {row.user_id for row in rows}
 
     await engine.dispose()

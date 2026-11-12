@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Literal
 
@@ -77,8 +79,10 @@ class ScanResultOut(BaseModel):
 
 class StatusOut(BaseModel):
     app: str
+    user: AuthUserOut | None = None
     twitch_configured: bool
     telegram_configured: bool
+    telegram_ready: bool = False
     games_selected: list[str]
     campaign_count: int
     stream_count: int
@@ -227,6 +231,9 @@ class TwitchUserStatusOut(BaseModel):
     display_name: str | None = None
     profile_image_url: str | None = None
     connected_at: datetime | None = None
+    reconnect_required: bool = False
+    last_error: str | None = None
+    last_synced_at: datetime | None = None
 
 
 class TwitchConnectOut(BaseModel):
@@ -234,11 +241,58 @@ class TwitchConnectOut(BaseModel):
     redirect_uri: str
 
 
-class TwitchConnectIn(BaseModel):
+class AuthUserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    login: str
+    display_name: str
+    profile_image_url: str
+    role: str
+    telegram_enabled: bool
+    telegram_chat_id: str
+
+
+class RegistrationStateOut(BaseModel):
+    open: bool
+    invite_required: bool
+
+
+class AuthMeOut(BaseModel):
+    authenticated: bool
+    user: AuthUserOut | None = None
+    registration: RegistrationStateOut
+    telegram_bot_configured: bool = False
+
+
+class AuthConnectIn(BaseModel):
     redirect_url: str
+    invite_code: str = ""
 
 
-class TwitchConnectResult(BaseModel):
-    connected: bool = False
-    login: str | None = None
-    message: str | None = None
+class AuthConnectOut(BaseModel):
+    connected: bool = True
+    user: AuthUserOut
+    created: bool = False
+
+
+class TelegramSettingsIn(BaseModel):
+    telegram_chat_id: str = ""
+    telegram_enabled: bool = False
+
+
+class AdminUserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    login: str
+    display_name: str
+    role: str
+    is_active: bool
+    created_at: datetime
+    last_login_at: datetime | None = None
+    telegram_enabled: bool
+
+
+class AdminUserUpdate(BaseModel):
+    is_active: bool

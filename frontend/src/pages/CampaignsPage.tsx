@@ -6,6 +6,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { Icon } from '../components/ui/Icon'
 import { LoadingState } from '../components/ui/Spinner'
 import { useCampaigns, useScan } from '../hooks/useApi'
+import { useAuth } from '../auth/AuthContext'
 import { campaignPhase, type CampaignPhase } from '../lib/campaigns'
 
 type StatusFilter = 'all' | 'active' | 'upcoming' | 'ended'
@@ -18,6 +19,7 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
 ]
 
 export function CampaignsPage() {
+  const { isAdmin } = useAuth()
   const campaignsQuery = useCampaigns()
   const scan = useScan()
 
@@ -129,7 +131,7 @@ export function CampaignsPage() {
         </p>
       )}
 
-      {scan.error && (
+      {isAdmin && scan.error && (
         <p className="alert alert-danger" role="alert">
           <Icon name="alert" size={16} />
           <span>{scan.error.message}</span>
@@ -141,16 +143,22 @@ export function CampaignsPage() {
           <EmptyState
             icon="gift"
             title="No campaigns cached yet"
-            message="Run a scan to fetch the latest Twitch Drops campaigns for your selected games."
+            message={
+              isAdmin
+                ? 'Run a scan to fetch the latest Twitch Drops campaigns for your selected games.'
+                : 'An admin needs to run a scan before campaigns appear here.'
+            }
             action={
-              <button
-                className="btn btn-primary"
-                onClick={() => scan.mutate()}
-                disabled={scan.isPending}
-              >
-                <Icon name="scan" size={16} />
-                {scan.isPending ? 'Scanning…' : 'Scan for new drops'}
-              </button>
+              isAdmin ? (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => scan.mutate()}
+                  disabled={scan.isPending}
+                >
+                  <Icon name="scan" size={16} />
+                  {scan.isPending ? 'Scanning…' : 'Scan for new drops'}
+                </button>
+              ) : undefined
             }
           />
         </div>

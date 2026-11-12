@@ -91,7 +91,7 @@ deferred (write-only). Keep explicit loaders for endpoints that need graphs.
 **Consequences:** watch queue 100 → 18 ms, streams 6 → 1 query. Future read paths
 should follow the same pattern; see `docs/backend-performance.md`.
 
-## ADR-009 — No local user accounts
+## ADR-009 — No local user accounts (superseded by ADR-019)
 
 **Context:** the UI needs a profile, but the app is single-user.
 
@@ -100,7 +100,7 @@ should follow the same pattern; see `docs/backend-performance.md`.
 multi-account logic.
 
 **Consequences:** simple auth; reconnect replaces the single token. Multi-user
-support would require a new design.
+support required a new design; see ADR-019.
 
 ## ADR-010 — Portainer git deployment
 
@@ -198,8 +198,8 @@ one completion notification and turns focused mode off.
 controller. The user manually picks another live after an offline alert. Stream
 ids change on every scan, so reconciliation matches `user_login` + `campaign_id`
 first. Notification claims are released on Telegram failure so the next
-reconcile retries. The feature is single-user and single-watcher by design; a
-future pool would need a new table/schema.
+reconcile retries. Each user has one focused watcher; ADR-019 moved the focus row
+from a singleton to a per-user key.
 
 ## ADR-016 — No Telegram alerts for new live streams
 
@@ -233,3 +233,55 @@ campaigns are written to the `campaign_completions` ledger and never removed.
 inventory and `drop_progress` replacement. The UI can label completed campaigns
 instead of showing them as active. The ledger is only as accurate as the catalog
 reward count and Twitch's claimed reward list; partial claims stay incomplete.
+
+## ADR-019 — Twitch-as-login, server sessions, per-user data (supersedes ADR-009)
+
+**Context:** the app was hard-wired to one Twitch account (`twitch_auth`), but a
+small group now needs its own progress, selected games, focus target, and
+Telegram destination. A password/email account system would add a second identity
+store, reset flows, and a new security surface for no product gain: Twitch
+already proves identity.
+
+**Decision:**
+
+- **Twitch is the only identity provider.** There are no passwords, email
+  accounts, or local recovery. A local `users` row is permanently keyed by the
+  Twitch numeric user id (required, unique); signing in with a different Twitch
+  account creates or loads a different local user.
+- **Server-side sessions.** The implicit-grant token is validated with Twitch,
+  stored on `twitch_accounts`, and exchanged for an opaque 32-byte session token
+  in an `HttpOnly` `tdm_session` cookie. Only the SHA-256 hash is stored in
+  `user_sessions`. A readable `tdm_csrf` cookie must be echoed as
+  `X-CSRF-Token` on every unsafe method. Cookies are `SameSite=Lax`, `Path=/`,
+  and `Secure` per `SESSION_COOKIE_SECURE` (default `auto`, from the forwarded
+  scheme). Sessions have an absolute `SESSION_TTL_DAYS` (30) lifetime and do not
+  slide.
+- **Per-user personal data.** Selected games, Twitch token/profile, drop
+  progress, snapshots, completions, watch focus, campaign starts, and
+  notification claims live in `user_*` tables keyed by `user_id`. The catalog
+  (`games`, `campaigns`, `rewards`), live streams/matches, and scan runs stay
+  shared and are scanned once.
+- **Per-user Telegram.** One bot token in env; each user stores an optional
+  numeric chat id and an opt-in flag. `TELEGRAM_CHAT_ID` only seeds the migrating
+  owner. Disabling Telegram deletes that user's pending start rows.
+- **Invite-only registration.** The first user becomes `admin`; later users need
+  `REGISTRATION_CODE` unless `REGISTRATION_OPEN=true` is set explicitly. An empty
+  code means closed, never open. Admins can list users, enable/disable them, and
+  trigger global scans; admins cannot disable themselves.
+- **Legacy migration.** `init_db()` runs a single-transaction, idempotent
+  migration that copies the old single-user rows to the owner's user id, keyed
+  by `app_meta['multi_user_v1']`. An empty legacy `user_id` or a conflicting user
+  aborts with an operator error rather than guessing. Legacy tables are frozen
+  (not dropped) for rollback; new writes only go to the user-keyed tables.
+- **`API_TOKEN` / `X-API-Token` is retired.** Session cookies and roles replace
+  it. `/health` stays public; all other endpoints require a session except the
+  public auth endpoints.
+
+**Consequences:** the browser never holds a Twitch token, and one user cannot
+read another's personal data. The deployment needs a pre-upgrade WAL-safe backup:
+rolling back to the old release reads the frozen legacy tables, so keeping
+post-upgrade data requires restoring the pre-upgrade backup. Twitch tokens remain
+plaintext in SQLite, so the volume/host stays the security boundary. The schema
+is user-keyed for future growth, but one SQLite writer and sequential per-user
+Twitch calls remain the practical ceiling (dozens of users); Postgres and a job
+queue are later options.

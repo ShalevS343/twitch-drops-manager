@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.models import DropProgress, ProgressSnapshot
+from app.domain.models import UserDropProgress, UserProgressSnapshot
 from app.domain.parsing import campaign_gql_id_from_external_id, parse_iso_datetime
 from app.domain.schemas import WatchQueueCampaignOut, WatchQueueItemOut
 from app.repositories.progress import ProgressRepository
@@ -35,12 +35,12 @@ class FocusCandidate:
 
 
 def _build_campaign_summaries(
-    rows: list[DropProgress],
-    snapshots_by_drop: dict[str, list[ProgressSnapshot]],
+    rows: list[UserDropProgress],
+    snapshots_by_drop: dict[str, list[UserProgressSnapshot]],
     db_campaigns: dict[str, tuple[str, str | None]],
     now: datetime,
 ) -> dict[str, _CampaignSummary]:
-    grouped: dict[str, list[DropProgress]] = {}
+    grouped: dict[str, list[UserDropProgress]] = {}
     for row in rows:
         if not row.campaign_gql_id:
             continue
@@ -57,7 +57,7 @@ def _build_campaign_summaries(
         )
 
         unclaimed = [row for row in campaign_rows if not row.is_claimed]
-        next_drop: DropProgress | None = None
+        next_drop: UserDropProgress | None = None
         if unclaimed:
             positive = [
                 row for row in unclaimed if metrics[row.drop_id].remaining_minutes > 0
@@ -112,9 +112,11 @@ def _item_sort_key(
     return (ends_key[0], ends_key[1], -total_remaining, -item.viewers)
 
 
-async def build_watch_queue(session: AsyncSession) -> list[WatchQueueItemOut]:
-    """Build the urgency-sorted queue used by the API and the focus watcher."""
-    progress_repo = ProgressRepository(session)
+async def build_watch_queue(
+    session: AsyncSession, user_id: int
+) -> list[WatchQueueItemOut]:
+    """Build one user's urgency-sorted queue for the API and the watcher."""
+    progress_repo = ProgressRepository(session, user_id)
     progress_rows = await progress_repo.list()
     if not progress_rows:
         return []
@@ -123,7 +125,7 @@ async def build_watch_queue(session: AsyncSession) -> list[WatchQueueItemOut]:
     snapshots = await progress_repo.snapshots_since(
         now - RATE_WINDOW, [row.drop_id for row in progress_rows]
     )
-    snapshots_by_drop: dict[str, list[ProgressSnapshot]] = {}
+    snapshots_by_drop: dict[str, list[UserProgressSnapshot]] = {}
     for snapshot in snapshots:
         snapshots_by_drop.setdefault(snapshot.drop_id, []).append(snapshot)
 

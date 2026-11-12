@@ -25,6 +25,7 @@ Required updates:
 | Any change | `docs/STATUS.md` (current state + pending items) |
 | Any user-visible change | `docs/CHANGELOG.md` (dated entry) |
 | Endpoint / contract | `docs/API.md` and `frontend/src/api/types.ts` |
+| Auth / session / account behavior | `docs/API.md`, `docs/BACKEND.md`, `docs/DECISIONS.md` |
 | Model / table / index | `docs/DATA_MODEL.md` |
 | Env var / compose / deploy | `docs/OPERATIONS.md` and `.env.example` |
 | Backend module/provider/service | `docs/BACKEND.md` |
@@ -39,16 +40,22 @@ Required updates:
 
 ## 3. Product and safety rules
 
-- **No local user/account system**: the Twitch profile is read from Twitch and
-  only the OAuth token/profile cache is persisted.
+- **Multi-user, Twitch-only accounts**: the app supports a small group. Twitch is
+  the only identity provider; there are no passwords or email accounts. A local
+  `users` row is keyed by the unique Twitch user id, and sessions are server-side
+  cookies. Keep every personal table/query scoped to `user_id`; never read or
+  return another user's progress, games, focus, or Telegram chat id. The catalog
+  and live streams are shared. The first user is admin; new users need an invite
+  code unless registration is explicitly opened.
 - **Secrets**: never read, print, commit, or copy `.env` / `.env.save`. Never
-  log tokens. Use `.env.example` for documentation.
+  log tokens (Twitch or Telegram). Use `.env.example` for documentation.
 - **No live deployment** (Portainer redeploy, `docker compose up`, container
   recreation) without explicit user instruction.
 - Do not delete user data (Docker volumes, SQLite DB) without explicit
   confirmation and a backup.
-- The app is single-user and runs on a Raspberry Pi; prefer simple, reversible
-  changes over distributed-systems complexity.
+- The app runs on a Raspberry Pi for a small group; prefer simple, reversible
+  changes over distributed-systems complexity. Move to Postgres/job queues only
+  when the measured limits are reached.
 
 ## 4. Development commands
 
@@ -78,8 +85,11 @@ docker compose --project-directory infra -f infra/docker-compose.yml config -q
 docker compose --project-directory infra -f infra/docker-compose.yml up -d --build
 ```
 
-Expected current baseline: backend tests **71 passed**, ruff clean, frontend build
-passes.
+Expected current baseline: the backend suite passes (see
+[`docs/STATUS.md`](docs/STATUS.md) for the current count), ruff clean, frontend
+build passes. The multi-user release adds auth/migration/isolation/admin/worker
+tests, so the count is higher than the old 71-test single-user baseline; do not
+lower it.
 
 ## 5. Worktree workflow for parallel work
 

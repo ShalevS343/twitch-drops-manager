@@ -23,6 +23,9 @@ from app.repositories.campaigns import CampaignRepository
 from app.repositories.games import GameRepository
 from app.repositories.notifications import NotificationRepository
 from app.repositories.streams import StreamRepository
+from app.repositories.user_games import UserGameRepository
+from app.repositories.user_sessions import UserSessionRepository
+from app.repositories.users import UserRepository
 
 logger = logging.getLogger(__name__)
 
@@ -57,15 +60,19 @@ class ScanService:
         started_at = utcnow()
 
         try:
+            await UserSessionRepository(self.session).delete_expired()
             payload = await self.sunkwi.fetch_games()
             games = payload.get("games", []) if isinstance(payload, dict) else []
 
             await self._sync_games(games)
 
             game_repo = GameRepository(self.session)
-            selected = await game_repo.list_selected()
-            selected_names = {game.name for game in selected}
-            games_by_name = {game.name.casefold(): game for game in await game_repo.list()}
+            selected_names = await UserGameRepository(
+                self.session
+            ).list_union_names()
+            games_by_name = {
+                game.name.casefold(): game for game in await game_repo.list()
+            }
 
             parsed = self._parse_campaigns(games, games_by_name)
             campaign_repo = CampaignRepository(self.session)
@@ -75,11 +82,20 @@ class ScanService:
             await campaign_repo.upsert_many(parsed)
             await campaign_repo.delete_stale({item["external_id"] for item in parsed})
 
-            start_repo = CampaignStartRepository(self.session)
-            await start_repo.add_pending(
-                self._started_campaigns(parsed, existing_status, selected_names)
-            )
-            await start_repo.delete_orphans()
+            started = self._started_campaigns(parsed, existing_status)
+            if self.telegram.configured:
+                targets = await UserGameRepository(self.session).telegram_targets()
+                for user_id, names in targets.items():
+                    tracked = {name.casefold() for name in names}
+                    items = [
+                        item
+                        for item in started
+                        if self._campaign_game_name(item).casefold() in tracked
+                    ]
+                    await CampaignStartRepository(
+                        self.session, user_id
+                    ).add_pending(items)
+            await CampaignStartRepository.delete_all_orphans(self.session)
             await self.session.commit()
 
             active = await campaign_repo.list_active_for_games(selected_names)
@@ -128,7 +144,6 @@ class ScanService:
 
     async def _sync_games(self, games: list[Any]) -> None:
         repo = GameRepository(self.session)
-        had_games = await repo.count() > 0
 
         for game in games:
             if not isinstance(game, dict):
@@ -141,11 +156,6 @@ class ScanService:
                 str(game.get("gameBoxArtURL") or ""),
                 game_twitch_id(game),
             )
-
-        await self.session.flush()
-
-        if not had_games and self.settings.default_game_list:
-            await repo.select_defaults(self.settings.default_game_list)
 
         await self.session.flush()
 
@@ -167,13 +177,16 @@ class ScanService:
         return parsed
 
     @staticmethod
+    def _campaign_game_name(item: dict[str, Any]) -> str:
+        return str(item["external_id"]).rsplit(":", 1)[0]
+
+    @classmethod
     def _started_campaigns(
+        cls,
         parsed: list[dict[str, Any]],
         existing_status: dict[str, str],
-        selected_names: set[str],
     ) -> list[dict[str, Any]]:
-        """Campaigns that became ACTIVE for a tracked game since the last scan."""
-        selected = {name.casefold() for name in selected_names}
+        """Campaigns that became ACTIVE since the last scan."""
         started: list[dict[str, Any]] = []
 
         for item in parsed:
@@ -181,11 +194,6 @@ class ScanService:
                 continue
             if existing_status.get(item["external_id"]) == "ACTIVE":
                 continue
-
-            game = item["external_id"].rsplit(":", 1)[0]
-            if game.casefold() not in selected:
-                continue
-
             started.append(item)
 
         return started
@@ -239,49 +247,62 @@ class ScanService:
         return list(found.values())
 
     async def _notify(self) -> int:
-        start_repo = CampaignStartRepository(self.session)
-        pending_starts = await start_repo.pending()
-
         # Telegram notifications are campaign-start (and focused-watcher) only.
         # New live streams are intentionally not sent.
-        if not pending_starts:
-            return 0
         if not self.telegram.configured:
             return 0
 
-        repo = NotificationRepository(self.session)
-        claimed: list[tuple[Campaign, str]] = []
-        already_notified: set[str] = set()
-        for start, campaign in pending_starts:
-            dedupe_key = f"campaign-started:{campaign.external_id}"
-            if await repo.claim(dedupe_key):
-                claimed.append((campaign, dedupe_key))
-            else:
-                already_notified.add(start.external_id)
-        if already_notified:
-            await start_repo.delete(already_notified)
-        if not claimed:
-            return 0
+        users = await UserRepository(self.session).list_active_with_telegram()
+        total = 0
 
-        lines = ["Twitch Drops update", "New campaign:"]
-        for campaign, _ in claimed:
-            game = campaign.external_id.rsplit(":", 1)[0]
-            line = f"• {game} — {campaign.name}"
-            if campaign.ends_at:
-                line += f" (ends {campaign.ends_at})"
-            lines.append(line)
-            if campaign.details_url:
-                lines.append(f"  {campaign.details_url}")
+        for user in users:
+            start_repo = CampaignStartRepository(self.session, user.id)
+            pending_starts = await start_repo.pending()
+            if not pending_starts:
+                continue
 
-        try:
-            await self.telegram.send("\n".join(lines))
-        except ProviderError as exc:
-            logger.warning("Telegram notification failed: %s", exc)
-            for _, dedupe_key in claimed:
-                await repo.release(dedupe_key)
-            return 0
+            repo = NotificationRepository(self.session, user.id)
+            claimed: list[tuple[Campaign, str]] = []
+            already_notified: set[str] = set()
+            for start, campaign in pending_starts:
+                dedupe_key = f"campaign-started:{campaign.external_id}"
+                if await repo.claim(dedupe_key):
+                    claimed.append((campaign, dedupe_key))
+                else:
+                    already_notified.add(start.external_id)
+            if already_notified:
+                await start_repo.delete(already_notified)
+                await self.session.commit()
+            if not claimed:
+                continue
 
-        await start_repo.delete(
-            {campaign.external_id for campaign, _ in claimed}
-        )
-        return len(claimed)
+            lines = ["Twitch Drops update", "New campaign:"]
+            for campaign, _ in claimed:
+                game = campaign.external_id.rsplit(":", 1)[0]
+                line = f"• {game} — {campaign.name}"
+                if campaign.ends_at:
+                    line += f" (ends {campaign.ends_at})"
+                lines.append(line)
+                if campaign.details_url:
+                    lines.append(f"  {campaign.details_url}")
+
+            try:
+                await self.telegram.send(
+                    "\n".join(lines), user.telegram_chat_id.strip()
+                )
+            except ProviderError as exc:
+                logger.warning("Telegram notification failed: %s", exc)
+                for _, dedupe_key in claimed:
+                    await repo.release(dedupe_key)
+                await self.session.commit()
+                continue
+
+            await start_repo.delete(
+                {campaign.external_id for campaign, _ in claimed}
+            )
+            # Persist each user's claim/deletion immediately so a later user's
+            # failure cannot cause this digest to be sent again on retry.
+            await self.session.commit()
+            total += len(claimed)
+
+        return total

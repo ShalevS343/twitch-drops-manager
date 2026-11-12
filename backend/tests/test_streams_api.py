@@ -9,11 +9,13 @@ from app.api.v1.streams import list_streams
 from app.core.db import Base
 from app.domain.models import (
     Campaign,
-    CampaignCompletion,
     Game,
     Stream,
     StreamCampaignMatch,
+    UserCampaignCompletion,
+    UserGame,
 )
+from tests.support import create_user
 
 
 async def _session():
@@ -88,6 +90,8 @@ async def test_streams_preserves_contract_and_hides_unmatched_streams():
         )
         session.add(rust)
         await session.flush()
+        user = await create_user(session, twitch_user_id="1", login="one")
+        session.add(UserGame(user_id=user.id, game_id=rust.id))
         campaign = await _add_campaign(session, rust, "Rust:campaign-1", "Rust Drops")
 
         await _add_stream(session, rust, "alpha", 100, [campaign])
@@ -103,7 +107,7 @@ async def test_streams_preserves_contract_and_hides_unmatched_streams():
             statements.append(statement)
 
         event.listen(engine.sync_engine, "before_cursor_execute", record_statement)
-        streams = await list_streams(session, game=None, live=True)
+        streams = await list_streams(session, user, game=None, live=True)
         event.remove(engine.sync_engine, "before_cursor_execute", record_statement)
 
         # One flat stream query plus one query for completed campaign ids.
@@ -140,6 +144,13 @@ async def test_streams_preserves_game_and_live_filters():
         other = Game(name="Minecraft", selected=True)
         session.add_all([rust, other])
         await session.flush()
+        user = await create_user(session, twitch_user_id="1", login="one")
+        session.add_all(
+            [
+                UserGame(user_id=user.id, game_id=rust.id),
+                UserGame(user_id=user.id, game_id=other.id),
+            ]
+        )
 
         campaign = await _add_campaign(session, rust, "Rust:campaign-1", "Rust Drops")
         await _add_stream(session, rust, "rust-live", 10, [campaign])
@@ -147,13 +158,13 @@ async def test_streams_preserves_game_and_live_filters():
         await _add_stream(session, other, "minecraft-live", 30, [])
         await session.commit()
 
-        rust_streams = await list_streams(session, game="rust", live=None)
+        rust_streams = await list_streams(session, user, game="rust", live=None)
         assert [stream.user_login for stream in rust_streams] == [
             "rust-offline",
             "rust-live",
         ]
 
-        live_streams = await list_streams(session, game=None, live=True)
+        live_streams = await list_streams(session, user, game=None, live=True)
         # minecraft-live has no campaign match, so it advances nothing.
         assert [stream.user_login for stream in live_streams] == ["rust-live"]
 
@@ -168,6 +179,8 @@ async def test_streams_only_returns_uncompleted_campaigns():
         rust = Game(name="Rust", selected=True)
         session.add(rust)
         await session.flush()
+        user = await create_user(session, twitch_user_id="1", login="one")
+        session.add(UserGame(user_id=user.id, game_id=rust.id))
 
         completed = await _add_campaign(
             session, rust, "Rust:completed-1", "Completed Drops"
@@ -183,7 +196,8 @@ async def test_streams_only_returns_uncompleted_campaigns():
         await _add_stream(session, rust, "only-open", 100, [open_campaign])
 
         session.add(
-            CampaignCompletion(
+            UserCampaignCompletion(
+                user_id=user.id,
                 campaign_gql_id="completed-1",
                 campaign_name="Completed Drops",
                 game_name="Rust",
@@ -191,7 +205,7 @@ async def test_streams_only_returns_uncompleted_campaigns():
         )
         await session.commit()
 
-        streams = await list_streams(session, game=None, live=True)
+        streams = await list_streams(session, user, game=None, live=True)
 
         assert [stream.user_login for stream in streams] == ["mixed", "only-open"]
         assert streams[0].matching_campaigns == ["Open Drops"]
