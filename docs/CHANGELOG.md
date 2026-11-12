@@ -4,13 +4,48 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## Unreleased / planned
 
+- Integrate `feat/multi-user` and run the full backend/frontend suite.
 - P1 performance: response cache + ETag, `/dashboard` bootstrap endpoint,
   combined `/status` queries.
 - P2 performance: materialized dashboard snapshot, explicit relationship loaders,
   background scan job.
-- Deploy the current `main` (P0 + game tracking + violet UI) to the live
-  Portainer stack.
 - Rotate the Telegram bot token if it appeared in pre-fix logs.
+
+## 2026-11-12
+
+### Accounts — multi-user Twitch login + per-user data
+
+- Twitch is now the only identity provider. Added local `users`,
+  `user_sessions`, `twitch_accounts`, and `user_*` tables. There are no passwords
+  or email accounts; the first user becomes admin.
+- Invite-only registration controlled by `REGISTRATION_CODE` and
+  `REGISTRATION_OPEN`. Empty code means closed, never open.
+- Server-side sessions: opaque `HttpOnly` `tdm_session` cookie with an absolute
+  30-day TTL, plus a readable `tdm_csrf` cookie echoed as `X-CSRF-Token` on unsafe
+  methods. `SESSION_COOKIE_SECURE=auto` derives `Secure` from the forwarded
+  scheme. `API_TOKEN` / `X-API-Token` retired.
+- Personal data (selected games, Twitch token/profile, progress, snapshots,
+  completions, focus, notifications, campaign starts) is isolated per user.
+  Catalog, live streams/matches, and scan runs remain shared and are scanned once.
+- Scan queues campaign starts only for users tracking the game and opted into
+  Telegram. Progress and watcher jobs loop per active user and isolate failures.
+- Per-user Telegram: each user sets a chat id and opt-in; `TELEGRAM_CHAT_ID` only
+  seeds the migrating owner.
+- Admin endpoints list/enable/disable users and trigger global scans; admins
+  cannot disable themselves and never see tokens/chat ids.
+- One-time migration copies legacy single-user rows to the owner; legacy tables
+  stay frozen for rollback. Rollback that keeps post-upgrade data requires the
+  pre-upgrade backup.
+- Frontend: auth gate + sign-in screen, cookie/CSRF client, user-scoped query
+  keys with cache clearing, per-user Telegram settings, admin Users section,
+  admin-only scan action, profile sign-out/disconnect.
+- Deployment: new auth env vars in compose and `.env.example`; `VITE_API_TOKEN`
+  removed; nginx preserves inbound `X-Forwarded-Proto` (fallback `$scheme`);
+  basic auth kept for the staged rollout.
+- Docs/ADR: new ADR-019 (supersedes ADR-009) and updates to API, data model,
+  backend, architecture, frontend, operations, README, AGENTS, and status.
+- **Not deployed.** Production still runs the single-user build until the staged
+  rollout in `docs/OPERATIONS.md` is executed.
 
 ## 2026-11-07
 

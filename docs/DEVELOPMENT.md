@@ -54,8 +54,10 @@ npm run build    # tsc --noEmit && vite build
 npm run typecheck
 ```
 
-The Vite dev server proxies `/api` to `http://localhost:8000`. For a different API,
-set `VITE_API_BASE_URL` (and `VITE_API_TOKEN` if `API_TOKEN` is set) at build time.
+The Vite dev server proxies `/api` to `http://localhost:8000`. For a different
+API, set `VITE_API_BASE_URL` at build time. There is no API token: sign in with
+Twitch, and the browser uses the session cookie (`credentials: 'include'`) plus
+the `X-CSRF-Token` header for unsafe methods.
 
 ## Docker
 

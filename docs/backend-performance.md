@@ -5,6 +5,11 @@
 **Data snapshot:** 98 games, 118 campaigns, 437 rewards, 5 live streams, 7 drops in progress
 **Method:** 20–30 HTTP samples per endpoint (p50/p95/max), in-process ASGI query counting, SQLite component timings, gzip measurements, nginx header inspection
 
+> **Historical note (2026-11-12):** this report was measured on the single-user
+> release. Multi-user changed auth and moved personal tables to `user_*` keys; the
+> shared catalog/stream read-path findings still apply, but per-user worker loops
+> add linear cost. Re-measure before treating the absolute numbers as current.
+
 ---
 
 ## 1. Executive summary
@@ -222,7 +227,11 @@ Change eager `selectin` relationships to `lazy="raise"` and load only what each 
 Make `POST /scans` enqueue work and return `202` + job id; frontend polls job status. The scan is ~3.2 s and currently ties up a request. Not a first-load issue, but better UX.
 
 #### 13. Postgres/multiple workers (L, only if multi-user)
-SQLite + one uvicorn worker is correct for a single-user Pi. If this becomes multi-user or write-heavy, move to Postgres and run multiple workers; the caching/materialized read model would carry over.
+SQLite + one uvicorn worker remains the right shape for a small multi-user Pi.
+Per-user progress/watcher loops add linear cost, so raise intervals or stagger
+users before adding workers. If load grows beyond dozens of active users or
+writes become heavy, move to Postgres and run multiple workers; the
+caching/materialized read model would carry over.
 
 #### 14. Frontend code splitting (M)
 Lazy-load Settings/Profile/Streams/Campaigns with `React.lazy`; the initial bundle drops from ~245 KB to the Overview + shared shell. Combine with asset caching.

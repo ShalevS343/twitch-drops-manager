@@ -9,9 +9,12 @@ port **8282**. No router dependency; tabs are hash routes.
 frontend/src/
   App.tsx                    shell: sidebar, topbar, tabs, toasts
   api/
-    client.ts                fetch wrapper, optional X-API-Token
+    client.ts                fetch wrapper: credentials, CSRF, ApiError
     types.ts                 contracts mirrored from backend schemas
+  auth/
+    AuthContext.tsx          current user, login/logout/refresh
   components/
+    AuthGate.tsx             sign-in screen vs dashboard
     CampaignCard.tsx
     ProgressCard.tsx
     StreamCard.tsx
@@ -30,6 +33,7 @@ frontend/src/
     streamGroups.ts          per-game limiting/grouping helpers
     tabs.ts                  tab ids + metadata
   pages/
+    AuthPage.tsx             Twitch authorize/paste + invite code
     OverviewPage.tsx
     CampaignsPage.tsx
     ProgressPage.tsx
@@ -38,9 +42,23 @@ frontend/src/
     SettingsPage.tsx
     ProfilePage.tsx
   index.css                  design system + all component styles
-  main.tsx                   QueryClientProvider
+  main.tsx                   QueryClientProvider + AuthProvider
 ```
 
+## Auth gate
+
+`AuthGate` calls `GET /auth/me`; without a session it renders `AuthPage` instead
+of the dashboard. The sign-in screen reuses the existing authorize/paste steps
+and shows the invite-code field only when `registration.invite_required` is true.
+When registration is closed it shows a "registration closed" message instead of
+a field that cannot work.
+
+`AuthContext` exposes `{ user, isLoading, login, logout, refresh }`. After a
+successful connect, both cookies are set, `/auth/me` refreshes, and all data
+queries load for that user. `POST /auth/logout` ends the session and returns to
+the gate.
+
+Tabs are unchanged after sign-in.
 ## Tabs
 
 Hash routes, default `#/overview`; invalid hashes are normalized:
@@ -52,8 +70,8 @@ Hash routes, default `#/overview`; invalid hashes are normalized:
 | `#/progress` | Progress | Personal drop progress and ready-to-claim status |
 | `#/watch-queue` | Watch queue | Urgency-sorted eligible streams, grouped by game, top 5 per game by default |
 | `#/streams` | Streams | Live streams that still advance an uncompleted campaign, filtered/grouped, top 5 per game by default |
-| `#/settings` | Settings | Games (including track-by-name), actions, Twitch connection, system info |
-| `#/profile` | Profile | Twitch account/profile, reconnect/disconnect |
+| `#/settings` | Settings | Games (including track-by-name), per-user Telegram, admin Users (admin only), Twitch connection, system info |
+| `#/profile` | Profile | Local account, Twitch connection/profile, reconnect/disconnect, sign out |
 
 `useTab` uses `window.location.hash` + `hashchange` and `history.replaceState` to
 canonicalize. The skip link preserves the active tab (does not change the hash).
@@ -62,33 +80,69 @@ canonicalize. The skip link preserves the active tab (does not change the hash).
 
 TanStack Query; all requests go through `api/client.ts`:
 
+- `credentials: 'include'` on every request; unsafe methods read the readable
+  `tdm_csrf` cookie and send it as `X-CSRF-Token`.
+- `ApiError` carries the HTTP status; a `401` clears the cache and returns to the
+  auth gate.
+- Every personal query key includes the signed-in user id, for example
+  `['u', user.id, 'status']`, `['u', user.id, 'progress']`,
+  `['u', user.id, 'watch-queue']`. This prevents a shared browser from reusing
+  one user's cached data for another.
+- On logout or user change: cancel in-flight queries, `queryClient.clear()`, and
+  reset local UI state.
+- `useAuth()` / `/auth/me` — the session and registration state.
 - `useStatus()` — 30s
-- `useTwitchStatus()` — 60s
+- `useTwitchStatus()` — 60s (current user)
 - `useCampaigns()`, `useStreams()`, `useGames()` — on demand/shared
 - `useProgress()` — 60s
 - `useWatchQueue()` — 30s
 - `useWatcher()` — 15s
-- Mutations: save games, scan, refresh progress, test Telegram, watcher
-  enable/focus/next/stop, Twitch connect, disconnect.
+- Mutations: save games, scan (admin only), refresh progress, test Telegram,
+  watcher enable/focus/next/stop, Telegram settings, admin enable/disable,
+  Twitch connect/reconnect, logout, disconnect.
 
 Invalidation: scan refreshes all queries; game save refreshes games/campaigns/
 status; progress refresh refreshes progress/watch queue/twitch/status; logout
-refreshes everything. Saving a game name that is not cached yet is allowed; the
+clears everything. Saving a game name that is not cached yet is allowed; the
 response/next query reflects the newly created tracked row.
 
-## Twitch connection flow
+## Authentication flow
 
-1. Profile/Settings/Progress render the reusable `TwitchConnect` flow.
-2. `useTwitchConnect().start()` fetches `GET /twitch/connect`, opens the authorize
-   URL in a new tab, and shows the paste box.
-3. The user approves on Twitch, copies the full `twitch.tv/#access_token=...` URL,
-   pastes it, and submits.
-4. `POST /twitch/connect` stores the token, fetches/stores the profile, and runs an
-   initial progress sync.
-5. The UI invalidates all queries; the connection chip/profile update.
+1. `AuthGate` calls `/auth/me`; without a session, `AuthPage` fetches
+   `GET /auth/twitch/authorize`.
+2. The authorize URL opens in a new tab; the user approves and copies the full
+   `twitch.tv/#access_token=...` URL back into the app.
+3. The user pastes it (and the invite code for a new account) and submits
+   `POST /auth/twitch/connect`.
+4. The backend validates the token, creates/loads the local user, sets both
+   cookies, and refreshes the profile.
+5. The UI refreshes `/auth/me` and invalidates all queries.
+
+Signed-in users use the same flow to reconnect an expired token or to connect
+Twitch after a disconnect. Connecting a **different** Twitch account while signed
+in returns `409`; the UI tells the user to sign out first. There are no
+passwords, and `VITE_API_TOKEN` no longer exists; the browser never holds a
+Twitch token.
 
 Fallbacks: initials avatar when the image fails; display name falls back to login;
 missing dates render `Unknown`; token expiry can be absent for legacy tokens.
+
+## Per-user settings and admin controls
+
+- **Settings → Telegram** (all users): numeric chat id, opt-in toggle, and
+  **Send test message** (`PATCH /auth/me`, `POST /notifications/test`). The helper
+  copy explains how to get a chat id and that alerts go only to that chat.
+- **Settings → Users** (admins only): list local users with login, display name,
+  role, active state, created/last login, and Telegram enabled; toggle
+  enable/disable. Admins cannot disable themselves. The list never renders
+  tokens or other users' chat ids.
+- **Global scan** is admin-only: the “Scan for new drops” action is hidden for
+  non-admins, and the API returns `403` if called directly.
+- **Profile**: local account (login, display name, role), Twitch connection and
+  sync health (`reconnect_required`, last sync/error), reconnect, sign out, and
+  disconnect. Disconnect clears that user's Twitch data but keeps the account.
+- Copy that claimed “there are no local user accounts” is gone. The UI says the
+  Twitch token is stored on this server for that user's account.
 
 ## Design system
 
@@ -159,29 +213,31 @@ Borders, spacing, and a larger type scale carry the hierarchy.
 
 ## Game tracking
 
-Settings → Games keeps the selected-game whitelist. Besides picking catalog games,
-the **“Track a game by name”** input accepts any name (case-insensitive) and adds
-it to the selection. Saving calls `PUT /games`; the backend creates a `Game` row
-if it does not exist, so a game can be tracked before it has a campaign. The scan
-then alerts when a campaign for that game becomes active. Changes are local until
-**Save selection** is clicked.
+Settings → Games keeps the current user's selected-game whitelist. Besides
+picking catalog games, the **“Track a game by name”** input accepts any name
+(case-insensitive) and adds it to that user's selection. Saving calls `PUT
+/games`; the backend creates a `Game` row if it does not exist, so a game can be
+tracked before it has a campaign. The scan then alerts that user when a campaign
+for the game becomes active. Changes are local until **Save selection** is
+clicked. Other users' selections are unaffected.
 
 ## Focused watcher
 
 The Watch queue page starts with a **Focus watcher** panel. Focused mode keeps
-exactly one live target selected from the queue:
+exactly one live target selected from the current user's queue:
 
-- **Enable focused mode** auto-picks the most urgent live campaign. The panel
-  shows the focused channel, campaign, remaining watch minutes, and reason.
+- **Enable focused mode** auto-picks that user's most urgent live campaign. The
+  panel shows the focused channel, campaign, remaining watch minutes, and reason.
 - **Next live** dispatches the watcher to another live stream (the current one is
   excluded). **Focus** on any candidate in the list changes the target manually.
 - The backend worker re-checks every `WATCHER_POLL_SECONDS`. If the focused live
   goes offline while the campaign is still open, the panel switches to
-  **Live offline** and one Telegram notification is sent. If the campaign
-  completes, the watcher sends a completion notification and turns focused mode
-  off. The watcher does not auto-move and has no timer handoff.
+  **Live offline** and one Telegram notification is sent to that user. If the
+  campaign completes, the watcher sends a completion notification and turns
+  focused mode off. The watcher does not auto-move and has no timer handoff.
 - **Stop watcher** clears the focus. The focus panel is monitor-only; it links
-  to the stream but does not track a timer.
+  to the stream but does not track a timer. Each user has their own focus; one
+  user's focus never appears in another's panel.
 
 ## Completed campaigns
 
@@ -201,12 +257,13 @@ after unfinished campaigns and get a green **Completed** badge/border on:
 Every campaign row in the Watch queue has a **Start watching** button. It:
 
 1. opens the real Twitch stream in a new tab, and
-2. dispatches the single focused watcher to that streamer/campaign via
+2. dispatches the current user's focused watcher to that streamer/campaign via
    `POST /watcher/focus` (`strategy: "manual"`).
 
 There is no local timer, elapsed-time display, or persisted watch session. The
 focus panel shows the selected target and its offline/completion alerts; clicking
-**Start watching** on another stream replaces the focus (still one watcher).
+**Start watching** on another stream replaces that user's focus (still one
+watcher per user).
 
 ## Live list limits
 
@@ -226,7 +283,11 @@ npm run build    # tsc --noEmit && vite build -> dist/
 
 Production: `frontend/Dockerfile` builds with `npm run build`, then nginx serves
 `/usr/share/nginx/html` with gzip, immutable `/assets/*`, no-cache `index.html`,
-and `/api/` proxy to `api:8000` (HTTP/1.1 keepalive).
+and `/api/` proxy to `api:8000` (HTTP/1.1 keepalive). No API token is baked into
+the bundle; auth is the session cookie. nginx forwards the inbound
+`X-Forwarded-Proto` (falling back to `$scheme`) so the backend can set `Secure`
+cookies behind Tailscale Funnel. Basic auth remains in front during the staged
+rollout and is removed after app login is verified.
 
 ## Adding a page/tab
 

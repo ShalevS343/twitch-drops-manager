@@ -3,43 +3,105 @@
 Base path: `/api/v1` (through nginx at `/api/v1` on port 8282, or directly on
 port 8000). Interactive OpenAPI: `http://<host>:8000/docs`.
 
+## Authentication and sessions
+
+Twitch is the only identity provider; there are no passwords or local tokens.
+`API_TOKEN` / `X-API-Token` is retired.
+
+Public endpoints: `GET /health`, `GET /auth/me`,
+`GET /auth/twitch/authorize`, `POST /auth/twitch/connect`. Every other endpoint
+requires an active session. Admin-only: `POST /scans`, `GET /admin/users`,
+`PATCH /admin/users/{id}`.
+
+Sign-in:
+
+1. The SPA calls `GET /auth/me`; without a session it shows the sign-in screen.
+2. `GET /auth/twitch/authorize` returns the implicit-grant authorize URL and
+   redirect URI.
+3. The user authorizes on Twitch and pastes the full
+   `https://www.twitch.tv/#access_token=...` URL, plus the invite code for a new
+   account.
+4. `POST /auth/twitch/connect` validates the token with Twitch, resolves the
+   Twitch user id, creates or loads the local user, and sets both cookies.
+5. The SPA refreshes `/auth/me`; all personal queries then load for that user.
+
+### Cookies and CSRF
+
+- `tdm_session` — opaque session token, `HttpOnly`, `SameSite=Lax`, `Path=/`.
+  Only its SHA-256 hash is stored server-side.
+- `tdm_csrf` — readable random token. Send it as `X-CSRF-Token` on every
+  `POST`/`PUT`/`PATCH`/`DELETE`. The backend compares it with the session's CSRF
+  hash using `secrets.compare_digest`. The public connect endpoint is exempt.
+- Both cookies are `Secure` according to `SESSION_COOKIE_SECURE`: `auto` uses
+  the effective scheme from `X-Forwarded-Proto`, `true`/`false` forces it.
+- Sessions expire after an **absolute** `SESSION_TTL_DAYS` (30 by default). They
+  do not slide; expired sessions return `401`.
+- Unsafe requests with an `Origin` header must match `PUBLIC_ORIGIN` (or a
+  configured `CORS_ORIGINS` entry, or the request's own origin when neither is
+  set). `ALLOWED_HOSTS`, when set, rejects unexpected `Host` headers.
+- Authenticated API responses send `Cache-Control: no-store`.
+- Signing out deletes the session. A disabled user's sessions are deleted and
+  their requests return `401`.
+
+### Registration rules
+
+| State | New user can register? | Invite code field? |
+|---|---|---|
+| No users yet | Yes — first user becomes `admin`, code ignored | No |
+| Users exist, `REGISTRATION_CODE` set | Yes | Yes |
+| Users exist, code empty, `REGISTRATION_OPEN=true` | Yes | No |
+| Users exist, code empty, `REGISTRATION_OPEN=false` | No — `403` | No ("registration closed") |
+
+`GET /auth/me` exposes `registration.open` and `registration.invite_required`
+using this table. Connecting a different Twitch id while signed in returns
+`409`; sign out first. The local user is permanently bound to one Twitch id.
+
 ## Conventions
 
 - JSON in/out; `Content-Type: application/json` for bodies.
-- **Optional auth:** if `API_TOKEN` is set, mutating endpoints require
-  `X-API-Token: <token>`. Read endpoints are public on the LAN/tailnet.
 - Timestamps are ISO-8601 strings/datetimes; Twitch campaign end dates keep the
   provider's string form (often with `Z`).
 - Errors use FastAPI's `{"detail": "..."}`. Common codes:
   - `400` not configured / invalid token / bad input
-  - `401` missing/invalid API token
-  - `404` no scans yet
+  - `401` missing, invalid, or expired session
+  - `403` registration closed, bad invite code, bad CSRF token, inactive user,
+    or not an admin
+  - `404` not found / no scans yet
+  - `409` Twitch account conflict (different Twitch id while signed in)
+  - `429` auth rate limit (`AUTH_RATE_LIMIT_PER_MINUTE`, default 10/min/IP)
   - `502` upstream provider failure
+- Personal endpoints are scoped to the session's user. Admin endpoints never
+  return tokens or Telegram chat ids.
 
 ## Endpoint summary
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/health` | — | Liveness + configured providers |
-| GET | `/status` | — | Dashboard summary, intervals, connection state |
-| GET | `/games` | — | Games with campaign counts |
-| PUT | `/games` | token | Save selected game whitelist (creates missing games) |
-| GET | `/campaigns` | — | Campaigns for selected games |
-| GET | `/streams` | — | Live matched streams |
-| POST | `/scans` | token | Run a catalog/stream scan now |
-| GET | `/scans/latest` | — | Latest scan run |
-| POST | `/notifications/test` | token | Send a Telegram test message |
-| GET | `/progress` | — | Personal drop progress |
-| POST | `/progress/refresh` | token | Sync Twitch inventory now |
-| GET | `/watch-queue` | — | Live streams for in-progress campaigns |
-| GET | `/watcher` | — | Focused watcher state + dispatchable candidates |
-| PATCH | `/watcher` | token | Enable/disable focused mode |
-| POST | `/watcher/focus` | token | Manually focus, auto-pick, or move to next live |
-| DELETE | `/watcher` | token | Stop the focused watcher |
-| GET | `/twitch/status` | — | Connected account/profile state |
-| GET | `/twitch/connect` | — | Implicit-login authorize URL |
-| POST | `/twitch/connect` | token | Accept pasted redirect URL/token |
-| POST | `/twitch/logout` | token | Remove token/profile/progress |
+| GET | `/health` | public | Liveness + configured providers |
+| GET | `/auth/me` | public | Session user + registration state |
+| GET | `/auth/twitch/authorize` | public | Implicit-login authorize URL |
+| POST | `/auth/twitch/connect` | public | Accept pasted redirect URL/token; sets cookies |
+| POST | `/auth/logout` | session | Delete the current session |
+| PATCH | `/auth/me` | session | Update current user's Telegram settings |
+| POST | `/auth/twitch/disconnect` | session | Clear current user's Twitch data |
+| GET | `/status` | session | Dashboard summary for the current user |
+| GET | `/games` | session | Catalog games with per-user `selected` |
+| PUT | `/games` | session | Replace current user's selected games |
+| GET | `/campaigns` | session | Campaigns for the current user's games |
+| GET | `/streams` | session | Live streams for the current user |
+| POST | `/scans` | admin | Run a global catalog/stream scan |
+| GET | `/scans/latest` | session | Latest shared scan run |
+| POST | `/notifications/test` | session | Send to the current user's chat |
+| GET | `/progress` | session | Current user's drop progress |
+| POST | `/progress/refresh` | session | Sync current user's Twitch inventory |
+| GET | `/watch-queue` | session | Current user's live queue |
+| GET | `/watcher` | session | Current user's focus state + candidates |
+| PATCH | `/watcher` | session | Enable/disable current user's focused mode |
+| POST | `/watcher/focus` | session | Focus/auto-pick/next for current user |
+| DELETE | `/watcher` | session | Stop the current user's focused watcher |
+| GET | `/twitch/status` | session | Current user's Twitch connection/profile |
+| GET | `/admin/users` | admin | Safe user list |
+| PATCH | `/admin/users/{id}` | admin | Enable/disable a user |
 
 ---
 
@@ -58,15 +120,107 @@ port 8000). Interactive OpenAPI: `http://<host>:8000/docs`.
 }
 ```
 
+## Auth
+
+`GET /auth/me` (public)
+
+```json
+{
+  "authenticated": true,
+  "user": {
+    "id": 1,
+    "login": "shalevs343",
+    "display_name": "shalevs343",
+    "profile_image_url": "https://static-cdn.jtvnw.net/...",
+    "role": "admin",
+    "telegram_enabled": true,
+    "telegram_chat_id": "123456789"
+  },
+  "registration": { "open": false, "invite_required": true },
+  "telegram_bot_configured": true
+}
+```
+
+Unauthenticated: `authenticated: false`, `user: null`; registration state is
+still returned so the sign-in screen knows whether to show an invite field.
+
+`GET /auth/twitch/authorize` (public)
+
+```json
+{
+  "authorize_url": "https://id.twitch.tv/oauth2/authorize?client_id=...&redirect_uri=...&response_type=token",
+  "redirect_uri": "https://www.twitch.tv/"
+}
+```
+
+`POST /auth/twitch/connect` (public)
+
+```json
+{ "redirect_url": "https://www.twitch.tv/#access_token=...&scope=&state=...", "invite_code": "<code>" }
+```
+
+- Accepts a full redirect URL or a raw token (`400` if missing/invalid).
+- Enforces the expected Twitch client id and validates the token with Twitch.
+- Existing active user: logs in; the invite code is ignored.
+- New user allowed by the registration table: creates the local user, seeds
+  default games, makes the first user `admin`, stores the token, fetches the
+  profile, and starts the first progress sync after the session is committed.
+- Sets `tdm_session` and `tdm_csrf` on success; refresh `/auth/me` for the user.
+- `403` closed registration / wrong code / inactive user, `409` different Twitch
+  id while signed in, `429` rate limit.
+
+`PATCH /auth/me` (session)
+
+```json
+{ "telegram_chat_id": "123456789", "telegram_enabled": true }
+```
+
+Updates only the current user. Disabling `telegram_enabled` (or clearing the chat
+id) deletes that user's pending campaign-start rows, so re-enabling later does
+not send a backlog.
+
+`POST /auth/logout` (session) — deletes the current session and clears both
+cookies. Other users' sessions are untouched.
+
+`POST /auth/twitch/disconnect` (session) — clears the current user's token,
+profile, progress, snapshots, completions, and focus; the local account and
+session remain. The UI then shows "reconnect Twitch".
+
+## Admin
+
+`GET /admin/users` (admin) → safe user list:
+
+| Field | Notes |
+|---|---|
+| `id`, `login`, `display_name`, `role` | local account |
+| `is_active` | disabled users cannot log in or sync |
+| `created_at`, `last_login_at` | timestamps |
+| `telegram_enabled` | opt-in flag only |
+
+Never returns tokens, chat ids, progress, or session data.
+
+`PATCH /admin/users/{id}` (admin)
+
+```json
+{ "is_active": false }
+```
+
+- `{is_active}` is the only accepted change.
+- Disabling deletes that user's sessions, disables their focus, and skips them
+  in worker loops; it does not delete their rows or data.
+- Admins cannot disable themselves (`403`); non-admins get `403`.
+
 ## Status
 
-`GET /status`
+`GET /status` (session)
 
 ```json
 {
   "app": "Twitch Drops Manager",
+  "user": { "id": 1, "login": "shalevs343", "role": "admin" },
   "twitch_configured": true,
   "telegram_configured": true,
+  "telegram_ready": true,
   "games_selected": ["War Thunder"],
   "campaign_count": 1,
   "stream_count": 5,
@@ -79,9 +233,6 @@ port 8000). Interactive OpenAPI: `http://<host>:8000/docs`.
     "campaign_count": 118,
     "stream_count": 5
   },
-  "last_error": null,
-  "twitch_user_connected": true,
-  "twitch_login": "shalevs343",
   "poll_seconds": 900,
   "min_poll_seconds": 300,
   "progress_poll_seconds": 300,
@@ -92,9 +243,14 @@ port 8000). Interactive OpenAPI: `http://<host>:8000/docs`.
 }
 ```
 
+`games_selected`/counts are per current user; catalog/stream counts are shared.
+`telegram_ready` means the bot token exists **and** this user has opted in with a
+chat id. Twitch connection details are per user in `/twitch/status`.
+
 ## Games
 
-`GET /games` → `GameOut[]`
+`GET /games` (session) → `GameOut[]`. `selected` reflects the current user;
+the catalog itself is shared.
 
 ```json
 [{
@@ -107,99 +263,77 @@ port 8000). Interactive OpenAPI: `http://<host>:8000/docs`.
 }]
 ```
 
-`PUT /games` (token)
+`PUT /games` (session)
 
 ```json
 { "games": ["War Thunder", "Rust"] }
 ```
 
-Response: `{ "games": ["War Thunder", "Rust"] }` (names actually selected).
-
-Names are matched case-insensitively and de-duplicated. A name that does not yet
-exist in the catalog is created as a tracked `Game` row with no Twitch metadata;
-a later scan fills in the game id and box art. This is what allows tracking a game
-that currently has no campaign.
-
-`completed` is `true` when the account has claimed every reward in the campaign.
-Completion is persisted in `campaign_completions`, so it stays true after Twitch
-removes the campaign from `dropCampaignsInProgress`.
-
-When a tracked game's campaign becomes `ACTIVE` (new campaign, `UPCOMING` →
-`ACTIVE`, or the first campaign after an earlier one ended), the scan records a
-pending campaign-start event and includes it in the next Telegram digest. If
-Telegram fails, the event stays pending and is retried on the next scan.
+Response: `{ "games": ["War Thunder", "Rust"] }` (names actually selected for
+the current user). Replaces only that user's selection. Names are matched
+case-insensitively and de-duplicated. A name that does not yet exist in the
+catalog is created as a tracked `Game` row with no Twitch metadata; a later scan
+fills in the game id and box art.
 
 ## Campaigns
 
-`GET /campaigns?game=War%20Thunder&status=ACTIVE&active_only=false`
+`GET /campaigns?game=War%20Thunder&status=ACTIVE&active_only=false` (session)
 
-- `game` — exact game name (case-insensitive); omit for all selected games.
+- `game` — exact game name (case-insensitive); omit for the current user's games.
 - `status` — exact status (upper-cased), e.g. `ACTIVE`.
 - `active_only` — only `ACTIVE`.
 
-Returns `CampaignOut[]`:
+Returns the shared catalog filtered to the current user's selected games.
+`completed` is per user: `true` when that account claimed every reward in the
+campaign. Completion is persisted in `user_campaign_completions`, so it stays
+true after Twitch removes the campaign from `dropCampaignsInProgress`.
 
-```json
-[{
-  "id": 1,
-  "external_id": "War Thunder:3df8df9c-...",
-  "name": "WTCS Pro Grand Finals",
-  "status": "ACTIVE",
-  "starts_at": "2026-11-05T10:01:57Z",
-  "ends_at": "2026-11-12T09:59:59.999Z",
-  "details_url": "https://...",
-  "owner_name": "Gaijin",
-  "completed": false,
-  "game": { "id": 1, "name": "War Thunder", "...": "..." },
-  "rewards": [{
-    "id": 1,
-    "name": "50% Silver Lion Booster",
-    "benefit_name": "50% SL Booster",
-    "required_minutes": 30
-  }]
-}]
-```
+When a tracked game's campaign becomes `ACTIVE`, the scan records a pending
+start for each user tracking that game who has Telegram enabled with a chat id.
+Users who opted out get no pending backlog.
 
 ## Streams
 
-`GET /streams?game=War%20Thunder&live=true`
+`GET /streams?game=War%20Thunder&live=true` (session)
 
 - `live` defaults to `true`; pass `false` for offline rows (if any).
-- Returns `StreamOut[]`, including `matching_campaigns` names.
-- Only streams that still advance at least one **uncompleted** campaign are
-  returned. Completed campaigns (from `campaign_completions`) are omitted from
-  `matching_campaigns`; a stream whose only matches are completed is dropped.
+- Returns `StreamOut[]` for the current user, including `matching_campaigns`.
+- Only streams that still advance at least one of that user's **uncompleted**
+  campaigns are returned. Completed campaigns are omitted; a stream whose only
+  matches are completed is dropped.
 
 ## Scans
 
-`POST /scans` (token) — runs synchronously (~2–3s). Response:
+`POST /scans` (admin) — runs the shared catalog/stream scan synchronously
+(~2–3s). Non-admins get `403`.
 
 ```json
-{ "ok": true, "campaign_count": 118, "stream_count": 5, "notified_count": 0 }
+{ "ok": true, "campaign_count": 118, "stream_count": 5, "notified_count": 2 }
 ```
 
 Errors: `400` provider not configured, `502` upstream failure. The scan is also
-recorded in `scan_runs`.
+recorded in the shared `scan_runs`. The scan computes the union of selected games
+across active users and discovers live streams once for everyone.
+`notified_count` sums successfully delivered campaign-start events across
+opted-in users. New live streams are **not** sent to Telegram.
 
-`notified_count` counts successfully delivered campaign-start events. New live
-streams are **not** sent to Telegram. A campaign start is detected when a
-selected game's campaign transitions from any non-`ACTIVE` state to `ACTIVE`,
-including a brand-new campaign after the previous one ended. Delivery failures
-leave the start pending for the next scan; the notification claim prevents
-duplicates.
-
-`GET /scans/latest` → `ScanRunOut`; `404` if no scan has run.
+`GET /scans/latest` (session) → `ScanRunOut`; `404` if no scan has run.
 
 ## Notifications
 
-`POST /notifications/test` (token)
+`POST /notifications/test` (session)
 
-- `400` if Telegram is not configured; otherwise sends a test message.
+- `400` if the bot token is missing or the current user has no chat id/opt-in;
+  otherwise sends to **that user's** chat.
 - Response: `{ "sent": true }`.
+
+Provider errors are redacted; the bot token and Telegram request URL never reach
+logs or `last_error`.
 
 ## Progress
 
-`GET /progress` → `ProgressCampaignOut[]`
+`GET /progress` (session) → `ProgressCampaignOut[]` for the current user. Shape
+is unchanged from the single-user contract:
 
 ```json
 [{
@@ -229,140 +363,61 @@ duplicates.
 ```
 
 Campaign `remaining_minutes` is the **largest** remaining requirement among the
-campaign's unclaimed drops, not the sum. Drop requirements share the same watch
-time (a 1h drop + a 2h drop needs 2h total).
+campaign's unclaimed drops, not the sum. Completed campaigns that left Twitch's
+in-progress inventory are appended from the user's completion ledger + catalog
+rewards (all drops claimed, sorted last).
 
-Completed campaigns that are no longer in Twitch's in-progress inventory are
-appended from `campaign_completions` + the catalog rewards (all drops claimed,
-`remaining_minutes: 0`) and sort after unfinished campaigns.
-
-`POST /progress/refresh` (token)
+`POST /progress/refresh` (session) — syncs only the current user.
 
 ```json
 { "connected": true, "campaign_count": 1, "drop_count": 7, "notified_count": 0 }
 ```
 
-Errors: `400` Twitch not connected/expired, `502` GQL/provider failure.
+Errors: `400` Twitch not connected or `reconnect_required`, `502` GQL/provider
+failure. One user's failure does not affect other users' syncs.
 
 ## Watch queue
 
-`GET /watch-queue` → `WatchQueueItemOut[]`, ordered by urgency.
-
-```json
-[{
-  "stream_id": 1,
-  "user_login": "warthunder_esports",
-  "user_name": "WarThunder_Esports",
-  "title": "WTCS Pro League Grand Finals 2026 | Day 7",
-  "viewers": 31029,
-  "language": "en",
-  "url": "https://www.twitch.tv/warthunder_esports",
-  "game_name": "War Thunder",
-  "game_box_art_url": "https://...",
-  "campaigns": [{
-    "campaign_id": "3df8df9c-...",
-    "campaign_name": "WTCS Pro Grand Finals",
-    "ends_at": "2026-11-12T09:59:59.999Z",
-    "remaining_minutes": 1260,
-    "next_drop_name": "1 day of Premium",
-    "next_drop_remaining_minutes": 12
-  }]
-}]
-```
-
-Returns `[]` when Twitch is not connected or no campaign is in progress.
-Campaign `remaining_minutes` uses the same max-of-open-drops rule as `/progress`.
+`GET /watch-queue` (session) → `WatchQueueItemOut[]` for the current user,
+ordered by urgency. Returns `[]` when the user has no Twitch connection or no
+campaign is in progress. Campaign `remaining_minutes` uses the same
+max-of-open-drops rule as `/progress`. Item shape is unchanged.
 
 ## Focused watcher
 
-Exactly one watcher can be focused at a time (`max_watchers: 1`). The watcher is
-a **queue focus pointer**: it selects one live stream/campaign from the watch
-queue and follows it. It never plays a stream, sends watch heartbeats, or
-simulates viewing.
+Each user has at most one focused watcher (`max_watchers: 1`), persisted per
+user. It is a **queue focus pointer**: it never plays a stream, sends watch
+heartbeats, or simulates viewing.
 
-`GET /watcher` → `WatchStateOut`
+`GET /watcher` (session) → `WatchStateOut` for the current user, including
+`enabled`, `status`, `reason`, `focus`, and up to 8 `candidates` (the current
+focus is excluded). Shape is unchanged.
 
-```json
-{
-  "enabled": true,
-  "status": "focused",
-  "reason": "auto",
-  "max_watchers": 1,
-  "auto_move": false,
-  "focus": {
-    "stream_id": 1,
-    "user_login": "warthunder_esports",
-    "user_name": "WarThunder_Esports",
-    "stream_url": "https://www.twitch.tv/warthunder_esports",
-    "stream_title": "WTCS Pro League Grand Finals 2026 | Day 7",
-    "game_name": "War Thunder",
-    "game_box_art_url": "https://...",
-    "campaign_id": "3df8df9c-...",
-    "campaign_name": "WTCS Pro Grand Finals",
-    "target_minutes": 1260,
-    "ends_at": "2026-11-12T09:59:59.999Z",
-    "reason": "auto",
-    "focused_at": "2026-11-06T21:00:00",
-    "updated_at": "2026-11-06T21:00:00"
-  },
-  "candidates": [{
-    "stream_id": 2,
-    "user_login": "another_channel",
-    "user_name": "Another_Channel",
-    "stream_url": "https://www.twitch.tv/another_channel",
-    "stream_title": "...",
-    "game_name": "War Thunder",
-    "game_box_art_url": "https://...",
-    "viewers": 1200,
-    "campaign_id": "3df8df9c-...",
-    "campaign_name": "WTCS Pro Grand Finals",
-    "target_minutes": 1260,
-    "ends_at": "2026-11-12T09:59:59.999Z"
-  }],
-  "updated_at": "2026-11-06T21:00:00"
-}
-```
+`status` is `idle`, `focused`, `offline`, or `waiting`. `auto_move` is always
+`false`.
 
-`status` is `idle` (disabled), `focused` (target online), `offline` (target left
-the queue while the campaign still has time), or `waiting` (enabled with no
-target). `reason` is the last state reason (`auto`, `manual`, `live`, `offline`,
-`completed`, …). `auto_move` is always `false`; the watcher does not move itself.
-`candidates` excludes the current focus and is capped at 8.
+`PATCH /watcher` (session) `{"enabled": true}` — enabling auto-selects this user's
+most urgent live candidate; disabling clears their focus.
 
-`PATCH /watcher` (token)
-
-```json
-{ "enabled": true }
-```
-
-Enabling auto-selects the most urgent live candidate; disabling clears the focus.
-When enabled, the worker re-checks the queue every `WATCHER_POLL_SECONDS`:
-
-- if the focused live goes offline while the campaign still has watch time, it
-  sends one offline Telegram notification per online session and sets
-  `status=offline`; the target is kept for a manual switch;
-- if the campaign completes, it sends one completion notification and turns
-  focused mode off (`status=idle`, `reason=completed`).
-
-`POST /watcher/focus` (token)
+`POST /watcher/focus` (session)
 
 ```json
 { "stream_id": 2, "campaign_id": "3df8df9c-...", "strategy": "manual" }
 ```
 
-- `manual` — both ids are required; the stream/campaign must be in the queue with
-  remaining watch time. Replaces the current focus (still one watcher).
-- `auto` — picks the most urgent candidate; optional `campaign_id` narrows it.
-- `next` — picks another live stream than the current focus; keeps the current
-  target with `reason: "next-unavailable"` when no alternative exists.
+- `manual` — both ids required; must be in this user's queue.
+- `auto` — most urgent candidate; optional `campaign_id` narrows it.
+- `next` — another live than the current focus; keeps the target with
+  `reason: "next-unavailable"` when none exists.
+- Invalid/expired targets return `400`.
 
-All strategies are user-initiated; none starts playback or a timer.
-Invalid/expired targets return `400`. `DELETE /watcher` (token) disables focused
-mode and clears the target (same as `PATCH {"enabled": false}`).
+`DELETE /watcher` (session) disables focus and clears the target. The worker
+reconciles each enabled user every `WATCHER_POLL_SECONDS`, sends only to that
+user's chat, and does not auto-move.
 
 ## Twitch connection
 
-`GET /twitch/status` → `TwitchUserStatusOut`
+`GET /twitch/status` (session) → the current user's connection.
 
 ```json
 {
@@ -372,55 +427,37 @@ mode and clears the target (same as `PATCH {"enabled": false}`).
   "expires_at": null,
   "display_name": "shalevs343",
   "profile_image_url": "https://static-cdn.jtvnw.net/...",
-  "connected_at": "2026-11-06T18:58:44"
+  "connected_at": "2026-11-06T18:58:44",
+  "reconnect_required": false,
+  "last_error": "",
+  "last_synced_at": "2026-11-12T09:00:00"
 }
 ```
 
-When no profile row exists, the response is immediate (login-only) and a background
-profile fetch is scheduled; the next poll returns the stored profile. No GQL call
-is awaited on the request path.
-
-`GET /twitch/connect` → 
-
-```json
-{
-  "authorize_url": "https://id.twitch.tv/oauth2/authorize?client_id=...&redirect_uri=...&response_type=token",
-  "redirect_uri": "https://www.twitch.tv/"
-}
-```
-
-`POST /twitch/connect` (token)
-
-```json
-{ "redirect_url": "https://www.twitch.tv/#access_token=...&scope=&state=..." }
-```
-
-Response:
-
-```json
-{ "connected": true, "login": "shalevs343", "message": null }
-```
-
-- Accepts the full redirect URL or a raw token.
-- Rejects tokens issued for a different Twitch client (`400`).
-- Stores the token and fetches/stores the profile; runs an initial progress sync.
-- The token is read-only in practice (no claim/watch mutations are implemented).
-
-`POST /twitch/logout` (token) — clears `twitch_auth`, `twitch_profile`, and
-`drop_progress`. Response `{ "disconnected": true }`.
-
----
+- `reconnect_required` is set when Twitch rejects **this user's** token (401 or
+  expiry). The worker skips that user until a successful reconnect/sync clears
+  it. Global client misconfiguration never sets the per-user flag.
+- When the user's profile is empty, the response is immediate and one background
+  refresh is scheduled for that user; the next poll returns the stored profile.
+- There is no refresh-token path for the legacy implicit grant: reconnect Twitch.
 
 ## Caching / rate-limit behavior
 
 - Catalog: persisted cache + in-memory; 1 request/300s provider window; stale
   data is served during 429/5xx/timeouts.
-- Progress: no HTTP cache; the worker refreshes every 300s; the UI polls.
-- Profile: persisted in SQLite; in-memory GQL cache is only used for the initial
+- Progress: no HTTP cache; the worker refreshes each user every 300s; the UI
+  polls.
+- Profile: persisted on `users`; in-memory GQL cache is only used for the initial
   fetch.
+- Auth: `AUTH_RATE_LIMIT_PER_MINUTE` (default 10) attempts per client IP per
+  minute; exceeding it returns `429`.
+- Authenticated responses: `Cache-Control: no-store`.
 - nginx gzips JSON/JS/CSS and caches hashed assets immutably.
 
 ## Breaking-change policy
 
-Prefer additive fields. If a field must change, update `frontend/src/api/types.ts`,
+This change is intentionally breaking for API clients: `API_TOKEN` is gone,
+`/twitch/connect` and `/twitch/logout` are replaced by the `/auth/*` endpoints,
+and cookies are required. See [CHANGELOG.md](CHANGELOG.md). Prefer additive
+fields after this. If a field must change, update `frontend/src/api/types.ts`,
 [FRONTEND.md](FRONTEND.md), this file, and the changelog in the same change.
