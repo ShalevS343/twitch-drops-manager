@@ -4,7 +4,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Header, HTTPException, Response, status
+from fastapi import HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
@@ -16,22 +16,6 @@ SESSION_COOKIE = "tdm_session"
 CSRF_COOKIE = "tdm_csrf"
 CSRF_HEADER = "X-CSRF-Token"
 LAST_USED_TOUCH_SECONDS = 3600
-
-
-async def require_api_token(x_api_token: str | None = Header(default=None)) -> None:
-    """Deprecated compatibility helper for the old API-token routes.
-
-    Session auth replaces this mechanism, but the legacy routes still import it
-    until they are re-scoped. It remains a no-op when API_TOKEN is unset.
-    """
-    expected = get_settings().api_token
-    if not expected:
-        return
-    if x_api_token != expected:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing API token",
-        )
 
 
 def new_opaque_token() -> str:
