@@ -55,4 +55,4 @@ Rules:
 
 ## Last updated
 
-2026-11-06 — initial complete documentation set.
+2026-11-12 — multi-user accounts, auth, and deployment docs.

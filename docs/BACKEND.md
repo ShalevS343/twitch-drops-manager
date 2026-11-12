@@ -7,53 +7,65 @@ container). Source lives in `backend/app`.
 
 ```
 app/
-  main.py                 FastAPI app, lifespan, init_db, profile warm-up
+  main.py                 FastAPI app, lifespan, init_db + migration, middleware
   api/
-    deps.py               session/service/provider dependencies
+    deps.py               session/user dependencies (current user, admin)
     v1/
-      health.py status.py games.py campaigns.py streams.py
+      auth.py admin.py health.py status.py games.py campaigns.py streams.py
       scans.py notifications.py progress.py watch_queue.py watcher.py router.py
   core/
     config.py             pydantic-settings env configuration
     db.py                 async engine, session factory, SQLite pragmas, init_db
-    exceptions.py         ProviderError / NotConfiguredError
+    migrations.py         single-transaction multi-user data migration
+    exceptions.py         ProviderError / NotConfiguredError / ReconnectRequiredError
     logging.py            logging config (httpx/httpcore quieted)
-    security.py           optional X-API-Token guard
+    security.py           sessions, CSRF, cookie helpers, role checks
+    rate_limit.py         in-process auth attempt limiter
+    middleware.py         CSRF, no-store, trusted-host middleware
   domain/
-    models.py             SQLAlchemy models
+    models.py             users/sessions/twitch accounts/user_* + shared + legacy
     schemas.py            Pydantic response/request models
     parsing.py            catalog + inventory parsing, date helpers
   providers/
-    sunkwi.py             public Drops catalog
-    twitch.py             Helix app-token client (streams)
-    twitch_user.py        Twitch user OAuth + internal GQL (inventory/profile)
-    telegram.py           Bot API send
+    sunkwi.py             public Drops catalog (shared)
+    twitch.py             Helix app-token client (shared streams)
+    twitch_user.py        per-user OAuth + internal GQL (inventory/profile)
+    telegram.py           Bot API send to a specific chat
   repositories/
-    campaigns.py games.py streams.py notifications.py progress.py
-    campaign_starts.py campaign_completions.py scans.py twitch_auth.py
-    twitch_profile.py watch_focus.py
+    users.py user_sessions.py twitch_accounts.py user_games.py
+    progress.py campaign_completions.py notifications.py campaign_starts.py
+    watch_focus.py campaigns.py games.py streams.py scans.py
   services/
-    scan_service.py       catalog + streams + campaign-start alerts
-    progress_service.py   inventory + snapshots + ready/deadline alerts
+    auth_service.py       connect/logout/disconnect/registration/Telegram settings
+    profile_service.py    per-user profile refresh + warm-up
+    scan_service.py       shared catalog + streams + per-user campaign starts
+    progress_service.py   per-user inventory + snapshots + ready/deadline alerts
     progress_metrics.py   remaining-time and watch-rate calculations
     watch_queue_service.py  shared queue builder + candidate selection
-    watch_focus_service.py  focused-watcher state + offline/completion alerts
+    watch_focus_service.py  per-user focus state + offline/completion alerts
     factory.py            cached providers + service builders
   worker/scheduler.py     APScheduler worker entry point
-tests/                    pytest suite (71 tests)
+tests/                    pytest suite (auth, isolation, migration, worker, …)
 ```
 
 ## Startup (`main.py`)
 
-1. `configure_logging()` — note: `httpx`/`httpcore` are set to `WARNING` so request
+1. `configure_logging()` — `httpx`/`httpcore` are set to `WARNING` so request
    URLs (and the Telegram bot token) are not logged.
-2. `init_db()` — creates tables, then creates any missing model indexes with
-   `checkfirst=True` (safe on existing SQLite databases).
-3. `start_profile_refresh_warmup()` — launches a non-blocking check; if
-   `twitch_auth` exists but `twitch_profile` does not, it schedules a background
-   profile fetch.
+2. `init_db()` — creates tables, creates missing model indexes with
+   `checkfirst=True`, then runs `run_multi_user_migration()`.
+3. Middleware:
+   - `TrustedHostMiddleware` when `ALLOWED_HOSTS` is set.
+   - CSRF check on unsafe `/api/v1/*` methods when a session cookie exists
+     (the public connect endpoint is exempt).
+   - `Cache-Control: no-store` on authenticated API responses.
 4. App serves `/api/v1`; on shutdown, background profile tasks are cancelled and
    the engine is disposed.
+
+Both the API and worker call `init_db()`; SQLite's write lock serializes the
+migration and `app_meta['multi_user_v1']` makes it idempotent. A migration abort
+(empty legacy `user_id` or conflicting user) stops startup with an operator
+error instead of guessing.
 
 ## Configuration
 
@@ -62,72 +74,114 @@ tests/                    pytest suite (71 tests)
 | Field | Default | Notes |
 |---|---|---|
 | `database_url` | `sqlite+aiosqlite:///./data/drops.db` | Compose sets `/data/drops.db` |
-| `api_token` | empty | If set, mutating endpoints require `X-API-Token` |
-| `cors_origins` | `http://localhost:5173` | Comma-separated |
+| `cors_origins` | `http://localhost:5173` | Comma-separated; allows credentials |
+| `public_origin` | empty | Production origin for Origin checks |
+| `allowed_hosts` | empty | Comma list for `TrustedHostMiddleware` |
+| `registration_code` | empty | Invite code; empty = closed after the first user |
+| `registration_open` | `false` | Explicit escape hatch for open signup |
+| `owner_twitch_id` | empty | Bootstrap/claim the first admin |
+| `session_ttl_days` | `30` | Absolute session lifetime |
+| `session_cookie_secure` | `auto` | `auto`/`true`/`false` |
+| `auth_rate_limit_per_minute` | `10` | Auth attempts per client IP per minute |
 | `sunkwi_url` | `https://drops.sunkwi.com/api/twitch/drops` | Catalog endpoint |
 | `drops_api_key` | empty | Optional; also controls cache TTL defaults |
-| `twitch_client_id` / `secret` | empty | Helix app credentials |
+| `twitch_client_id` / `secret` | empty | Helix app credentials (shared) |
 | `twitch_gql_url` | `https://gql.twitch.tv/gql` | Internal GQL |
 | `twitch_gql_client_id` | empty | Advanced override |
 | `twitch_device_client_id` | empty → built-in first-party client | Progress login + GQL client id |
 | `twitch_device_client_secret` | empty | Advanced |
 | `twitch_oauth_redirect_uri` | `https://www.twitch.tv/` | Implicit grant redirect |
-| `telegram_bot_token` / `chat_id` | empty | Notifications |
+| `telegram_bot_token` | empty | One bot for all users |
+| `telegram_chat_id` | empty | **Seed only** for the migrating owner |
 | `poll_seconds` | 900 | Scan interval, min `min_poll_seconds` |
 | `progress_poll_seconds` | 300 | Progress interval, min `min_progress_poll_seconds` |
 | `watcher_poll_seconds` | 60 | Focus monitor/reconcile interval, min `min_watcher_poll_seconds` |
-| `default_games` | `Rust,Minecraft` | First-run whitelist |
+| `default_games` | `Rust,Minecraft` | New-user default whitelist |
 
-See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
+`API_TOKEN` no longer exists. See [OPERATIONS.md](OPERATIONS.md) for the
+deployment-facing list.
 
-## Scan service
+## Auth service
+
+`AuthService` owns registration/login and account settings:
+
+- `connect(redirect_url, invite_code, current_user)`:
+  - parse + validate the implicit-grant token with Twitch and enforce the
+    expected client id;
+  - resolve the Twitch user id; load the active local user or apply the
+    registration table (first user = admin; later users need a valid code or
+    explicit open registration);
+  - a different Twitch id while signed in raises a `409` conflict; inactive users
+    get `403`;
+  - store the token on `twitch_accounts`, fetch the profile (login fallback),
+    create the session, set both cookies, and trigger the first progress sync
+    **after** the session is committed. Never sync on a failed registration.
+- `logout(raw_token)` deletes that session; `disconnect(user_id)` deletes the
+  Twitch account and that user's personal progress/focus/completions but keeps
+  the user and session.
+- `update_telegram(user_id, chat_id, enabled)` updates only the current user.
+  Disabling/clearing deletes pending `user_campaign_starts` rows so re-enabling
+  does not send a backlog.
+- `registration_state()` returns `{open, invite_required}` for `/auth/me`.
+- Codes are compared with `secrets.compare_digest`; attempts are rate-limited per
+  client IP (first `X-Forwarded-For` value, else peer address).
+
+Sessions: 32 random bytes, base64url in `tdm_session`, SHA-256 hash stored. A
+separate random CSRF token is stored hashed and echoed via `X-CSRF-Token`.
+Expiry is absolute (`session_ttl_days`); `last_used_at` is updated at most once
+per hour. Expired rows are pruned at startup and in the scan job.
+
+## Scan service (shared)
 
 `ScanService.run()`:
 
 1. `SunkwiProvider.fetch_games()` — 20s timeout; on 429/5xx/timeout returns the
-   cache; `429` without cache raises `ProviderError` with the retry window.
-2. Upsert games; on the very first run, select `DEFAULT_GAMES`.
-3. Parse campaigns for selected games; capture the previous status of every
-   campaign, then upsert campaigns + rewards and delete stale campaigns.
-4. For selected games, record a `campaign_starts` row when a campaign's status
-   changes to `ACTIVE` from anything else (`UPCOMING`, `ENDED`, or no prior row).
-   This covers games with no current campaign and the next campaign after one
-   ended. Orphan pending rows are pruned.
-5. Discover streams via Helix for each selected game with a Twitch game id.
-6. Match streams to active campaigns using `allow` (channel allowlist when
-   `isEnabled`).
-7. Replace the `streams`/`stream_campaign_matches` tables.
-8. Notify only about **pending campaign starts** for selected games. New live
-   streams are deliberately not sent to Telegram. Each start is claimed
-   atomically with `campaign-started:{external_id}`. On Telegram failure the
-   claim is released and the start remains for the next scan; on success the
-   pending start row is deleted.
-9. Write a `ScanRun` (`ok`, error, counts).
+   cache; `429` without cache raises `ProviderError`.
+2. Upsert games. New users get `DEFAULT_GAMES` as their initial selection at
+   connect; there is no global selected flag.
+3. Compute the union of selected games across active users.
+4. Parse campaigns for that union; capture previous statuses, upsert campaigns +
+   rewards, delete stale campaigns.
+5. For each campaign transitioning to `ACTIVE`, create `user_campaign_starts`
+   rows only for users tracking the game **and** Telegram-enabled with a chat id.
+   Orphan pending rows are pruned.
+6. Discover streams once via Helix for the union of games with a Twitch id.
+7. Match streams to active campaigns using `allow`; replace shared
+   `streams`/`stream_campaign_matches`.
+8. Send each opted-in user their own start digest to their chat id. Claim
+   `(user_id, campaign-started:{external_id})` atomically; on Telegram failure
+   release the claim and keep the start row; on success delete that user's row.
+9. Prune expired sessions.
+10. Write a shared `ScanRun` (`ok`, error, counts).
 
-## Progress service
+New live streams are never sent to Telegram.
 
-`ProgressService.run()`:
+## Progress service (per user)
 
-1. Load `twitch_auth`; no auth → disconnected result.
-2. `_ensure_token`: if a known expiry is within 5 minutes, refresh with the stored
-   refresh token; if the token has no expiry, use it. A refresh failure raises
-   `NotConfiguredError` (UI prompts reconnect).
-3. `TwitchUserProvider.fetch_inventory()` → GQL `Inventory` persisted query; if
-   Twitch returns `PersistedQueryNotFound`, retry with the raw query.
-4. Flatten `dropCampaignsInProgress` with `parse_inventory` (current/required
-   minutes, claimed, benefits, campaign/game metadata).
-5. Read `earnedDropRewards` (fetched with `fetchRewardCampaigns: true`) and
-   persist `campaign_completions` for catalog campaigns whose claimed reward
-   count reaches the catalog reward count. Also mark a campaign completed when
-   every in-progress drop is claimed. This survives the campaign leaving
-   `dropCampaignsInProgress`.
-6. `ProgressRepository.replace(rows)`; commit.
-7. Insert one `ProgressSnapshot` per drop; prune >24h.
-8. Build notifications:
+`ProgressService(session, user_id, settings, provider, telegram).run()`:
+
+1. Load that user's `twitch_accounts`; no token → disconnected result.
+2. If `reconnect_required`, skip without a provider call. There is **no
+   refresh-token path** for the implicit grant.
+3. `TwitchUserProvider.fetch_inventory()` → GQL `Inventory` persisted query; on
+   `PersistedQueryNotFound`, retry with the raw query.
+4. Flatten `dropCampaignsInProgress` with `parse_inventory`.
+5. Read `earnedDropRewards` and persist `user_campaign_completions` for catalog
+   campaigns whose claimed reward count reaches the catalog reward count; also
+   mark a campaign completed when every in-progress drop is claimed.
+6. Replace this user's `user_drop_progress`; commit.
+7. Insert `user_progress_snapshots`; prune that user's rows >24h.
+8. Notifications for this user:
    - ready drops (`is_ready` and not claimed) keyed `drop-ready:<drop_id>`
-   - deadline: tightest window only, `campaign-ending:<gql_id>:2h` or `:24h`
-   - atomically claim each key before sending; one digest; release on failure.
-9. Commit; return counts.
+   - tightest deadline only, `campaign-ending:<gql_id>:2h` or `:24h`
+   - claim `(user_id, key)` atomically before sending; one digest; release on
+     failure.
+9. On success set `last_synced_at`, clear `reconnect_required`/`last_error`. On a
+   user-token 401/expiry set `reconnect_required` + redacted `last_error`. A
+   global client misconfiguration must **not** set the per-user flag.
+
+The worker loops active users with a Twitch account, one fresh session each, and
+logs/continues on failure.
 
 ### Remaining-time / watch-rate math (`progress_metrics.py`)
 
@@ -136,58 +190,55 @@ See [OPERATIONS.md](OPERATIONS.md) for the deployment-facing list.
   least 5 minutes span; `rate = delta_minutes * 60 / span_minutes`.
 - Rate below `0.5` min/hour → `null` (not actually watching).
 - Campaign remaining = **max** of the unclaimed drops' remaining minutes, not
-  their sum: watch time counts toward every open drop in the campaign, so a 1h
-  drop + a 2h drop takes 2h, not 3h. There is no ETA field: the UI shows
-  remaining minutes only.
+  their sum. There is no ETA field.
 
 ## Watch queue
 
-`GET /watch-queue` (see `api/v1/watch_queue.py` and
+`GET /watch-queue` (`api/v1/watch_queue.py`,
 `services/watch_queue_service.py`):
 
-- Load `drop_progress` + snapshots.
-- One flat SQL join for streams → matches → campaigns → games (no full ORM
-  campaign/reward loading).
-- Keep only campaigns whose GQL id is in progress; dedupe campaigns by
-  `external_id`; prefer `DropProgress` name/end date, fall back to `campaigns`.
-- Sort by earliest campaign end, then most remaining work, then viewers.
+- Loads the **current user's** progress + snapshots.
+- One flat SQL join for streams → matches → campaigns → games.
+- Keeps only campaigns in that user's progress; dedupes by `external_id`.
+- Sorts by earliest campaign end, then most remaining work, then viewers.
 - Next drop = unclaimed drop with the smallest positive remaining minutes.
-- `find_candidate()` is shared with the focused watcher to pick the next
-  dispatchable stream/campaign in queue order.
+- `find_candidate()` is shared with the focused watcher.
 
 ## Streams
 
-`GET /streams` (see `api/v1/streams.py` and `repositories/streams.py`):
+`GET /streams` (`api/v1/streams.py`, `repositories/streams.py`):
 
 - One flat join for stream + game + campaign name/external id.
-- Loads `campaign_completions` and omits completed campaigns from
-  `matching_campaigns`.
+- Loads the current user's completions and omits completed campaigns.
 - Drops streams with no remaining uncompleted campaign match.
 
-## Focused watcher
+## Focused watcher (per user)
 
-`services/watch_focus_service.py` manages the singleton `watch_focus` row and is
-the only writer of focused mode:
+`services/watch_focus_service.py` manages `user_watch_focus`, one row per user,
+and is the only writer of focused mode:
 
-- `GET /watcher` returns the state + up to 8 dispatchable candidates (the current
-  focus is excluded).
-- Enabling auto-selects the most urgent live candidate; disabling clears the
-  focus. There is at most **one** watcher (`max_watchers: 1`).
-- `POST /watcher/focus` supports `manual` (stream + campaign), `auto` (optional
-  campaign filter), and `next` (exclude the current stream).
-- `reconcile()` runs every `WATCHER_POLL_SECONDS` in the worker. It resolves the
-  stored focus by `user_login` + `campaign_id` (stream rows are recreated each
-  scan) and refreshes the snapshot. It does **not** auto-move to another live.
-- If the campaign is complete (`drop_progress` has no remaining watch time), it
-  sends a completion notification once and turns focused mode off. If the live
-  went offline but the campaign still has time left, it sends one offline
-  notification per online session, keeps the target, and sets
-  `status=offline`; the user can pick another live manually.
-- Notification dedupe keys: `watch-offline:{campaign_id}:{user_login}:{focused_at}`
-  and `watch-complete:{campaign_id}`. Telegram failures release the claim so the
-  next reconcile retries.
-- This is a focus pointer only: no playback control, no watch heartbeats, no
-  simulated viewing.
+- `GET /watcher` returns that user's state + up to 8 dispatchable candidates
+  (current focus excluded).
+- Enabling auto-selects their most urgent live candidate; disabling clears it.
+  There is at most **one** watcher per user (`max_watchers: 1`).
+- `POST /watcher/focus` supports `manual`, `auto` (optional campaign filter), and
+  `next` (exclude the current stream).
+- `reconcile()` runs per focus-enabled user every `WATCHER_POLL_SECONDS`. It
+  resolves by `user_login` + `campaign_id` (stream rows are recreated each scan)
+  and refreshes the snapshot. It does **not** auto-move.
+- If the campaign is complete, it sends one completion notification to that
+  user's chat and turns focus off. If the live went offline while the campaign
+  still has time, it sends one offline notification per online session, keeps the
+  target, and sets `status=offline`.
+- Dedupe keys are scoped by `user_id` (`watch-offline:...`, `watch-complete:...`).
+  Telegram failures release the claim for retry.
+- Focus pointer only: no playback control, no watch heartbeats.
+
+## Profile service
+
+`ProfileService.refresh(user_id)` fetches `ViewerCard` and saves the profile on
+`users`; `schedule(user_id)` runs one background refresh for a cold profile.
+`/twitch/status` stays non-blocking. There is no singleton startup warm-up.
 
 ## Providers
 
@@ -196,62 +247,63 @@ the only writer of focused mode:
 - Optional `X-API-Key`.
 - In-memory cache; persists successful payloads to
   `<sqlite-dir>/sunkwi_cache.json` (atomic replace).
-- Honors `X-RateLimit-Reset` / `Retry-After` after success and on 429; serves stale
-  cache on 429/5xx/timeouts/invalid payloads.
-- The provider window is currently **1 request / 300s**.
+- Honors `X-RateLimit-Reset` / `Retry-After`; serves stale cache on
+  429/5xx/timeouts/invalid payloads. Provider window: **1 request / 300s**.
 
 ### Twitch Helix (`twitch.py`)
 
-- Client-credentials token, cached until near expiry.
+- Client-credentials token, cached until near expiry (shared by all users).
 - `GET /helix/streams` with pagination (up to 5 pages, 100 per page).
 - 401 → refresh token and retry once.
 
 ### Twitch user (`twitch_user.py`)
 
-- Progress login uses Twitch's **implicit grant** URL (`authorize_url`) with a
-  first-party public client; the user pastes the redirect URL.
+- Implicit grant with a first-party public client; the user pastes the redirect.
 - `parse_oauth_token` accepts a full URL with `#access_token=` or a raw token.
 - `validate` uses `/oauth2/validate`.
-- `fetch_inventory` uses the internal GQL `Inventory` persisted query with a raw
-  fallback. `fetchRewardCampaigns: true` adds `earnedDropRewards`, used for the
-  completion ledger.
-- `fetch_profile` uses `ViewerCard` (`displayName`, `profileImageURL(width:300)`),
-  cached in memory for 10 minutes; the persisted profile lives in `twitch_profile`.
-- Sends Android client headers (`User-Agent`, `Client-Session-Id`, `X-Device-Id`,
-  `Origin`, `Referer`) because GQL rejects third-party-app tokens.
+- `fetch_inventory` uses GQL `Inventory` with a raw fallback;
+  `fetchRewardCampaigns: true` adds `earnedDropRewards`.
+- `fetch_profile` uses `ViewerCard`, saved on `users` via `ProfileService`.
+- Sends Android client headers because GQL rejects third-party-app tokens.
 - **Read-only**: no claim mutations, no watch heartbeats.
 
 ### Telegram (`telegram.py`)
 
-- `sendMessage` with previews disabled.
-- Notification policy: atomic claim + one digest per run; no claim if Telegram is
+- `send(message, chat_id)` targets a specific chat; `configured` means a bot
+  token exists. No global chat fallback for regular sends.
+- `TELEGRAM_CHAT_ID` only seeds the migrating owner.
+- Provider errors and logs redact the bot token and never include the request
+  URL; redacted text is safe for `last_error`.
+- Notification policy: atomic per-user claim + one digest per run; no claim if
   unconfigured; failed send releases claims.
 
 ## Data access
 
-Repositories wrap SQLAlchemy. Notable choices:
-
-- `Campaign.raw` is `deferred=True` — it is written during scans and never read on
-  API paths (715 KB in a real dataset).
-- `CampaignRepository.list_all()` is **not** used on read paths; watch queue uses a
-  flat query.
+- Personal repositories take `user_id`; all queries include it.
+- `Campaign.raw` is `deferred=True` — written by scans, never read on API paths.
 - `NotificationRepository.claim()` inserts inside a SAVEPOINT and catches
   `IntegrityError`; `release()` deletes a claim after a failed send.
-- `ProgressRepository` replaces `drop_progress` wholesale each sync (the inventory
-  is the full current state) and manages snapshots.
+- `ProgressRepository` replaces only that user's `user_drop_progress` rows each
+  sync and manages that user's snapshots.
+- Shared catalog/stream repositories stay user-agnostic.
 
 ## Tests
 
-`backend/tests` (71 tests):
+`backend/tests` covers:
 
-- parsing/inventory
-- scan service (catalog, streams, campaign-start-gated alerts, retry)
-- progress service (watch rate, digests, deadline windows, retry)
-- notifications (claim/release/duplicate)
-- watch queue (filtering/sorting/next drop)
-- focused watcher (singleton, manual/auto/next, offline, completion)
-- campaign completion ledger (`earnedDropRewards`, /campaigns, /progress)
-- streams API, status API, DB/index creation, models (deferred raw)
+- parsing/inventory, scan service (shared catalog, streams, per-user starts,
+  retry), progress service (watch rate, digests, deadline windows, retry,
+  reconnect semantics), notifications (claim/release/duplicate),
+- watch queue and focused watcher (per-user isolation, manual/auto/next,
+  offline, completion), completion ledger, streams/status APIs,
+- auth (bootstrap, invite/closed/open registration, existing/inactive user,
+  different-account conflict, cookie attributes, absolute expiry, CSRF,
+  forwarded HTTPS, Origin/Host, rate limit),
+- migration (legacy fixture, no-token bootstrap, empty `user_id`, expired token,
+  conflicting user, partial failure/rerun, concurrent startup),
+- admin (non-admin `403`, self-disable `400`, session revocation, no
+  token/chat-id leakage),
+- worker loops (one user fails, others continue; Telegram target/redaction).
 
 Run:
 
@@ -261,9 +313,13 @@ PYTHONPATH=$PWD pytest -q
 ruff check app tests
 ```
 
+The exact pass count is recorded in [STATUS.md](STATUS.md); after this change it
+is higher than the old single-user baseline.
+
 ## Adding a backend feature
 
-1. Add/modify models in `domain/models.py` with indexes for new query patterns.
+1. Add/modify models in `domain/models.py` with `user_id` and indexes for new
+   personal query patterns.
 2. Add Pydantic contracts in `domain/schemas.py` (additive where possible).
 3. Put query logic in `repositories/`; orchestration in `services/`.
 4. Add endpoint in `api/v1/` and register in `router.py`.
@@ -271,11 +327,14 @@ ruff check app tests
    [BACKEND.md](BACKEND.md), [STATUS.md](STATUS.md), [CHANGELOG.md](CHANGELOG.md).
 6. Use explicit loaders/flat joins for read paths; avoid `selectin` graphs for
    ID/name mappings.
+7. Never return another user's rows; admin responses must stay safe-metadata
+   only.
 
 ## Known limitations
 
-- Single uvicorn worker; a heavy request can serialize others (P1 work).
-- SQLite writes are serialized; fine for one user.
+- Single uvicorn worker; a heavy request can serialize others.
+- SQLite writes are serialized; the worker is sequential per user.
 - Twitch GQL is unofficial and can change without notice.
-- Legacy implicit tokens can have `expires_at = null` (no refresh).
-- Manual `POST /scans` is synchronous (~2–3s).
+- Legacy implicit tokens have no refresh token; an expired token means reconnect.
+- Manual `POST /scans` is synchronous (~2–3s) and admin-only.
+- Per-user provider calls grow linearly with the number of active users.

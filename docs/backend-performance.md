@@ -5,6 +5,11 @@
 **Data snapshot:** 98 games, 118 campaigns, 437 rewards, 5 live streams, 7 drops in progress
 **Method:** 20–30 HTTP samples per endpoint (p50/p95/max), in-process ASGI query counting, SQLite component timings, gzip measurements, nginx header inspection
 
+> **Historical note (2026-11-12):** this report was measured on the single-user
+> release. Multi-user changed auth and moved personal tables to `user_*` keys; the
+> shared catalog/stream read-path findings still apply, but per-user worker loops
+> add linear cost. Re-measure before treating the absolute numbers as current.
+
 ---
 
 ## 1. Executive summary
@@ -23,7 +28,7 @@ The backend is **not generally slow**: most endpoints answer in 7–23 ms. The p
 **Highest-impact, lowest-risk fixes**
 
 1. Rewrite `/watch-queue` with a flat join and no full-campaign loading → **100 ms → ~20 ms, 11 → 3 queries**.
-2. Persist the Twitch display name/avatar in the existing `twitch_auth` row → cold `/twitch/status` **693 ms → ~7 ms**.
+2. Persist the Twitch display name/avatar on the user row (originally in `twitch_auth`; superseded by ADR-019) → cold `/twitch/status` **693 ms → ~7 ms**.
 3. Enable gzip + immutable asset caching in nginx → **JS 245 KB → 72 KB, CSS 28 KB → 6 KB, `/games` 17.7 KB → 2.7 KB**.
 4. Defer/remove `Campaign.raw` → ~20 ms saved on every full campaign load, 715 KB not read.
 5. Add a short server-side response cache / ETag → repeat polls **< 5 ms**.
@@ -179,6 +184,11 @@ Same flat-join pattern for `/streams`; only load campaign names/GQL IDs. Expecte
 `raw` is write-only. Add `deferred=True` to the column (or move it to a side table / stop storing it). This avoids ~20 ms and 715 KB on every full campaign load. Verify no test reads `.raw`.
 
 #### 4. Persist Twitch profile (S–M)
+
+**Superseded by ADR-019 (2026-11-12):** profiles now live on `users` and tokens
+on `twitch_accounts`; do not add profile columns to the legacy `twitch_auth`
+table. The cold-profile target below still applies.
+
 Add `display_name` and `profile_image_url` to the existing `twitch_auth` row, populated during `/twitch/connect` (no new user table). `/twitch/status` then reads the DB only. Optionally refresh it daily in the worker.
 
 Expected cold `/twitch/status`: **693 ms → ~7 ms**. This removes the worst cold-start latency.
@@ -222,7 +232,11 @@ Change eager `selectin` relationships to `lazy="raise"` and load only what each 
 Make `POST /scans` enqueue work and return `202` + job id; frontend polls job status. The scan is ~3.2 s and currently ties up a request. Not a first-load issue, but better UX.
 
 #### 13. Postgres/multiple workers (L, only if multi-user)
-SQLite + one uvicorn worker is correct for a single-user Pi. If this becomes multi-user or write-heavy, move to Postgres and run multiple workers; the caching/materialized read model would carry over.
+SQLite + one uvicorn worker remains the right shape for a small multi-user Pi.
+Per-user progress/watcher loops add linear cost, so raise intervals or stagger
+users before adding workers. If load grows beyond dozens of active users or
+writes become heavy, move to Postgres and run multiple workers; the
+caching/materialized read model would carry over.
 
 #### 14. Frontend code splitting (M)
 Lazy-load Settings/Profile/Streams/Campaigns with `React.lazy`; the initial bundle drops from ~245 KB to the Overview + shared shell. Combine with asset caching.
