@@ -140,7 +140,7 @@ async def test_admin_lists_safe_user_fields_without_secrets(monkeypatch):
 
     async with factory() as session:
         user = await session.get(User, user_id)
-        user.telegram_chat_id = "555"
+        user.telegram_chat_id = "secret-chat-id"
         user.telegram_enabled = True
         await session.commit()
 
@@ -161,7 +161,7 @@ async def test_admin_lists_safe_user_fields_without_secrets(monkeypatch):
                 "last_login_at",
                 "telegram_enabled",
             }
-        assert "555" not in response.text
+        assert "secret-chat-id" not in response.text
         assert "access_token" not in response.text
         assert "telegram_chat_id" not in response.text
 
