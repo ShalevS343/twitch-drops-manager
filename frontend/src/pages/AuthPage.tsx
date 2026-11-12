@@ -77,7 +77,7 @@ export function AuthPage() {
                 ? 'Reopen Twitch authorization'
                 : 'Continue with Twitch'}
           </button>
-          {registration.invite_required && (
+          {registration.invite_required && !closed && (
             <span className="muted small">An invite code is required for new accounts.</span>
           )}
         </div>

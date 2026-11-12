@@ -93,14 +93,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(() => load(), [load])
 
+  /**
+   * Lets any in-flight `/auth/me` settle before reloading. Without this, a
+   * request started just before login/logout could resolve with the previous
+   * identity and win the race.
+   */
+  const reload = useCallback(async () => {
+    const pending = pendingRef.current
+    if (pending) {
+      await pending.catch(() => null)
+    }
+    return load()
+  }, [load])
+
   const login = useCallback(
     async (redirectUrl: string, inviteCode?: string) => {
       const result = await api.twitchConnect(redirectUrl, inviteCode)
       setNotice(null)
-      await load()
+      await reload()
       return result
     },
-    [load],
+    [reload],
   )
 
   const logout = useCallback(async () => {
@@ -109,9 +122,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       // Reloading /auth/me drops the identity and purges all personal caches.
       setNotice(null)
-      await load()
+      await reload()
     }
-  }, [load])
+  }, [reload])
 
   const user = me?.authenticated ? me.user ?? null : null
 
