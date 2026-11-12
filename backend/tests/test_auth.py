@@ -33,6 +33,7 @@ from app.core.security import (
     set_auth_cookies,
 )
 from app.domain.models import (
+    TwitchAccount,
     UserCampaignStart,
     UserDropProgress,
     UserNotification,
@@ -492,6 +493,68 @@ async def test_disabling_telegram_clears_pending_campaign_starts():
         assert updated.telegram_enabled is False
         rows = (await session.execute(select(UserCampaignStart))).scalars().all()
         assert rows == []
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_disabling_telegram_only_clears_that_users_pending_starts():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        first = await UserRepository(session).create(
+            twitch_user_id="123", login="first"
+        )
+        second = await UserRepository(session).create(
+            twitch_user_id="456", login="second"
+        )
+        session.add_all(
+            [
+                UserCampaignStart(user_id=first.id, external_id="campaign-1"),
+                UserCampaignStart(user_id=second.id, external_id="campaign-2"),
+            ]
+        )
+        await session.commit()
+
+        service = AuthService(session, settings=_settings(), provider=FakeTwitchProvider())
+        await service.update_telegram(first.id, "", False)
+
+        rows = (await session.execute(select(UserCampaignStart))).scalars().all()
+        assert {row.user_id for row in rows} == {second.id}
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_reconnecting_clears_the_reconnect_required_flag():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        user = await UserRepository(session).create(
+            twitch_user_id="123", login="viewer"
+        )
+        session.add(
+            TwitchAccount(
+                user_id=user.id,
+                access_token="expired-token",
+                reconnect_required=True,
+                last_error="Twitch login expired; reconnect your account",
+            )
+        )
+        await session.commit()
+
+        service = AuthService(session, settings=_settings(), provider=FakeTwitchProvider())
+        await service.connect("url")
+        await session.commit()
+
+        account = (
+            await session.execute(
+                select(TwitchAccount).where(TwitchAccount.user_id == user.id)
+            )
+        ).scalar_one()
+        assert account.reconnect_required is False
+        assert account.last_error == ""
+        assert account.access_token == "token"
 
     await engine.dispose()
 
