@@ -6,7 +6,12 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.exceptions import NotConfiguredError, ProviderError
+from app.core.exceptions import (
+    NotConfiguredError,
+    ProviderError,
+    describe_exception,
+    safe_scan_error,
+)
 from app.domain.models import Campaign, Game, ScanRun
 from app.domain.parsing import (
     campaign_matches_stream,
@@ -130,16 +135,20 @@ class ScanService:
             )
         except Exception as exc:
             await self.session.rollback()
+            safe_error = safe_scan_error(exc)
             self.session.add(
                 ScanRun(
                     started_at=started_at,
                     finished_at=utcnow(),
                     ok=False,
-                    error=str(exc),
+                    error=safe_error,
                 )
             )
             await self.session.commit()
-            logger.exception("Scan failed")
+            # Exception text/tracebacks can contain request URLs, bodies, and
+            # tokens. Log only the type plus the same fixed message stored in
+            # scan_runs.error.
+            logger.error("Scan failed (%s)", describe_exception(exc))
             raise
 
     async def _sync_games(self, games: list[Any]) -> None:
@@ -291,7 +300,10 @@ class ScanService:
                     "\n".join(lines), user.telegram_chat_id.strip()
                 )
             except ProviderError as exc:
-                logger.warning("Telegram notification failed: %s", exc)
+                logger.warning(
+                    "Telegram notification failed (%s)",
+                    describe_exception(exc),
+                )
                 for _, dedupe_key in claimed:
                     await repo.release(dedupe_key)
                 await self.session.commit()

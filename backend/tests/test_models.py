@@ -33,6 +33,16 @@ def test_user_twitch_user_id_is_unique():
     assert User.__table__.c.twitch_user_id.unique is True
 
 
+def test_user_telegram_chat_id_has_a_partial_unique_index():
+    index = next(
+        index
+        for index in User.__table__.indexes
+        if index.name == "uq_users_telegram_chat_id"
+    )
+    assert index.unique is True
+    assert index.dialect_options["sqlite"]["where"] is not None
+
+
 def test_user_session_token_hash_is_unique():
     assert UserSession.__table__.c.token_hash.unique is True
 

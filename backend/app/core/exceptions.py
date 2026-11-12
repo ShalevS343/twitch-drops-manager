@@ -44,3 +44,38 @@ class LastAdminError(AuthError):
     """Disabling this account would leave no active administrator."""
 
     status_code = 400
+
+
+# Scan failures are shared with every signed-in user. Store only the exception
+# type plus a fixed phrase: provider exceptions can embed request URLs (the old
+# Twitch token request put the client secret in the query string), response
+# bodies, and tokens. Existing rows may still contain such text, so the same
+# sanitizer runs when a scan row is serialized.
+SCAN_ERROR_MESSAGE = "scan failed"
+SAFE_SCAN_ERROR_PREFIX = "Scan failed (details redacted)"
+
+
+def describe_exception(exc: BaseException) -> str:
+    """Return a short, non-sensitive provider exception description."""
+    return type(exc).__name__
+
+
+def safe_scan_error(exc: BaseException) -> str:
+    return f"{describe_exception(exc)}: {SCAN_ERROR_MESSAGE}"
+
+
+def sanitize_scan_error(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    # Only the exact shape written by ``safe_scan_error`` is safe to expose.
+    name, separator, message = value.partition(": ")
+    if (
+        separator
+        and message == SCAN_ERROR_MESSAGE
+        and name
+        and len(name) <= 80
+        and all(char.isalnum() or char in "_." for char in name)
+    ):
+        return value
+    return SAFE_SCAN_ERROR_PREFIX

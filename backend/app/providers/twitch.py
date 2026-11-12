@@ -30,7 +30,7 @@ class TwitchProvider:
             async with httpx.AsyncClient(timeout=15) as client:
                 response = await client.post(
                     TOKEN_URL,
-                    params={
+                    data={
                         "client_id": self.settings.twitch_client_id,
                         "client_secret": self.settings.twitch_client_secret,
                         "grant_type": "client_credentials",
@@ -39,7 +39,11 @@ class TwitchProvider:
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPError as exc:
-            raise ProviderError(f"Twitch token request failed: {exc}") from exc
+            # Never echo the URL, request body, or upstream response: the body
+            # carries the client secret and old builds put it in the query.
+            raise ProviderError(
+                f"Twitch token request failed ({type(exc).__name__})"
+            ) from None
 
         self._token = data["access_token"]
         self._expires_at = time.time() + int(data.get("expires_in", 3600))
@@ -69,7 +73,9 @@ class TwitchProvider:
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPError as exc:
-            raise ProviderError(f"Twitch API request failed: {exc}") from exc
+            raise ProviderError(
+                f"Twitch API request failed ({type(exc).__name__})"
+            ) from None
 
     async def get_streams(self, game_id: str, max_pages: int = 5) -> list[dict[str, Any]]:
         streams: list[dict[str, Any]] = []

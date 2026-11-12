@@ -97,8 +97,12 @@ class ProfileService:
     async def _run(self, user_id: int, provider=None) -> None:
         try:
             await self.refresh(user_id, provider)
-        except Exception:
-            logger.exception("Profile refresh failed for user %s", user_id)
+        except Exception as exc:  # noqa: BLE001 - background best effort
+            logger.error(
+                "Profile refresh failed for user %s (%s)",
+                user_id,
+                type(exc).__name__,
+            )
         finally:
             self._inflight.discard(user_id)
 

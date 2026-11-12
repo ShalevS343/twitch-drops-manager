@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -21,6 +22,16 @@ LINK_TTL = timedelta(minutes=10)
 INVALID_CODE_MESSAGE = (
     "This link code is invalid or has expired. Open Settings → Telegram and "
     "click Connect Telegram for a new link."
+)
+
+DIFFERENT_CHAT_MESSAGE = (
+    "This account already has a different Telegram chat linked. Unlink it in "
+    "Settings → Telegram before connecting this chat."
+)
+
+CHAT_IN_USE_MESSAGE = (
+    "This Telegram chat is already linked to another account. "
+    "Send /unlink there first."
 )
 
 
@@ -115,16 +126,24 @@ class TelegramLinkService:
             )
         ).scalars().first()
         if owner is not None:
-            return LinkResult(
-                False,
-                "This Telegram chat is already linked to another account. "
-                "Send /unlink there first.",
-            )
+            return LinkResult(False, CHAT_IN_USE_MESSAGE)
+
+        # A link code is not an account-takeover primitive: it can re-link the
+        # same chat, but never silently move an account to a different chat.
+        existing_chat = (user.telegram_chat_id or "").strip()
+        if existing_chat and existing_chat != chat_id:
+            return LinkResult(False, DIFFERENT_CHAT_MESSAGE)
 
         user.telegram_chat_id = chat_id
         user.telegram_enabled = True
         await self.links.mark_used(row, now)
-        await self.session.commit()
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            # The database partial unique index is the final arbiter if two
+            # chats race to claim the same id.
+            await self.session.rollback()
+            return LinkResult(False, CHAT_IN_USE_MESSAGE)
 
         display_name = (
             user.display_name.strip()
@@ -183,7 +202,10 @@ class TelegramLinkService:
             return None
         result = await self.session.execute(
             select(User)
-            .where(func.trim(User.telegram_chat_id) == chat_id)
+            .where(
+                User.is_active.is_(True),
+                func.trim(User.telegram_chat_id) == chat_id,
+            )
             .order_by(User.id)
             .limit(1)
         )

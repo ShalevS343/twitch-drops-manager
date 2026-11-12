@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     public_origin: str = ""
     allowed_hosts: str = ""
     auth_rate_limit_per_minute: int = 10
+    auth_global_rate_limit_per_minute: int = 120
 
     poll_seconds: int = 900
     min_poll_seconds: int = 300

@@ -18,7 +18,11 @@ from app.core.exceptions import (
     NotConfiguredError,
     ProviderError,
 )
-from app.core.rate_limit import client_ip, get_auth_limiter
+from app.core.rate_limit import (
+    check_auth_rate_limits,
+    client_ip,
+    enforce_user_action_limit,
+)
 from app.core.security import (
     SESSION_COOKIE,
     clear_auth_cookies,
@@ -107,10 +111,8 @@ async def auth_connect(
     session: SessionDep,
     service: AuthServiceDep,
 ) -> AuthConnectOut:
-    limiter = get_auth_limiter()
-    key = client_ip(request)
-    if not limiter.check(key):
-        retry_after = limiter.retry_after(key)
+    retry_after = check_auth_rate_limits(client_ip(request))
+    if retry_after:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many authentication attempts; try again later",
@@ -165,6 +167,7 @@ async def auth_update_me(
     user: CurrentUserDep,
     service: AuthServiceDep,
 ) -> AuthUserOut:
+    enforce_user_action_limit("auth.me.update", user.id)
     try:
         updated = await service.update_telegram(user.id, payload.telegram_enabled)
     except AuthError as exc:

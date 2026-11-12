@@ -45,15 +45,17 @@ async def run_scan(session_factory=None) -> None:
                 result.stream_count,
                 result.notified_count,
             )
-        except Exception:
-            logger.exception("Scheduled scan failed")
+        except Exception as exc:  # noqa: BLE001 - keep the worker alive
+            # Exception messages can embed provider URLs/bodies/tokens; log the
+            # type only (ScanService already stored a safe scan_runs.error).
+            logger.error("Scheduled scan failed (%s)", type(exc).__name__)
 
         try:
             await UserSessionRepository(session).delete_expired()
             await session.commit()
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - best-effort cleanup
             await session.rollback()
-            logger.exception("Expired session cleanup failed")
+            logger.error("Expired session cleanup failed (%s)", type(exc).__name__)
 
 
 async def run_progress(session_factory=None) -> None:
@@ -74,8 +76,12 @@ async def run_progress(session_factory=None) -> None:
                         result.drop_count,
                         result.notified_count,
                     )
-            except Exception:
-                logger.exception("Progress sync failed for user %s", user_id)
+            except Exception as exc:  # noqa: BLE001 - continue with other users
+                logger.error(
+                    "Progress sync failed for user %s (%s)",
+                    user_id,
+                    type(exc).__name__,
+                )
 
 
 async def run_watcher(session_factory=None) -> None:
@@ -98,8 +104,12 @@ async def run_watcher(session_factory=None) -> None:
                         focus.campaign_id if focus else "-",
                         focus.reason if focus else "-",
                     )
-            except Exception:
-                logger.exception("Watcher reconcile failed for user %s", user_id)
+            except Exception as exc:  # noqa: BLE001 - continue with other users
+                logger.error(
+                    "Watcher reconcile failed for user %s (%s)",
+                    user_id,
+                    type(exc).__name__,
+                )
 
 
 async def main() -> None:

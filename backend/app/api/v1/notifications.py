@@ -2,12 +2,14 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUserDep, TelegramDep
 from app.core.exceptions import NotConfiguredError, ProviderError
+from app.core.rate_limit import enforce_user_action_limit
 
 router = APIRouter()
 
 
 @router.post("/notifications/test")
 async def test_notification(user: CurrentUserDep, telegram: TelegramDep) -> dict:
+    enforce_user_action_limit("notifications.test", user.id)
     if not telegram.configured:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

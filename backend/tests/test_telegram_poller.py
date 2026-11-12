@@ -284,6 +284,25 @@ async def test_409_conflict_is_logged_and_does_not_crash(caplog):
 
 
 @pytest.mark.asyncio
+async def test_reply_cooldown_suppresses_repeated_spam_for_one_chat():
+    engine, factory = await make_engine()
+    provider = FakePollingTelegram(
+        [[_message(100 + index, "/start") for index in range(12)]]
+    )
+
+    poller = TelegramPoller(provider, factory)
+    await _run(poller, provider)
+
+    # Ten replies per chat per minute; the remaining updates are processed but
+    # do not generate more outbound messages.
+    assert len(provider.sent) == 10
+    assert {chat_id for chat_id, _message_text in provider.sent} == {"42"}
+    assert await _offset(factory) == "112"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_unknown_updates_and_send_failures_do_not_stop_the_poller():
     engine, factory = await make_engine()
     async with factory() as session:

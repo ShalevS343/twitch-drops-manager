@@ -160,5 +160,6 @@ async def test_fetch_profile_raises_provider_error_on_graphql_errors(monkeypatch
     )
 
     provider = TwitchUserProvider(_settings())
-    with pytest.raises(ProviderError, match="boom"):
+    with pytest.raises(ProviderError, match="GraphQL") as excinfo:
         await provider.fetch_profile("token", "123")
+    assert "boom" not in str(excinfo.value)

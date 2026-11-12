@@ -66,12 +66,25 @@ class AuthService:
         self.games = UserGameRepository(session)
 
     async def registration_state(self) -> RegistrationState:
+        invite_code_configured = bool(self.settings.registration_code.strip())
+        owner_configured = bool(self.settings.owner_twitch_id.strip())
+        open_registration = bool(self.settings.registration_open)
+
         if await self.users.count() == 0:
-            return RegistrationState(open=True, invite_required=False)
-        if self.settings.registration_code.strip():
+            # A gate must exist for the very first user too. OWNER_TWITCH_ID is
+            # checked against the connecting Twitch id in ``connect``; the UI
+            # only needs to know whether registration is possible at all.
+            if invite_code_configured:
+                return RegistrationState(open=True, invite_required=True)
+            return RegistrationState(
+                open=owner_configured or open_registration,
+                invite_required=False,
+            )
+
+        if invite_code_configured:
             return RegistrationState(open=True, invite_required=True)
         return RegistrationState(
-            open=bool(self.settings.registration_open), invite_required=False
+            open=open_registration, invite_required=False
         )
 
     async def connect(
@@ -122,7 +135,7 @@ class AuthService:
                 raise AccountConflictError(
                     "Sign out before connecting a different Twitch account"
                 )
-            if not await self._registration_allowed(invite_code):
+            if not await self._registration_allowed(twitch_user_id, invite_code):
                 raise RegistrationClosedError(
                     "Registration is closed; a valid invite code is required"
                 )
@@ -219,15 +232,21 @@ class AuthService:
         if user is None:
             raise InvalidAuthRequestError("User not found")
 
-        if not active and user.role == "admin" and user.is_active:
-            active_admins = await self.users.count_active_admins()
-            if active_admins <= 1:
-                raise LastAdminError(
-                    "Cannot disable the last active admin account"
-                )
-
-        await self.users.set_active(user, active)
         if not active:
+            # One conditional UPDATE checks "is this the last active admin?"
+            # at write time, so two concurrent demotions cannot both pass a
+            # read-then-write check and leave the install without an admin.
+            deactivated = await self.users.deactivate_unless_last_admin(user_id)
+            if not deactivated:
+                await self.session.refresh(user)
+                if user.is_active and user.role == "admin":
+                    raise LastAdminError(
+                        "Cannot disable the last active admin account"
+                    )
+                # Already inactive: still run the idempotent cleanup below.
+            else:
+                user.is_active = False
+
             await self.sessions.delete_for_user(user_id)
             # Do not deliver a backlog of campaign starts when this account is
             # enabled again.
@@ -245,19 +264,36 @@ class AuthService:
                 focus.enabled = False
                 focus.status = "idle"
                 focus.reason = "account disabled"
+        else:
+            await self.users.set_active(user, True)
         await self.session.commit()
         return user
 
-    async def _registration_allowed(self, invite_code: str) -> bool:
-        if await self.users.count() == 0:
-            return True
+    async def _registration_allowed(
+        self, twitch_user_id: str, invite_code: str
+    ) -> bool:
+        configured_code = self.settings.registration_code.strip()
+        owner_id = self.settings.owner_twitch_id.strip()
+        supplied_code = (invite_code or "").strip()
+        first_user = await self.users.count() == 0
 
-        configured = self.settings.registration_code.strip()
-        if configured:
-            supplied = (invite_code or "").strip()
-            if not supplied:
+        if first_user:
+            # A fresh install is never open just because the table is empty.
+            # Bootstrap requires an explicit owner, invite code, or opt-in.
+            if owner_id and compare_secrets(
+                owner_id, (twitch_user_id or "").strip()
+            ):
+                return True
+            if configured_code:
+                return bool(supplied_code) and compare_secrets(
+                    configured_code, supplied_code
+                )
+            return bool(self.settings.registration_open)
+
+        if configured_code:
+            if not supplied_code:
                 return False
-            return compare_secrets(configured, supplied)
+            return compare_secrets(configured_code, supplied_code)
         return bool(self.settings.registration_open)
 
     async def _profile(

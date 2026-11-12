@@ -145,7 +145,9 @@ class TwitchUserProvider:
                     headers={"Authorization": f"OAuth {access_token}"},
                 )
         except httpx.HTTPError as exc:
-            raise ProviderError(f"Twitch token validation failed: {exc}") from exc
+            raise ProviderError(
+                f"Twitch token validation failed ({type(exc).__name__})"
+            ) from None
 
         if response.status_code == 401:
             raise NotConfiguredError("Twitch login is invalid or expired")
@@ -169,13 +171,15 @@ class TwitchUserProvider:
             async with httpx.AsyncClient(timeout=20) as client:
                 response = await client.post(TOKEN_URL, data=data)
         except httpx.HTTPError as exc:
-            raise ProviderError(f"Twitch token refresh failed: {exc}") from exc
+            raise ProviderError(
+                f"Twitch token refresh failed ({type(exc).__name__})"
+            ) from None
 
         if response.status_code in (400, 401):
             raise NotConfiguredError("Twitch login expired; reconnect your account")
         if response.status_code >= 400:
             raise ProviderError(
-                f"Twitch token refresh failed ({response.status_code}): {response.text[:200]}"
+                f"Twitch token refresh failed ({response.status_code})"
             )
 
         return response.json()
@@ -220,7 +224,9 @@ class TwitchUserProvider:
                     json=payload,
                 )
         except httpx.HTTPError as exc:
-            raise ProviderError(f"Twitch profile request failed: {exc}") from exc
+            raise ProviderError(
+                f"Twitch profile request failed ({type(exc).__name__})"
+            ) from None
 
         if response.status_code == 401:
             raise ReconnectRequiredError(
@@ -238,19 +244,13 @@ class TwitchUserProvider:
 
         data = body.get("data") if isinstance(body, dict) else None
         if not isinstance(data, dict):
-            errors = body.get("errors") if isinstance(body, dict) else None
-            message = ""
-            if isinstance(errors, list) and errors:
-                first = errors[0]
-                if isinstance(first, dict):
-                    message = str(first.get("message") or "")
-            raise ProviderError(f"Twitch GraphQL error: {message or 'empty response'}")
+            # Upstream GraphQL error text is a response body and must not be
+            # surfaced (it can echo request state); keep only a fixed message.
+            raise ProviderError("Twitch GraphQL request failed (GraphQLError)")
 
         errors = body.get("errors")
         if isinstance(errors, list) and errors:
-            first = errors[0]
-            message = str(first.get("message") or "") if isinstance(first, dict) else ""
-            raise ProviderError(f"Twitch GraphQL error: {message or 'unknown error'}")
+            raise ProviderError("Twitch GraphQL request failed (GraphQLError)")
 
         current_user = data.get("currentUser")
         profile = dict(current_user) if isinstance(current_user, dict) else {}
@@ -316,7 +316,9 @@ class TwitchUserProvider:
                     except ValueError:
                         body = {}
         except httpx.HTTPError as exc:
-            raise ProviderError(f"Twitch GraphQL request failed: {exc}") from exc
+            raise ProviderError(
+                f"Twitch GraphQL request failed ({type(exc).__name__})"
+            ) from None
 
         if response.status_code == 401:
             raise ReconnectRequiredError(
@@ -329,13 +331,8 @@ class TwitchUserProvider:
 
         data = body.get("data") if isinstance(body, dict) else None
         if not isinstance(data, dict):
-            errors = body.get("errors") if isinstance(body, dict) else None
-            message = ""
-            if isinstance(errors, list) and errors:
-                first = errors[0]
-                if isinstance(first, dict):
-                    message = str(first.get("message") or "")
-            raise ProviderError(f"Twitch GraphQL error: {message or 'empty response'}")
+            # Never expose an upstream GraphQL error body on API paths.
+            raise ProviderError("Twitch GraphQL request failed (GraphQLError)")
 
         return data
 

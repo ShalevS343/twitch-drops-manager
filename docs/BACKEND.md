@@ -20,7 +20,7 @@ app/
     exceptions.py         ProviderError / NotConfiguredError / ReconnectRequiredError
     logging.py            logging config (httpx/httpcore quieted)
     security.py           sessions, CSRF, cookie helpers, role checks
-    rate_limit.py         in-process auth attempt limiter
+    rate_limit.py         in-process auth + per-user action limiters
     middleware.py         CSRF, no-store, trusted-host middleware
   domain/
     models.py             users/sessions/twitch accounts/user_* + shared + legacy
@@ -83,6 +83,7 @@ error instead of guessing.
 | `session_ttl_days` | `30` | Absolute session lifetime |
 | `session_cookie_secure` | `auto` | `auto`/`true`/`false` |
 | `auth_rate_limit_per_minute` | `10` | Auth attempts per client IP per minute |
+| `auth_global_rate_limit_per_minute` | `120` | Deployment-wide auth ceiling, checked after the per-IP bucket |
 | `sunkwi_url` | `https://drops.sunkwi.com/api/twitch/drops` | Catalog endpoint |
 | `drops_api_key` | empty | Optional; also controls cache TTL defaults |
 | `twitch_client_id` / `secret` | empty | Helix app credentials (shared) |
@@ -109,8 +110,12 @@ deployment-facing list.
   - parse + validate the implicit-grant token with Twitch and enforce the
     expected client id;
   - resolve the Twitch user id; load the active local user or apply the
-    registration table (first user = admin; later users need a valid code or
-    explicit open registration);
+    registration gates. An empty `users` table is **not** open by itself: the
+    first user is allowed only when the Twitch id matches non-empty
+    `OWNER_TWITCH_ID`, a valid `REGISTRATION_CODE` is supplied, or
+    `REGISTRATION_OPEN=true`. Later users need the code or explicit open
+    registration. The first-admin role is claimed atomically
+    (`claim_first_admin_slot`), so concurrent first logins yield one admin;
   - a different Twitch id while signed in raises a `409` conflict; inactive users
     get `403`;
   - seed default games only when `users.games_seeded` is false, then mark it
@@ -124,10 +129,21 @@ deployment-facing list.
 - `update_telegram(user_id, chat_id, enabled)` updates only the current user.
   Disabling/clearing deletes pending `user_campaign_starts` rows so re-enabling
   does not send a backlog. Disabling an account also deletes its pending starts.
-- `registration_state()` returns `{open, invite_required}` for `/auth/me`.
+- `registration_state()` returns `{open, invite_required}` for `/auth/me`. With
+  no users, `open` is true only when an owner, code, or open registration is
+  configured; `invite_required` is true only when the code is the gate.
+- `set_user_active(user_id, False)` uses one conditional `UPDATE ... WHERE NOT
+  EXISTS (another active admin)` and checks `rowcount`, so two concurrent
+  demotions cannot leave the install without an admin.
 - Codes are compared with `secrets.compare_digest`; attempts are rate-limited per
   client IP (last `X-Forwarded-For` hop, or the single address nginx forwards;
-  falls back to the peer address).
+  falls back to the peer address) and then by a deployment-wide auth bucket.
+  The per-IP check runs first, so one address cannot exhaust the global bucket
+  before its own limit applies.
+- Authenticated side-effect routes use small per-user in-process budgets
+  (`progress.refresh` 2/min, `notifications.test` 3/min, `telegram.link` and
+  `telegram.unlink` 3/min, `auth.me.update` 10/min) and return `429` with
+  `Retry-After`.
 
 Sessions: 32 random bytes, base64url in `tdm_session`, SHA-256 hash stored. A
 separate random CSRF token is stored hashed and echoed via `X-CSRF-Token`.
@@ -158,7 +174,9 @@ per hour. Expired rows are pruned at startup and in the scan job.
    `(user_id, campaign-started:{external_id})` atomically; on Telegram failure
    release the claim and keep the start row; on success delete that user's row.
 9. Prune expired sessions.
-10. Write a shared `ScanRun` (`ok`, error, counts).
+10. Write a shared `ScanRun` (`ok`, error, counts). On failure store only
+    `<ExceptionType>: scan failed` (never `str(exc)`); logs contain only the
+    exception type. `ScanRunOut` and `/status` redact legacy raw rows too.
 
 New live streams are never sent to Telegram.
 
@@ -259,8 +277,14 @@ and is the only writer of focused mode:
 ### Twitch Helix (`twitch.py`)
 
 - Client-credentials token, cached until near expiry (shared by all users).
+  `client_id` / `client_secret` / `grant_type` go in the POST **body**, never the
+  query string.
 - `GET /helix/streams` with pagination (up to 5 pages, 100 per page).
 - 401 → refresh token and retry once.
+- Provider errors contain only an operation label, the exception type, or an
+  HTTP status; URLs, request bodies, tokens, and upstream response bodies are
+  never included. `twitch_user.py` follows the same rule (GraphQL/transport
+  error text and refresh response bodies are not surfaced).
 
 ### Twitch user (`twitch_user.py`)
 
@@ -288,6 +312,16 @@ and is the only writer of focused mode:
   Connect Telegram), `/stop` disables alerts, and `/unlink` clears the link.
   Group chats are ignored. A chat id cannot be entered manually; only the link
   flow sets it.
+- A link code may re-link the **same** chat, but it cannot replace a different
+  non-empty `telegram_chat_id`; that returns `ok=false` and asks the user to
+  unlink in Settings first. Chat lookup/enable/disable/unlink require
+  `User.is_active`, so disabled accounts cannot drive bot commands. A partial
+  unique index (`uq_users_telegram_chat_id`, non-empty values only) is the
+  race-safe backstop; the link service catches `IntegrityError` and reports the
+  chat as already linked.
+- Replies are capped at 10 per chat per minute. Repeated invalid or spam
+  commands are still consumed and the offset advances, but suppressed replies
+  stop one chat from generating unbounded outbound messages.
 - The whole poll iteration (including offset load/save) is guarded: database or
   provider failures log only the exception type and back off exponentially from
   5s to a 300s cap. A done-callback logs unexpected poller termination.
@@ -300,6 +334,10 @@ and is the only writer of focused mode:
   `IntegrityError`; `release()` deletes a claim after a failed send.
 - `ProgressRepository` replaces only that user's `user_drop_progress` rows each
   sync and manages that user's snapshots.
+- `users.telegram_chat_id` has a partial unique index for non-empty values.
+  `init_db()` creates missing model indexes individually and logs/skips one that
+  cannot be created (e.g. legacy duplicate chat ids) instead of blocking startup;
+  the link service still enforces uniqueness with a trimmed lookup.
 - Shared catalog/stream repositories stay user-agnostic.
 
 ## Tests
@@ -311,14 +349,20 @@ and is the only writer of focused mode:
   reconnect semantics), notifications (claim/release/duplicate),
 - watch queue and focused watcher (per-user isolation, manual/auto/next,
   offline, completion), completion ledger, streams/status APIs,
-- auth (bootstrap, invite/closed/open registration, existing/inactive user,
-  different-account conflict, cookie attributes, absolute expiry, CSRF,
-  forwarded HTTPS, Origin/Host, rate limit),
+- auth (bootstrap gates: owner match/mismatch, invite code, open, closed,
+  concurrent first users; existing/inactive user, different-account conflict,
+  cookie attributes, absolute expiry, CSRF, forwarded HTTPS, Origin/Host,
+  per-IP + global auth rate limit, per-user action limits, atomic last-admin
+  disable),
+- games selection bounds (50 entries / 100-char names, repository guard),
+- provider redaction (Twitch client secret never in errors, scan rows, or
+  `/status`),
 - migration (legacy fixture, no-token bootstrap, empty `user_id`, expired token,
   conflicting user, partial failure/rerun, concurrent startup),
 - admin (non-admin `403`, self-disable `400`, session revocation, no
   token/chat-id leakage),
-- worker loops (one user fails, others continue; Telegram target/redaction).
+- worker loops (one user fails, others continue; Telegram target/redaction;
+  per-chat reply cooldown).
 
 Run:
 
@@ -348,6 +392,8 @@ is higher than the old single-user baseline.
 ## Known limitations
 
 - Single uvicorn worker; a heavy request can serialize others.
+- The auth/action limiters are in-process (per worker). Running multiple
+  workers would multiply the effective budgets; the deployment assumes one.
 - SQLite writes are serialized; the worker is sequential per user.
 - Twitch GQL is unofficial and can change without notice.
 - Legacy implicit tokens have no refresh token; an expired token means reconnect.

@@ -54,14 +54,24 @@ Sign-in:
 
 | State | New user can register? | Invite code field? |
 |---|---|---|
-| No users yet | Yes — first user becomes `admin`, code ignored | No |
-| Users exist, `REGISTRATION_CODE` set | Yes | Yes |
+| No users; connecting id matches non-empty `OWNER_TWITCH_ID` | Yes — first user becomes `admin` | No |
+| No users; `REGISTRATION_CODE` set and supplied | Yes — first user becomes `admin` | Yes |
+| No users; `REGISTRATION_OPEN=true` | Yes — first user becomes `admin` | No |
+| No users; none of the above | No — `403` | No |
+| Users exist, `REGISTRATION_CODE` set | Yes, with the code | Yes |
 | Users exist, code empty, `REGISTRATION_OPEN=true` | Yes | No |
 | Users exist, code empty, `REGISTRATION_OPEN=false` | No — `403` | No ("registration closed") |
 
+An empty `users` table is **not** automatically open. The very first account
+needs an explicit gate: a matching owner Twitch id, a valid invite code, or
+explicitly open registration. The first-admin role is still claimed atomically,
+so concurrent first logins produce exactly one admin.
+
 `GET /auth/me` exposes `registration.open` and `registration.invite_required`
-using this table. Connecting a different Twitch id while signed in returns
-`409`; sign out first. The local user is permanently bound to one Twitch id.
+using this table. With no users, `open` is true only when an owner, code, or open
+registration is configured; `invite_required` is true when the code is the gate.
+Connecting a different Twitch id while signed in returns `409`; sign out first.
+The local user is permanently bound to one Twitch id.
 
 ## Conventions
 
@@ -75,8 +85,13 @@ using this table. Connecting a different Twitch id while signed in returns
     or not an admin
   - `404` not found / no scans yet
   - `409` Twitch account conflict (different Twitch id while signed in)
-  - `429` auth rate limit (`AUTH_RATE_LIMIT_PER_MINUTE`, default 10/min/IP)
-  - `502` upstream provider failure
+  - `429` rate limit; the response includes `Retry-After`. Auth attempts are
+    limited per client IP (`AUTH_RATE_LIMIT_PER_MINUTE`, default 10) **and** by a
+    deployment-wide bucket (`AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE`, default 120,
+    checked after the per-IP limit). Signed-in side-effect endpoints also have
+    small per-user budgets (see [Caching / rate-limit behavior](#caching--rate-limit-behavior)).
+  - `502` upstream provider failure (provider errors are sanitized; URLs,
+    request bodies, tokens, and upstream response bodies are not returned)
 - Personal endpoints are scoped to the session's user. Admin endpoints never
   return tokens or Telegram chat ids.
 
@@ -259,7 +274,8 @@ Never returns tokens, chat ids, progress, or session data.
 `games_selected`, `campaign_count`, and `stream_count` are per current user
 (selected games and their catalog/live counts). `last_scan` is the shared scan
 run and its `campaign_count`/`stream_count` cover the union of all users'
-tracked games; `last_error` is shared scan state. `telegram_ready` means the bot
+tracked games; `last_error` is shared scan state (redacted, never a provider
+URL/body/token). `telegram_ready` means the bot
 token exists **and** this user has opted in with a chat id. Twitch connection
 details are per user in `/twitch/status`.
 
@@ -286,7 +302,9 @@ the catalog itself is shared.
 ```
 
 Response: `{ "games": ["War Thunder", "Rust"] }` (names actually selected for
-the current user). Replaces only that user's selection. Names are matched
+the current user). Replaces only that user's selection. At most **50** games are
+accepted, each name is stripped and must be **1–100 characters**; empty or
+whitespace-only names are rejected with `422`. Names are matched
 case-insensitively and de-duplicated. A name that does not yet exist in the
 catalog is created as a tracked `Game` row with no Twitch metadata; a later scan
 fills in the game id and box art. Default games are seeded once on the account's
@@ -329,11 +347,14 @@ Users who opted out get no pending backlog.
 { "ok": true, "campaign_count": 118, "stream_count": 5, "notified_count": 2 }
 ```
 
-Errors: `400` provider not configured, `502` upstream failure. The scan is also
-recorded in the shared `scan_runs`. The scan computes the union of selected games
-across active users and discovers live streams once for everyone.
-`notified_count` sums successfully delivered campaign-start events across
-opted-in users. New live streams are **not** sent to Telegram.
+Errors: `400` provider not configured, `502` upstream failure. Provider errors
+and `scan_runs.error` are sanitized to the exception type plus a fixed message;
+URLs, request bodies, tokens, and upstream response bodies are never stored or
+returned. `GET /status` and `GET /scans/latest` redact legacy raw error text too.
+The scan is also recorded in the shared `scan_runs`. The scan computes the union
+of selected games across active users and discovers live streams once for
+everyone. `notified_count` sums successfully delivered campaign-start events
+across opted-in users. New live streams are **not** sent to Telegram.
 
 `GET /scans/latest` (session) → `ScanRunOut`; `404` if no scan has run.
 
@@ -361,11 +382,17 @@ logs or `last_error`.
 ```
 
 - `400` if the bot token is missing, `502` if Telegram cannot report the bot
-  username, `429` when the per-user link rate limit is hit.
+  username, `429` when the per-user link rate limit is hit (3/min).
 - Only a SHA-256 hash of the code is stored; codes expire after 10 minutes and
   are consumed on first successful use.
 - Opening the link and pressing Start in the bot's private chat links that chat
   to the current user and enables alerts. Group chats are ignored.
+- A link code can re-link the **same** chat, but it cannot replace a different
+  non-empty chat already linked to the account: that returns `ok=false` with a
+  message to unlink in Settings → Telegram first.
+- Disabled accounts cannot drive bot commands (`/start`, `/stop`, `/unlink`).
+- The poller caps replies to 10 per chat per minute, so repeated invalid or spam
+  commands are processed without an outbound reply for every update.
 
 `POST /telegram/unlink` (session) → `{ "unlinked": true }`; clears that user's
 chat id, disables alerts, and deletes pending starts and link codes. `404` if
@@ -495,9 +522,15 @@ user's chat, and does not auto-move.
 - Profile: persisted on `users`; in-memory GQL cache is only used for the initial
   fetch.
 - Auth: `AUTH_RATE_LIMIT_PER_MINUTE` (default 10) attempts per client IP per
-  minute; exceeding it returns `429`. nginx forwards one resolved client address
-  (see [OPERATIONS.md](OPERATIONS.md)); if the TLS proxy cannot supply the client
-  IP, public requests can share one bucket.
+  minute, plus a deployment-wide `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE` ceiling
+  (default 120) that is checked **after** the per-IP bucket, so one address is
+  stopped by its own limit before it can exhaust the shared bucket. Exceeding
+  either returns `429` with `Retry-After`. nginx forwards one resolved client
+  address (see [OPERATIONS.md](OPERATIONS.md)); if the TLS proxy cannot supply
+  the client IP, public requests can share one bucket.
+- Authenticated action budgets (in-process, per user, per minute; `429` +
+  `Retry-After`): `POST /progress/refresh` 2, `POST /notifications/test` 3,
+  `POST /telegram/link` 3, `POST /telegram/unlink` 3, `PATCH /auth/me` 10.
 - Authenticated responses: `Cache-Control: no-store`.
 - nginx gzips JSON/JS/CSS and caches hashed assets immutably.
 

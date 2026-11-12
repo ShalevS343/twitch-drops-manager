@@ -1,13 +1,16 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 from sqlalchemy import event
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import CompileError, IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -58,7 +61,18 @@ def _create_missing_indexes(connection) -> None:
     """Create model indexes that ``create_all`` skipped on existing tables."""
     for table in Base.metadata.tables.values():
         for index in table.indexes:
-            index.create(connection, checkfirst=True)
+            try:
+                index.create(connection, checkfirst=True)
+            except (CompileError, IntegrityError, OperationalError) as exc:
+                # A legacy database may already contain duplicate Telegram chat
+                # ids. Do not block startup: the link service still enforces
+                # uniqueness with a trimmed lookup, and the index is created as
+                # soon as the data is cleaned up.
+                logger.warning(
+                    "Could not create index %s (%s); continuing",
+                    index.name,
+                    type(exc).__name__,
+                )
 
 
 async def init_db() -> None:

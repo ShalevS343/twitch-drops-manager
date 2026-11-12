@@ -47,6 +47,7 @@ the repo and use **Pull and redeploy**.
 | `PUBLIC_ORIGIN` | production | empty | Single public HTTPS origin for Origin checks, e.g. `https://pi.taile9ec1c.ts.net`; add LAN origins to `CORS_ORIGINS` |
 | `ALLOWED_HOSTS` | recommended | empty | Comma-separated Host allowlist, e.g. `pi.taile9ec1c.ts.net,100.115.65.82,localhost,127.0.0.1` |
 | `AUTH_RATE_LIMIT_PER_MINUTE` | optional | `10` | Registration/login attempts per client IP per minute; may be effectively shared behind Funnel (see below) |
+| `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE` | optional | `120` | Deployment-wide auth ceiling per minute, checked after the per-IP bucket; a single IP is stopped by its own limit first |
 | `CORS_ORIGINS` | optional | `http://localhost:5173` | Comma-separated; add the LAN origin if you mutate via LAN |
 | `TWITCH_DEVICE_CLIENT_ID` | optional | built-in first-party client | Advanced progress login override |
 | `TWITCH_DEVICE_CLIENT_SECRET` | optional | empty | Advanced |
@@ -56,7 +57,8 @@ the repo and use **Pull and redeploy**.
 `API_TOKEN`, `VITE_API_TOKEN`, and `DROPS_AUTH_FILE` are retired; remove them
 from the stack env. There is no shared basic-auth password. Access is gated by
 Twitch sign-in, with new accounts requiring `REGISTRATION_CODE` unless
-`REGISTRATION_OPEN=true`.
+`REGISTRATION_OPEN=true`. The first user also needs a gate: a matching
+`OWNER_TWITCH_ID`, a valid code, or explicit open registration.
 
 ## First-time setup
 
@@ -288,7 +290,9 @@ Public access is through Tailscale Funnel at
 
 - There is no shared nginx basic-auth password. The public UI is reachable; the
   app's Twitch login is the gate for personal data.
-- New accounts need `REGISTRATION_CODE` unless `REGISTRATION_OPEN=true`. Keep
+- New accounts need `REGISTRATION_CODE` unless `REGISTRATION_OPEN=true`. The
+  first user additionally needs `OWNER_TWITCH_ID` to match, a valid code, or
+  `REGISTRATION_OPEN=true`; an empty `users` table is not open by itself. Keep
   `REGISTRATION_OPEN=false` on a public URL. Rotate the code and redeploy to stop
   new signups; clear it to close registration entirely.
 - Existing users sign in with Twitch. A session cookie (`tdm_session`) is
@@ -330,7 +334,7 @@ older log ever exposed it.
 | Twitch Helix | app token; normal Helix limits (shared scan) |
 | Twitch GQL | internal API; one call per active user per progress run; profile cached/persisted per user |
 | Telegram | Bot API; per-user digests, atomically deduped |
-| Auth | `AUTH_RATE_LIMIT_PER_MINUTE` per client IP per minute (`429`); nginx forwards one resolved address, but the bucket is shared if the proxy cannot supply the client IP |
+| Auth | `AUTH_RATE_LIMIT_PER_MINUTE` per client IP per minute (`429`), plus a deployment-wide `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE` ceiling (default 120) checked after the per-IP bucket; nginx forwards one resolved address, but the bucket is shared if the proxy cannot supply the client IP |
 
 The worker cadence (scan 15m, per-user progress 5m, watcher 1m) stays below the
 catalog window. Runtime grows with the number of active users; the practical
@@ -380,8 +384,9 @@ release.
   is no API token in the frontend bundle.
 - Set `PUBLIC_ORIGIN` and `ALLOWED_HOSTS` in production; keep
   `SESSION_COOKIE_SECURE=auto` (or `true`) on HTTPS.
-- Keep `REGISTRATION_OPEN=false` and a long random `REGISTRATION_CODE`; clear the
-  code to close registration.
+- Keep `REGISTRATION_OPEN=false` and a long random `REGISTRATION_CODE` (or a
+  matching `OWNER_TWITCH_ID` for a single-owner install); clear the code to close
+  registration.
 - Never commit `.env`/`.env.save`; use `.env.example`.
 - Rotate the Telegram bot token if it appears in logs, and rotate the invite code
   if it leaks.
@@ -399,7 +404,7 @@ release.
 | `403` on a mutation | missing/mismatched `X-CSRF-Token`, or non-admin scan | Ensure the client echoes `tdm_csrf`; use an admin for scans |
 | `403` registration closed | empty `REGISTRATION_CODE`, `REGISTRATION_OPEN=false` | Set a code or open registration intentionally |
 | `409` connecting Twitch | a different Twitch account is already signed in | Sign out, then connect |
-| `429` on login | auth rate limit (shared if Funnel cannot supply the client IP) | Wait a minute; raise `AUTH_RATE_LIMIT_PER_MINUTE` deliberately or fix the trusted-proxy/`X-Forwarded-For` path |
+| `429` on login | auth rate limit (shared if Funnel cannot supply the client IP) | Wait a minute; raise `AUTH_RATE_LIMIT_PER_MINUTE` / `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE` deliberately or fix the trusted-proxy/`X-Forwarded-For` path |
 | Public cookie is not `Secure` | forwarded scheme not preserved, or Funnel changed | Check nginx `X-Forwarded-Proto` map/Funnel; set `SESSION_COOKIE_SECURE=true` if needed |
 | One user's progress stops | expired/invalid user token | Profile shows reconnect; the worker skips only that user |
 | `429 Too Many Requests` from `drops.sunkwi.com` | catalog limit (1/300s) | Cache should serve stale; wait for reset; cold cache can fail |
