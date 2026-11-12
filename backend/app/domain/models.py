@@ -196,6 +196,31 @@ class User(Base):
     )
 
 
+class TelegramLinkCode(Base):
+    """One-time, short-lived code that binds a Telegram private chat to a user.
+
+    Only the SHA-256 hash of the code is stored; the plaintext lives in the
+    deep link handed to the browser.
+    """
+
+    __tablename__ = "telegram_link_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    code_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class UserSession(Base):
     """Opaque server-side session. Only the SHA-256 hashes are persisted."""
 

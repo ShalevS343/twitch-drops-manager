@@ -281,6 +281,11 @@ class TelegramSettingsIn(BaseModel):
     telegram_enabled: bool = False
 
 
+class TelegramLinkOut(BaseModel):
+    deep_link: str
+    expires_at: datetime
+
+
 class AdminUserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

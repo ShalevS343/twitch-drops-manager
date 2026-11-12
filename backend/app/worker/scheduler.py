@@ -12,7 +12,9 @@ from app.services.factory import (
     build_progress_service,
     build_scan_service,
     build_watch_focus_service,
+    get_telegram_provider,
 )
+from app.worker.telegram_poller import TelegramPoller
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +128,15 @@ async def main() -> None:
         settings.watcher_interval_seconds,
     )
 
+    poller: TelegramPoller | None = None
+    poller_task: asyncio.Task[None] | None = None
+    if settings.telegram_bot_token:
+        poller = TelegramPoller(get_telegram_provider(), SessionLocal)
+        poller_task = asyncio.create_task(poller.run())
+        logger.info("Telegram poller started")
+    else:
+        logger.info("Telegram poller disabled: bot token is not configured")
+
     await run_scan()
     await run_progress()
     await run_watcher()
@@ -133,6 +144,11 @@ async def main() -> None:
     try:
         await asyncio.Event().wait()
     finally:
+        if poller is not None:
+            await poller.stop()
+        if poller_task is not None:
+            poller_task.cancel()
+            await asyncio.gather(poller_task, return_exceptions=True)
         scheduler.shutdown(wait=False)
         await engine.dispose()
 
