@@ -282,6 +282,14 @@ and is the only writer of focused mode:
   URL; redacted text is safe for `last_error`.
 - Notification policy: atomic per-user claim + one digest per run; no claim if
   unconfigured; failed send releases claims.
+- The worker long-polls `getUpdates` when a bot token exists. The offset is
+  persisted in `app_meta`; `/start <code>` links a private chat, `/start`
+  re-enables an already linked chat (or replies with the numeric chat id),
+  `/stop` disables alerts, and `/unlink` clears the link. Group chats are
+  ignored.
+- The whole poll iteration (including offset load/save) is guarded: database or
+  provider failures log only the exception type and back off exponentially from
+  5s to a 300s cap. A done-callback logs unexpected poller termination.
 
 ## Data access
 

@@ -12,9 +12,25 @@ from app.services.factory import (
     build_progress_service,
     build_scan_service,
     build_watch_focus_service,
+    get_telegram_provider,
 )
+from app.worker.telegram_poller import TelegramPoller
 
 logger = logging.getLogger(__name__)
+
+
+def _log_poller_exit(task: asyncio.Task[None]) -> None:
+    """Surface an unexpected poller death instead of letting it fail silently."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error(
+            "Telegram poller terminated unexpectedly (%s)",
+            type(exc).__name__,
+        )
+    else:
+        logger.info("Telegram poller stopped")
 
 
 async def run_scan(session_factory=None) -> None:
@@ -126,6 +142,16 @@ async def main() -> None:
         settings.watcher_interval_seconds,
     )
 
+    poller: TelegramPoller | None = None
+    poller_task: asyncio.Task[None] | None = None
+    if settings.telegram_bot_token:
+        poller = TelegramPoller(get_telegram_provider(), SessionLocal)
+        poller_task = asyncio.create_task(poller.run())
+        poller_task.add_done_callback(_log_poller_exit)
+        logger.info("Telegram poller started")
+    else:
+        logger.info("Telegram poller disabled: bot token is not configured")
+
     await run_scan()
     await run_progress()
     await run_watcher()
@@ -133,6 +159,11 @@ async def main() -> None:
     try:
         await asyncio.Event().wait()
     finally:
+        if poller is not None:
+            await poller.stop()
+        if poller_task is not None:
+            poller_task.cancel()
+            await asyncio.gather(poller_task, return_exceptions=True)
         scheduler.shutdown(wait=False)
         await engine.dispose()
 

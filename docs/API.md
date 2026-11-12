@@ -184,7 +184,8 @@ still returned so the sign-in screen knows whether to show an invite field.
 
 Updates only the current user. Disabling `telegram_enabled` (or clearing the chat
 id) deletes that user's pending campaign-start rows, so re-enabling later does
-not send a backlog.
+not send a backlog. A non-empty chat id already owned by another account is
+rejected with `409`.
 
 `POST /auth/logout` (session) — deletes the current session and clears both
 cookies. Other users' sessions are untouched.
@@ -345,6 +346,29 @@ opted-in users. New live streams are **not** sent to Telegram.
 
 Provider errors are redacted; the bot token and Telegram request URL never reach
 logs or `last_error`.
+
+## Telegram auto-link
+
+`POST /telegram/link` (session) → one-time deep link:
+
+```json
+{
+  "deep_link": "https://t.me/<bot>?start=<code>",
+  "expires_at": "2026-11-12T17:00:00Z",
+  "bot_username": "<bot>"
+}
+```
+
+- `400` if the bot token is missing, `502` if Telegram cannot report the bot
+  username, `429` when the per-user link rate limit is hit.
+- Only a SHA-256 hash of the code is stored; codes expire after 10 minutes and
+  are consumed on first successful use.
+- Opening the link and pressing Start in the bot's private chat links that chat
+  to the current user and enables alerts. Group chats are ignored.
+
+`POST /telegram/unlink` (session) → `{ "unlinked": true }`; clears that user's
+chat id, disables alerts, and deletes pending starts and link codes. `404` if
+the user row no longer exists.
 
 ## Progress
 

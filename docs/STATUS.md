@@ -29,6 +29,10 @@ config and docs are committed; **nothing is deployed yet**.
 - Frontend: `AuthGate`/sign-in screen, `credentials` + CSRF, user-scoped query
   keys with cache clearing on logout/user change, per-user Telegram settings,
   admin Users list, admin-only scan action, profile/sign-out/disconnect.
+- Telegram auto-link: one-time deep links and a worker long poller link a private
+  chat from Settings. The poller survives database/provider failures with
+  exponential backoff; `/start` re-enables a linked chat; manual chat ids cannot
+  steal another account's chat.
 - Deployment: compose passes the new auth env vars; `VITE_API_TOKEN` build arg
   removed; nginx preserves inbound `X-Forwarded-Proto`; nginx basic auth has been
   removed. Access is Twitch login + invite code, with `/health` public.
@@ -38,7 +42,7 @@ config and docs are committed; **nothing is deployed yet**.
 ### Validation
 
 - Merged to `main` in `78d2603`.
-- Backend suite: **193 tests passed** (`pytest -q`); `ruff check app tests` is
+- Backend suite: **227 tests passed** (`pytest -q`); `ruff check app tests` is
   clean.
 - Frontend: `npm run build` passes.
 - `docker compose --project-directory infra -f infra/docker-compose.yml config -q`

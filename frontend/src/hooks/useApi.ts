@@ -75,6 +75,24 @@ export function useTestTelegram() {
   return useMutation({ mutationFn: api.testTelegram })
 }
 
+export function useCreateTelegramLink() {
+  return useMutation({ mutationFn: api.createTelegramLink })
+}
+
+export function useUnlinkTelegram() {
+  const queryClient = useQueryClient()
+  const userId = useUserScope()
+  const { refresh } = useAuth()
+
+  return useMutation({
+    mutationFn: api.unlinkTelegram,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['u', userId] })
+      await refresh()
+    },
+  })
+}
+
 export function useProgress() {
   const key = useUserKey('progress')
   return useQuery({

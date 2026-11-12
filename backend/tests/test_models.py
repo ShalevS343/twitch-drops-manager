@@ -3,6 +3,7 @@ from sqlalchemy import CheckConstraint, inspect
 from app.domain.models import (
     AppMeta,
     Campaign,
+    TelegramLinkCode,
     TwitchAccount,
     User,
     UserCampaignCompletion,
@@ -78,3 +79,12 @@ def test_user_progress_snapshot_has_user_drop_recorded_index():
 
 def test_app_meta_key_is_primary_key():
     assert AppMeta.__table__.c.key.primary_key is True
+
+
+def test_telegram_link_code_hash_is_unique():
+    assert TelegramLinkCode.__table__.c.code_hash.unique is True
+
+
+def test_telegram_link_code_user_id_is_indexed():
+    index_names = {index.name for index in TelegramLinkCode.__table__.indexes}
+    assert "ix_telegram_link_codes_user_id" in index_names

@@ -28,6 +28,23 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   the htpasswd mount from Compose. The public UI is gated by Twitch sign-in and
   the invite code; personal API endpoints still require a session.
 
+### Telegram — auto-link hardening
+
+- Added one-time deep links (`POST /telegram/link`) and a worker long poller for
+  `/start`, `/stop`, and `/unlink`; codes are hashed, expire after 10 minutes,
+  and work only in private chats.
+- `/start` without a code re-enables an already linked chat with "Alerts are on."
+  and otherwise replies with the numeric chat id plus Settings instructions.
+  `/stop` and `/unlink` copy now points at Settings.
+- The poller survives database failures (including offset load/save) and backs
+  off exponentially from 5s to 300s; unexpected task termination is logged.
+- Manual chat ids are rejected with `409` when another account owns them.
+- `POST /telegram/link` returns `bot_username` for Settings copy; `expires_at` is
+  always timezone-aware UTC.
+- Frontend clears `opener` before opening the bot tab and shows the deep link as
+  a fallback when the popup is blocked.
+- Backend suite: **227 passed**; `ruff` clean; frontend `npm run build` passes.
+
 ### Accounts — multi-user Twitch login + per-user data
 
 - Twitch is now the only identity provider. Added local `users`,

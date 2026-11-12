@@ -165,9 +165,12 @@ async def auth_update_me(
     user: CurrentUserDep,
     service: AuthServiceDep,
 ) -> AuthUserOut:
-    updated = await service.update_telegram(
-        user.id, payload.telegram_chat_id, payload.telegram_enabled
-    )
+    try:
+        updated = await service.update_telegram(
+            user.id, payload.telegram_chat_id, payload.telegram_enabled
+        )
+    except AuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return AuthUserOut.model_validate(updated)
 
 

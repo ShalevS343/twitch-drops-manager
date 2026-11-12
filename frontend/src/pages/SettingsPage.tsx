@@ -9,11 +9,13 @@ import { LoadingState } from '../components/ui/Spinner'
 import { useAuth } from '../auth/AuthContext'
 import {
   useAdminUsers,
+  useCreateTelegramLink,
   useGames,
   useRefreshProgress,
   useScan,
   useTestTelegram,
   useTwitchDisconnect,
+  useUnlinkTelegram,
   useUpdateAdminUser,
   useUpdateMe,
   type StatusQuery,
@@ -45,6 +47,8 @@ export function SettingsPage({ status, twitch }: Props) {
   const scan = useScan()
   const refreshProgress = useRefreshProgress()
   const testTelegram = useTestTelegram()
+  const createLink = useCreateTelegramLink()
+  const unlink = useUnlinkTelegram()
   const disconnect = useTwitchDisconnect()
   const connect = useTwitchConnect({ onConnected: refresh })
   const updateMe = useUpdateMe()
@@ -53,11 +57,41 @@ export function SettingsPage({ status, twitch }: Props) {
 
   const [chatId, setChatId] = useState(user?.telegram_chat_id ?? '')
   const [telegramEnabled, setTelegramEnabled] = useState(user?.telegram_enabled ?? false)
+  const [waitingForTelegram, setWaitingForTelegram] = useState(false)
+  const [linkTimedOut, setLinkTimedOut] = useState(false)
+  const [blockedLink, setBlockedLink] = useState<string | null>(null)
+  const botUsername = createLink.data?.bot_username
 
   useEffect(() => {
     setChatId(user?.telegram_chat_id ?? '')
     setTelegramEnabled(user?.telegram_enabled ?? false)
   }, [user?.telegram_chat_id, user?.telegram_enabled])
+
+  // While waiting for the bot's /start reply, re-check the session until the
+  // chat id appears. Give up after two minutes so a forgotten tab stops polling.
+  useEffect(() => {
+    if (!waitingForTelegram) return
+
+    const interval = window.setInterval(() => {
+      void refresh()
+    }, 3000)
+    const timeout = window.setTimeout(() => {
+      setWaitingForTelegram(false)
+      setLinkTimedOut(true)
+    }, 120_000)
+
+    return () => {
+      window.clearInterval(interval)
+      window.clearTimeout(timeout)
+    }
+  }, [waitingForTelegram, refresh])
+
+  useEffect(() => {
+    if (waitingForTelegram && user?.telegram_chat_id?.trim()) {
+      setWaitingForTelegram(false)
+      setLinkTimedOut(false)
+    }
+  }, [waitingForTelegram, user?.telegram_chat_id])
 
   const connected = twitch.data?.connected === true
   const statusData = status.data
@@ -82,6 +116,36 @@ export function SettingsPage({ status, twitch }: Props) {
       telegram_chat_id: trimmedChatId,
       telegram_enabled: effectiveEnabled,
     })
+  }
+
+  async function connectTelegram() {
+    if (!telegramBotConfigured || createLink.isPending) return
+
+    setLinkTimedOut(false)
+    setBlockedLink(null)
+    // Open the tab before awaiting so popup blockers still allow the redirect.
+    const tab = window.open('about:blank', '_blank')
+    if (tab) tab.opener = null
+    try {
+      const link = await createLink.mutateAsync()
+      if (tab) {
+        tab.location.href = link.deep_link
+        setWaitingForTelegram(true)
+      } else {
+        setWaitingForTelegram(false)
+        setBlockedLink(link.deep_link)
+      }
+    } catch {
+      tab?.close()
+    }
+  }
+
+  function unlinkTelegram() {
+    if (unlink.isPending) return
+    setWaitingForTelegram(false)
+    setLinkTimedOut(false)
+    setBlockedLink(null)
+    unlink.mutate()
   }
 
   return (
@@ -132,17 +196,114 @@ export function SettingsPage({ status, twitch }: Props) {
           )}
         </div>
 
-        {!telegramBotConfigured && (
-          <p className="notice">
-            <Icon name="alert" size={15} />
-            <span>
+        <div className="telegram-form">
+          {savedChatId ? (
+            <div className="inline-actions">
+              <p className="muted small">
+                Linked to Telegram chat <code>{savedChatId}</code>.
+              </p>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={unlinkTelegram}
+                disabled={unlink.isPending}
+              >
+                <Icon name="logout" size={14} />
+                {unlink.isPending ? 'Unlinking…' : 'Unlink Telegram'}
+              </button>
+            </div>
+          ) : !telegramBotConfigured ? (
+            <p className="muted small">
               This server has no Telegram bot token yet, so alerts and tests cannot
               be sent. Ask the admin to configure it.
-            </span>
-          </p>
-        )}
+            </p>
+          ) : waitingForTelegram ? (
+            <>
+              <p className="alert alert-warning" role="status">
+                <Icon name="clock" size={15} />
+                <span>Waiting for Telegram… Press Start in Telegram.</span>
+              </p>
+              <div className="inline-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setWaitingForTelegram(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={connectTelegram}
+                disabled={createLink.isPending}
+              >
+                <Icon name="link" size={16} />
+                {createLink.isPending ? 'Opening Telegram…' : 'Connect Telegram'}
+              </button>
+              <p className="muted small">
+                {botUsername ? (
+                  <>
+                    Opens <code>@{botUsername}</code> in a new tab. Press Start
+                    there to finish.
+                  </>
+                ) : (
+                  <>
+                    Opens the Telegram bot in a new tab. Press Start there to
+                    finish.
+                  </>
+                )}
+              </p>
+            </>
+          )}
 
-        <div className="telegram-form">
+          {blockedLink && (
+            <p className="alert alert-warning" role="status">
+              <Icon name="alert" size={15} />
+              <span>
+                Your browser blocked the Telegram tab.{' '}
+                <a
+                  href={blockedLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    setBlockedLink(null)
+                    setWaitingForTelegram(true)
+                  }}
+                >
+                  Open Telegram
+                </a>{' '}
+                to finish linking, then come back here.
+              </span>
+            </p>
+          )}
+
+          {linkTimedOut && !savedChatId && !waitingForTelegram && (
+            <p className="alert alert-warning" role="status">
+              <Icon name="alert" size={15} />
+              <span>
+                Still not connected. Press Start in Telegram, then try Connect
+                Telegram again.
+              </span>
+            </p>
+          )}
+
+          {createLink.error && (
+            <p className="alert alert-danger" role="alert">
+              <Icon name="alert" size={15} />
+              <span>{createLink.error.message}</span>
+            </p>
+          )}
+          {unlink.error && (
+            <p className="alert alert-danger" role="alert">
+              <Icon name="alert" size={15} />
+              <span>{unlink.error.message}</span>
+            </p>
+          )}
+
           <label className="field-label" htmlFor="telegram-chat-id">
             Telegram chat ID
           </label>
@@ -158,9 +319,10 @@ export function SettingsPage({ status, twitch }: Props) {
             spellCheck={false}
           />
           <p className="muted small">
-            Open Telegram, message your bot once, then copy your numeric chat ID from
-            a bot such as <code>@userinfobot</code>. Leave the field empty to receive
-            no alerts.
+            Prefer automatic setup: click Connect Telegram. To do it manually, send{' '}
+            <code>/start</code> to{' '}
+            {botUsername ? <code>@{botUsername}</code> : 'the bot'}; it replies with
+            your chat ID or turns alerts back on if this chat is already linked.
           </p>
 
           <label className="toggle-row" htmlFor="telegram-enabled">
@@ -536,14 +698,6 @@ export function SettingsPage({ status, twitch }: Props) {
           </div>
           <Badge tone="accent">Managed by .env</Badge>
         </div>
-
-        <p className="notice">
-          <Icon name="alert" size={15} />
-          <span>
-            Scan and progress intervals, credentials, and notification settings are
-            configured on the server.
-          </span>
-        </p>
 
         {status.isLoading && <LoadingState label="Loading system status…" />}
 

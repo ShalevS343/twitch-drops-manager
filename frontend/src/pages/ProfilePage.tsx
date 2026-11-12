@@ -152,14 +152,6 @@ export function ProfilePage({ twitch }: Props) {
             </dd>
           </div>
         </dl>
-
-        <p className="notice">
-          <Icon name="user" size={15} />
-          <span>
-            This is your local account on this server. Telegram settings live in
-            Settings; signing out keeps your Twitch connection for next time.
-          </span>
-        </p>
       </section>
 
       <section className="panel profile-card" aria-labelledby="profile-twitch">
@@ -303,14 +295,6 @@ export function ProfilePage({ twitch }: Props) {
         )}
 
         <TwitchConnect connect={connect} />
-
-        <p className="notice">
-          <Icon name="twitch" size={15} />
-          <span>
-            Disconnecting removes this account's stored Twitch token, synced
-            progress, and focus, but keeps your local account and sign-in.
-          </span>
-        </p>
       </section>
     </div>
   )

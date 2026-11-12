@@ -17,6 +17,7 @@ from app.services.factory import (
 )
 from app.services.progress_service import ProgressService
 from app.services.scan_service import ScanService
+from app.services.telegram_link_service import TelegramLinkService
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
@@ -49,6 +50,17 @@ ScanServiceDep = Annotated[ScanService, Depends(get_scan_service)]
 ProgressServiceDep = Annotated[ProgressService, Depends(get_progress_service)]
 TelegramDep = Annotated[TelegramProvider, Depends(get_telegram_provider)]
 TwitchUserDep = Annotated[TwitchUserProvider, Depends(get_twitch_user_provider)]
+
+
+async def get_telegram_link_service(
+    session: SessionDep, provider: TelegramDep
+) -> TelegramLinkService:
+    return TelegramLinkService(session, provider=provider)
+
+
+TelegramLinkServiceDep = Annotated[
+    TelegramLinkService, Depends(get_telegram_link_service)
+]
 
 
 async def get_auth_service(
