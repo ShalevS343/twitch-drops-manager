@@ -38,6 +38,16 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 
+    registration_code: str = ""
+    registration_open: bool = False
+    owner_twitch_id: str = ""
+    session_ttl_days: int = 30
+    # "auto" derives Secure from the effective (forwarded) request scheme.
+    session_cookie_secure: str = "auto"
+    public_origin: str = ""
+    allowed_hosts: str = ""
+    auth_rate_limit_per_minute: int = 10
+
     poll_seconds: int = 900
     min_poll_seconds: int = 300
     progress_poll_seconds: int = 300
@@ -53,6 +63,14 @@ class Settings(BaseSettings):
     @property
     def default_game_list(self) -> list[str]:
         return [name.strip() for name in self.default_games.split(",") if name.strip()]
+
+    @property
+    def allowed_host_list(self) -> list[str]:
+        return [host.strip() for host in self.allowed_hosts.split(",") if host.strip()]
+
+    @property
+    def public_origin_value(self) -> str:
+        return self.public_origin.strip().rstrip("/")
 
     @property
     def drops_cache_seconds(self) -> int:
