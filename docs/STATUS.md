@@ -60,23 +60,30 @@ Deployment config and docs are committed; **nothing is deployed yet**.
 
 ### Live deployment
 
-- **Not deployed.** The Portainer stack `twitch-drops-manager` still runs the
-  old single-user build. `main` removes nginx basic auth; once deployed, the
-  public UI is reachable and the app's Twitch login + invite code are the access
-  gate.
-- Public URL (when deployed): `https://pi.taile9ec1c.ts.net` via Tailscale
-  Funnel → port `8282`; API stays on `127.0.0.1:8000`.
-- Rollout: backup → set env/owner/registration code → deploy → verify owner
-  migration, a second user, isolation, Telegram, CSRF, worker, Secure cookies.
+- **Deployed 2026-11-12 ~21:31 IST** from `main` at `5965da4` (security hardening
+  release). Portainer stack `twitch-drops-manager` (ID 10) pulled that Git
+  revision; backend/frontend images were rebuilt and all three containers
+  recreated.
+- Portainer env was updated to `SESSION_COOKIE_SECURE=true` and
+  `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE=120`; `PUBLIC_ORIGIN`/`OWNER_TWITCH_ID`
+  remain set.
+- Pre-deploy WAL-safe backup:
+  `/home/server/twitch-drops-manager-backups/pre-security-deploy-20261112-212739.db`.
+- Verified: public URL `200` with no basic-auth challenge; CSP/HSTS/nosniff/
+  frame-deny/referrer/permissions headers present; `server: nginx` without a
+  version; frontend/API bound loopback; `/api/v1/health` OK; migration flag
+  `multi_user_v1=done`; one user row; progress sync for user 1 works.
+- Public URL: `https://pi.taile9ec1c.ts.net` via Tailscale Funnel → local `8282`.
+  API stays on `127.0.0.1:8000`.
 
 ## Pending work
 
-1. **Deploy** with the pre-upgrade backup, `OWNER_TWITCH_ID`, `PUBLIC_ORIGIN`,
-   `ALLOWED_HOSTS`, `SESSION_COOKIE_SECURE=true`, and a random
-   `REGISTRATION_CODE`. The frontend now binds `127.0.0.1:8282`; reach it through
-   the public HTTPS URL. Verify the owner sees old data. **Not performed.**
-2. **Basic auth** is removed from `frontend/nginx.conf` and Compose; the host
-   htpasswd files are no longer used. **Done in config, pending deploy.**
+1. **Soak and verify in the browser**: sign in with Twitch, confirm migrated
+   data, a second invited user, Telegram Connect, CSRF, Secure cookies, and the
+   admin user list. A startup scan hit a transient provider error; a manual scan
+   immediately after succeeded, so watch the next scheduled scan.
+2. **Kuma**: the frontend no longer listens on `0.0.0.0:8282`. Update the Kuma
+   monitor to the public URL/health check or a loopback-aware check.
 3. **Rollback/soak**: keep legacy tables until the soak period ends; rollback
    that keeps post-upgrade data requires the pre-upgrade backup. Then plan a
    cleanup release.
@@ -88,8 +95,8 @@ Deployment config and docs are committed; **nothing is deployed yet**.
 
 ## Known issues / caveats
 
-- **Not deployed**: the live stack is still the old build until the deployment
-  runbook runs.
+- **Deployed**: the live stack runs the security-hardening release; verify the
+  browser checklist above.
 - **Rollback**: the old release reads frozen legacy tables; keeping post-upgrade
   data requires restoring the pre-upgrade backup.
 - **Tokens are plaintext** in `twitch_accounts` inside the SQLite volume.

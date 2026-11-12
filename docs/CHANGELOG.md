@@ -31,8 +31,18 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   defaults to `true`.
 - `.env.*` backups are gitignored; `.env` is `chmod 600`; `npm ci` and
   `.dockerignore` files added.
-- **Not deployed.** Production still needs the rollout and a Twitch client-secret
-  rotation if a token request ever failed in the old build.
+- **Deployed 2026-11-12** via Portainer Git redeploy at `5965da4`; backend and
+  frontend images rebuilt, containers recreated, stack env set to
+  `SESSION_COOKIE_SECURE=true` and `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE=120`.
+  Pre-deploy backup saved under
+  `/home/server/twitch-drops-manager-backups/pre-security-deploy-20261112-212739.db`.
+- Post-deploy checks: public `200`, no basic-auth challenge, CSP/HSTS/security
+  headers present, loopback ports, health OK, migration flag done, one user,
+  progress sync OK. A startup scan hit a transient provider error; an immediate
+  manual scan succeeded.
+- Still operator-owned: rotate the Twitch client secret if a token request ever
+  failed in the old build, rotate the Telegram bot token if it appeared in old
+  logs, and update the Kuma monitor now that the frontend is loopback-only.
 
 ### Integration — multi-user merge and fix wave
 
