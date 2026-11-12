@@ -179,13 +179,14 @@ still returned so the sign-in screen knows whether to show an invite field.
 `PATCH /auth/me` (session)
 
 ```json
-{ "telegram_chat_id": "123456789", "telegram_enabled": true }
+{ "telegram_enabled": true }
 ```
 
-Updates only the current user. Disabling `telegram_enabled` (or clearing the chat
-id) deletes that user's pending campaign-start rows, so re-enabling later does
-not send a backlog. A non-empty chat id already owned by another account is
-rejected with `409`.
+Updates only the current user's alerts toggle. The Telegram chat id is
+**read-only**: it can only be set by completing the `/telegram/link` flow, and
+sending `telegram_chat_id` to this endpoint returns `422`. Enabling alerts
+without a linked chat returns `400`; disabling deletes that user's pending
+campaign-start rows, so re-enabling later does not send a backlog.
 
 `POST /auth/logout` (session) — deletes the current session and clears both
 cookies. Other users' sessions are untouched.

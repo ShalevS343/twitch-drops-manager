@@ -489,13 +489,16 @@ async def test_disabling_telegram_clears_pending_campaign_starts():
 
     async with factory() as session:
         user = await UserRepository(session).create(
-            twitch_user_id="123", login="viewer"
+            twitch_user_id="123",
+            login="viewer",
+            telegram_chat_id="555",
+            telegram_enabled=True,
         )
         session.add(UserCampaignStart(user_id=user.id, external_id="campaign-1"))
         await session.flush()
 
         service = AuthService(session, settings=_settings(), provider=FakeTwitchProvider())
-        updated = await service.update_telegram(user.id, "555", False)
+        updated = await service.update_telegram(user.id, False)
 
         assert updated.telegram_chat_id == "555"
         assert updated.telegram_enabled is False
@@ -511,7 +514,10 @@ async def test_disabling_telegram_only_clears_that_users_pending_starts():
 
     async with factory() as session:
         first = await UserRepository(session).create(
-            twitch_user_id="123", login="first"
+            twitch_user_id="123",
+            login="first",
+            telegram_chat_id="555",
+            telegram_enabled=True,
         )
         second = await UserRepository(session).create(
             twitch_user_id="456", login="second"
@@ -525,7 +531,7 @@ async def test_disabling_telegram_only_clears_that_users_pending_starts():
         await session.commit()
 
         service = AuthService(session, settings=_settings(), provider=FakeTwitchProvider())
-        await service.update_telegram(first.id, "", False)
+        await service.update_telegram(first.id, False)
 
         rows = (await session.execute(select(UserCampaignStart))).scalars().all()
         assert {row.user_id for row in rows} == {second.id}
@@ -625,32 +631,7 @@ async def test_cleared_games_stay_cleared_after_reconnect():
 
 
 @pytest.mark.asyncio
-async def test_clearing_the_chat_id_while_enabled_clears_pending_starts():
-    engine, factory = await _session()
-
-    async with factory() as session:
-        user = await UserRepository(session).create(
-            twitch_user_id="123",
-            login="viewer",
-            telegram_chat_id="555",
-            telegram_enabled=True,
-        )
-        session.add(UserCampaignStart(user_id=user.id, external_id="campaign-1"))
-        await session.commit()
-
-        service = AuthService(session, settings=_settings(), provider=FakeTwitchProvider())
-        updated = await service.update_telegram(user.id, "   ", True)
-
-        assert updated.telegram_enabled is True
-        assert updated.telegram_chat_id == ""
-        rows = (await session.execute(select(UserCampaignStart))).scalars().all()
-        assert rows == []
-
-    await engine.dispose()
-
-
-@pytest.mark.asyncio
-async def test_telegram_chat_id_is_normalized_on_write():
+async def test_enabling_telegram_without_a_linked_chat_is_rejected():
     engine, factory = await _session()
 
     async with factory() as session:
@@ -660,9 +641,12 @@ async def test_telegram_chat_id_is_normalized_on_write():
         await session.commit()
 
         service = AuthService(session, settings=_settings(), provider=FakeTwitchProvider())
-        updated = await service.update_telegram(user.id, "  12345  ", True)
+        with pytest.raises(InvalidAuthRequestError):
+            await service.update_telegram(user.id, True)
 
-        assert updated.telegram_chat_id == "12345"
+        refreshed = await session.get(User, user.id)
+        assert refreshed.telegram_chat_id == ""
+        assert refreshed.telegram_enabled is False
 
     await engine.dispose()
 

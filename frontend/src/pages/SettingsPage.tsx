@@ -55,7 +55,6 @@ export function SettingsPage({ status, twitch }: Props) {
   const adminUsers = useAdminUsers()
   const updateUser = useUpdateAdminUser()
 
-  const [chatId, setChatId] = useState(user?.telegram_chat_id ?? '')
   const [telegramEnabled, setTelegramEnabled] = useState(user?.telegram_enabled ?? false)
   const [waitingForTelegram, setWaitingForTelegram] = useState(false)
   const [linkTimedOut, setLinkTimedOut] = useState(false)
@@ -63,7 +62,6 @@ export function SettingsPage({ status, twitch }: Props) {
   const botUsername = createLink.data?.bot_username
 
   useEffect(() => {
-    setChatId(user?.telegram_chat_id ?? '')
     setTelegramEnabled(user?.telegram_enabled ?? false)
   }, [user?.telegram_chat_id, user?.telegram_enabled])
 
@@ -97,14 +95,9 @@ export function SettingsPage({ status, twitch }: Props) {
   const statusData = status.data
 
   const savedChatId = user?.telegram_chat_id?.trim() ?? ''
-  const trimmedChatId = chatId.trim()
-  // Clearing the chat id disables alerts on save, so the toggle state we send is
-  // the effective one and Save never dead-ends on an empty field.
-  const effectiveEnabled = trimmedChatId ? telegramEnabled : false
-  const telegramDirty =
-    trimmedChatId !== savedChatId ||
-    effectiveEnabled !== (user?.telegram_enabled ?? false)
-  const canSaveTelegram = !updateMe.isPending && telegramDirty
+  const telegramDirty = telegramEnabled !== (user?.telegram_enabled ?? false)
+  const canSaveTelegram =
+    !updateMe.isPending && Boolean(savedChatId) && telegramDirty
   const canTestTelegram =
     telegramBotConfigured &&
     Boolean(savedChatId) &&
@@ -112,10 +105,7 @@ export function SettingsPage({ status, twitch }: Props) {
     !testTelegram.isPending
 
   function saveTelegram() {
-    updateMe.mutate({
-      telegram_chat_id: trimmedChatId,
-      telegram_enabled: effectiveEnabled,
-    })
+    updateMe.mutate({ telegram_enabled: telegramEnabled })
   }
 
   async function connectTelegram() {
@@ -304,81 +294,51 @@ export function SettingsPage({ status, twitch }: Props) {
             </p>
           )}
 
-          <label className="field-label" htmlFor="telegram-chat-id">
-            Telegram chat ID
-          </label>
-          <input
-            id="telegram-chat-id"
-            className="search-input"
-            type="text"
-            inputMode="numeric"
-            value={chatId}
-            onChange={(event) => setChatId(event.target.value)}
-            placeholder="e.g. 123456789"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <p className="muted small">
-            Prefer automatic setup: click Connect Telegram. To do it manually, send{' '}
-            <code>/start</code> to{' '}
-            {botUsername ? <code>@{botUsername}</code> : 'the bot'}; it replies with
-            your chat ID or turns alerts back on if this chat is already linked.
-          </p>
+          {savedChatId && (
+            <>
+              <label className="toggle-row" htmlFor="telegram-enabled">
+                <input
+                  id="telegram-enabled"
+                  type="checkbox"
+                  checked={telegramEnabled}
+                  onChange={(event) => setTelegramEnabled(event.target.checked)}
+                />
+                <span>
+                  <strong>Send Telegram alerts for this account</strong>
+                  <span className="muted small">
+                    Turning this off clears queued campaign alerts.
+                  </span>
+                </span>
+              </label>
 
-          <label className="toggle-row" htmlFor="telegram-enabled">
-            <input
-              id="telegram-enabled"
-              type="checkbox"
-              checked={telegramEnabled}
-              onChange={(event) => setTelegramEnabled(event.target.checked)}
-            />
-            <span>
-              <strong>Send Telegram alerts for this account</strong>
-              <span className="muted small">
-                Requires a chat ID above. Turning this off clears queued campaign
-                alerts.
-              </span>
-            </span>
-          </label>
-
-          <div className="form-actions">
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={saveTelegram}
-              disabled={!canSaveTelegram}
-            >
-              <Icon name="check" size={16} />
-              {updateMe.isPending ? 'Saving…' : 'Save Telegram settings'}
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => testTelegram.mutate()}
-              disabled={!canTestTelegram}
-              title={
-                !telegramBotConfigured
-                  ? 'Telegram is not configured on this server'
-                  : !savedChatId
-                    ? 'Save your chat ID first'
-                    : user?.telegram_enabled !== true
-                      ? 'Enable Telegram alerts for this account first'
-                      : 'Send a test message to your chat'
-              }
-            >
-              <Icon name="link" size={16} />
-              {testTelegram.isPending ? 'Sending…' : 'Send test message'}
-            </button>
-          </div>
-
-          {telegramEnabled && !trimmedChatId && (
-            <p className="alert alert-warning" role="status">
-              <Icon name="alert" size={15} />
-              <span>
-                No chat ID set: saving will turn Telegram alerts off for this
-                account.
-              </span>
-            </p>
+              <div className="form-actions">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={saveTelegram}
+                  disabled={!canSaveTelegram}
+                >
+                  <Icon name="check" size={16} />
+                  {updateMe.isPending ? 'Saving…' : 'Save Telegram settings'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => testTelegram.mutate()}
+                  disabled={!canTestTelegram}
+                  title={
+                    !telegramBotConfigured
+                      ? 'Telegram is not configured on this server'
+                      : user?.telegram_enabled !== true
+                        ? 'Enable Telegram alerts for this account first'
+                        : 'Send a test message to your chat'
+                  }
+                >
+                  <Icon name="link" size={16} />
+                  {testTelegram.isPending ? 'Sending…' : 'Send test message'}
+                </button>
+              </div>
+            </>
           )}
 
           {updateMe.error && (

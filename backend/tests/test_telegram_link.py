@@ -11,13 +11,11 @@ from sqlalchemy import select
 
 from app.api.v1.router import api_router
 from app.core.db import get_session
-from app.core.exceptions import AccountConflictError
 from app.core.middleware import CSRFMiddleware
 from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.security import create_auth_session
 from app.domain.models import TelegramLinkCode, User, UserCampaignStart
 from app.repositories.telegram_links import TelegramLinkRepository
-from app.services.auth_service import AuthService
 from app.services.factory import get_telegram_provider
 from app.services.telegram_link_service import TelegramLinkService
 from tests.support import create_user, make_engine
@@ -214,31 +212,6 @@ async def test_unknown_code_is_rejected():
 
 
 @pytest.mark.asyncio
-async def test_manual_chat_id_owned_by_another_user_is_rejected():
-    engine, factory = await make_engine()
-    async with factory() as session:
-        await create_user(
-            session,
-            twitch_user_id="1",
-            login="owner",
-            telegram_chat_id=" 555 ",
-            telegram_enabled=True,
-        )
-        second = await create_user(session, twitch_user_id="2", login="second")
-        await session.commit()
-        service = AuthService(session)
-
-        with pytest.raises(AccountConflictError):
-            await service.update_telegram(second.id, " 555 ", True)
-
-        refreshed = await session.get(User, second.id)
-        assert refreshed.telegram_chat_id == ""
-        assert refreshed.telegram_enabled is False
-
-    await engine.dispose()
-
-
-@pytest.mark.asyncio
 async def test_unlink_clears_chat_disables_alerts_and_removes_pending_rows():
     engine, factory = await make_engine()
     async with factory() as session:
@@ -401,41 +374,6 @@ async def test_link_endpoint_returns_429_when_rate_limited(monkeypatch):
     assert first.status_code == 200
     assert second.status_code == 429
     assert "retry-after" in second.headers
-    await engine.dispose()
-
-
-@pytest.mark.asyncio
-async def test_update_me_rejects_a_chat_owned_by_another_user():
-    engine, factory, app = await _api_stack(FakeApiProvider())
-    user_id, token, csrf = await _login(factory)
-
-    async with factory() as session:
-        await create_user(
-            session,
-            twitch_user_id="2",
-            login="owner",
-            telegram_chat_id="555",
-            telegram_enabled=True,
-        )
-        await session.commit()
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://testserver"
-    ) as client:
-        client.cookies.set("tdm_session", token)
-        client.cookies.set("tdm_csrf", csrf)
-        response = await client.patch(
-            "/api/v1/auth/me",
-            json={"telegram_chat_id": " 555 ", "telegram_enabled": True},
-            headers={"X-CSRF-Token": csrf},
-        )
-
-    assert response.status_code == 409
-    async with factory() as session:
-        user = await session.get(User, user_id)
-        assert user.telegram_chat_id == ""
-        assert user.telegram_enabled is False
-
     await engine.dispose()
 
 

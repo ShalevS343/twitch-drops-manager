@@ -120,7 +120,7 @@ async def test_start_with_code_links_the_private_chat_and_persists_offset():
 
 
 @pytest.mark.asyncio
-async def test_start_without_a_code_replies_with_the_numeric_chat_id():
+async def test_start_without_a_code_points_to_the_link_flow():
     engine, factory = await make_engine()
     provider = FakePollingTelegram([[_message(5, "/start")]])
 
@@ -130,8 +130,9 @@ async def test_start_without_a_code_replies_with_the_numeric_chat_id():
     assert len(provider.sent) == 1
     chat_id, message = provider.sent[0]
     assert chat_id == "42"
-    assert "42" in message
+    assert "not linked" in message.lower()
     assert "settings" in message.lower()
+    assert "connect telegram" in message.lower()
 
     await engine.dispose()
 

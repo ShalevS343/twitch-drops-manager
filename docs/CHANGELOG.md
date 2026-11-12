@@ -28,6 +28,15 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   the htpasswd mount from Compose. The public UI is gated by Twitch sign-in and
   the invite code; personal API endpoints still require a session.
 
+### Telegram — link-only chat id
+
+- Removed the editable Telegram chat-ID field from Settings. The chat ID is now
+  read-only and can only be set by completing **Connect Telegram**.
+- `PATCH /auth/me` now only toggles `telegram_enabled`; sending a chat ID is
+  rejected with `422`, and enabling alerts without a linked chat returns `400`.
+- Bot `/start` on an unlinked chat now points to Settings → Connect Telegram
+  instead of printing a chat ID for manual entry.
+
 ### Telegram — auto-link and notice cleanup
 
 - Merged `feat/telegram-auto-link` into `main` in `f1278a8`; backend suite **227

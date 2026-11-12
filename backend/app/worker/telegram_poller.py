@@ -130,9 +130,8 @@ class TelegramPoller:
                     "Alerts are on."
                     if user is not None
                     else (
-                        "Your Telegram chat id is "
-                        f"{chat_id_text}. To link this chat, open "
-                        "Settings → Telegram and click Connect Telegram."
+                        "This chat is not linked. Open Settings → Telegram in "
+                        "Twitch Drops Manager and click Connect Telegram."
                     )
                 )
                 await self._send(message_text, chat_id_text)

@@ -32,10 +32,13 @@ that clutter the UI.
 6. Settings polls `/auth/me` until the chat id appears and shows **On**.
 
 Fallbacks:
-- `/start` without a code replies with the numeric chat id. The manual chat-id
-  field remains for advanced users.
+- `/start` on an unlinked chat points the user to Settings → Connect Telegram.
 - `/stop` sets `telegram_enabled=false` for the matching chat id and replies.
 - `/unlink` clears the chat id and disables alerts.
+
+**Post-approval update:** the manual chat-id field was removed. The chat id is
+read-only and can only be set by completing the link flow; `PATCH /auth/me`
+only toggles alerts.
 
 ## Transport decision
 

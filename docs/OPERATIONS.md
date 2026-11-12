@@ -63,7 +63,8 @@ Twitch sign-in, with new accounts requiring `REGISTRATION_CODE` unless
 1. Create a Twitch application at <https://dev.twitch.tv/console/apps>; copy the
    client id/secret into `.env` (used for shared Helix stream discovery).
 2. Optional: create a Telegram bot with @BotFather; put the token in `.env`.
-   Each user supplies their own chat id in Settings → Telegram.
+   Each user links their own private chat from Settings → Telegram → Connect
+   Telegram. Chat ids are not editable.
 3. Set `OWNER_TWITCH_ID` to the numeric Twitch id that should own the migrated
    data/first admin (see below), `PUBLIC_ORIGIN` to the public URL, and
    `ALLOWED_HOSTS` to the hostnames that should be accepted (including the LAN
@@ -183,8 +184,9 @@ sign-in gate is Twitch + the invite code. Then verify:
    account, and sees only their own personal data.
 4. Isolation: the two users can have different games, progress, focus, and
    Telegram destinations at the same time.
-5. Telegram: set a chat id in Settings → Telegram, opt in, send a test; only that
-   user receives it. Campaign starts go only to opted-in tracking users.
+5. Telegram: use Settings → Telegram → Connect Telegram, press Start in the bot,
+   enable alerts, and send a test; only that user receives it. Campaign starts
+   go only to opted-in tracking users. The chat id is read-only.
 6. CSRF: after login, `tdm_session` is `HttpOnly`; `tdm_csrf` is readable; unsafe
    requests send `X-CSRF-Token`. A missing/mismatched token returns `403`.
 7. Worker: progress syncs both users; one bad token marks only that user

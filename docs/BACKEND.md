@@ -284,9 +284,10 @@ and is the only writer of focused mode:
   unconfigured; failed send releases claims.
 - The worker long-polls `getUpdates` when a bot token exists. The offset is
   persisted in `app_meta`; `/start <code>` links a private chat, `/start`
-  re-enables an already linked chat (or replies with the numeric chat id),
-  `/stop` disables alerts, and `/unlink` clears the link. Group chats are
-  ignored.
+  re-enables an already linked chat (or points an unlinked chat at Settings →
+  Connect Telegram), `/stop` disables alerts, and `/unlink` clears the link.
+  Group chats are ignored. A chat id cannot be entered manually; only the link
+  flow sets it.
 - The whole poll iteration (including offset load/save) is guarded: database or
   provider failures log only the exception type and back off exponentially from
   5s to a 300s cap. A done-callback logs unexpected poller termination.
