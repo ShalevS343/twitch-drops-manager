@@ -31,7 +31,7 @@ class FakeTwitchProvider:
     async def validate(self, _token):
         return dict(self.info)
 
-    async def fetch_profile(self, _access_token, _user_id=""):
+    async def fetch_profile(self, _access_token, _user_id="", client_id=""):
         return {}
 
 

@@ -8,14 +8,22 @@ import httpx
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import (
+    DeviceFlowAccessDeniedError,
+    DeviceFlowExpiredTokenError,
+    DeviceFlowPendingError,
+    DeviceFlowSlowDownError,
+    DeviceFlowTerminalError,
     NotConfiguredError,
     ProviderError,
     ReconnectRequiredError,
 )
 
 AUTHORIZE_URL = "https://id.twitch.tv/oauth2/authorize"
+DEVICE_URL = "https://id.twitch.tv/oauth2/device"
 TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 VALIDATE_URL = "https://id.twitch.tv/oauth2/validate"
+
+DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code"
 
 # Twitch's GQL API rejects tokens issued to third-party clients, so the login
 # uses Twitch's own Android app client (the same approach as TwitchDropsMiner).
@@ -156,6 +164,110 @@ class TwitchUserProvider:
 
         return response.json()
 
+    async def start_device_flow(self) -> dict[str, Any]:
+        """Start a Twitch device authorization with the Smart TV client.
+
+        The response includes the secret ``device_code``; callers must keep it
+        server-side and never log or return it.
+        """
+        data = {
+            "client_id": self.settings.device_grant_client_id,
+            "scopes": "",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(DEVICE_URL, data=data)
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                f"Twitch device authorization failed ({type(exc).__name__})"
+            ) from None
+
+        if response.status_code >= 400:
+            raise ProviderError(
+                f"Twitch device authorization failed ({response.status_code})"
+            )
+
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+
+        if not isinstance(body, dict):
+            raise ProviderError(
+                "Twitch device authorization failed (invalid response)"
+            )
+        if not str(body.get("device_code") or "").strip():
+            raise ProviderError(
+                "Twitch device authorization failed (invalid response)"
+            )
+        if not str(body.get("user_code") or "").strip():
+            raise ProviderError(
+                "Twitch device authorization failed (invalid response)"
+            )
+        if not str(body.get("verification_uri") or "").strip():
+            raise ProviderError(
+                "Twitch device authorization failed (invalid response)"
+            )
+        return body
+
+    async def poll_device_token(
+        self, device_code: str, client_id: str
+    ) -> dict[str, Any]:
+        """Poll Twitch's token endpoint once for a device authorization.
+
+        Raises typed errors for ``authorization_pending``, ``slow_down``,
+        ``expired_token``, and ``access_denied``. Messages never include the
+        device code, tokens, or the upstream response body.
+        """
+        data = {
+            "client_id": client_id or self.settings.device_grant_client_id,
+            "device_code": device_code,
+            "grant_type": DEVICE_GRANT_TYPE,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(TOKEN_URL, data=data)
+        except httpx.HTTPError as exc:
+            raise ProviderError(
+                f"Twitch device authorization failed ({type(exc).__name__})"
+            ) from None
+
+        if response.status_code < 400:
+            try:
+                body = response.json()
+            except ValueError:
+                body = None
+            if not isinstance(body, dict) or not str(
+                body.get("access_token") or ""
+            ).strip():
+                raise DeviceFlowTerminalError(
+                    "Twitch device authorization failed (invalid response)"
+                )
+            return body
+
+        message = ""
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict):
+            message = str(
+                body.get("message") or body.get("error") or ""
+            ).strip().lower()
+
+        if message == "authorization_pending":
+            raise DeviceFlowPendingError("Twitch authorization is still pending")
+        if message == "slow_down":
+            raise DeviceFlowSlowDownError("Twitch asked to poll more slowly")
+        if message == "expired_token":
+            raise DeviceFlowExpiredTokenError("Twitch device code expired")
+        if message == "access_denied":
+            raise DeviceFlowAccessDeniedError("Twitch authorization was denied")
+
+        raise DeviceFlowTerminalError(
+            f"Twitch device authorization failed ({response.status_code})"
+        )
+
     async def refresh(self, refresh_token: str) -> dict[str, Any]:
         self._require_ready()
 
@@ -184,8 +296,10 @@ class TwitchUserProvider:
 
         return response.json()
 
-    async def fetch_inventory(self, access_token: str) -> dict[str, Any]:
-        data = await self._gql(access_token)
+    async def fetch_inventory(
+        self, access_token: str, client_id: str = ""
+    ) -> dict[str, Any]:
+        data = await self._gql(access_token, client_id)
 
         current_user = data.get("currentUser") if isinstance(data, dict) else None
         inventory = (
@@ -196,7 +310,9 @@ class TwitchUserProvider:
 
         return inventory
 
-    async def fetch_profile(self, access_token: str, user_id: str = "") -> dict[str, Any]:
+    async def fetch_profile(
+        self, access_token: str, user_id: str = "", client_id: str = ""
+    ) -> dict[str, Any]:
         """Return the logged-in user's Twitch profile (display name, avatar).
 
         Results are cached in memory for a few minutes so the status endpoint
@@ -220,7 +336,7 @@ class TwitchUserProvider:
             async with httpx.AsyncClient(timeout=15) as client:
                 response = await client.post(
                     self.settings.twitch_gql_url,
-                    headers=self._headers(access_token),
+                    headers=self._headers(access_token, client_id),
                     json=payload,
                 )
         except httpx.HTTPError as exc:
@@ -264,9 +380,9 @@ class TwitchUserProvider:
         if not self.ready:
             raise NotConfiguredError("Twitch progress client is not configured")
 
-    def _headers(self, access_token: str) -> dict[str, str]:
+    def _headers(self, access_token: str, client_id: str = "") -> dict[str, str]:
         return {
-            "Client-Id": self.settings.gql_client_id,
+            "Client-Id": client_id or self.settings.gql_client_id,
             "Authorization": f"OAuth {access_token}",
             "User-Agent": ANDROID_USER_AGENT,
             "Client-Session-Id": self._session_id,
@@ -276,9 +392,11 @@ class TwitchUserProvider:
             "Content-Type": "application/json",
         }
 
-    async def _gql(self, access_token: str) -> dict[str, Any]:
+    async def _gql(
+        self, access_token: str, client_id: str = ""
+    ) -> dict[str, Any]:
         self._require_ready()
-        headers = self._headers(access_token)
+        headers = self._headers(access_token, client_id)
 
         payload = {
             "operationName": "Inventory",

@@ -23,7 +23,7 @@ class FakeTwitchUserProvider:
         self.error = error
         self.calls = []
 
-    async def fetch_profile(self, access_token, user_id=""):
+    async def fetch_profile(self, access_token, user_id="", client_id=""):
         self.calls.append((access_token, user_id))
         if self.error is not None:
             raise self.error
