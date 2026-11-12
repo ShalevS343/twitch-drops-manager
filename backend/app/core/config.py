@@ -3,6 +3,8 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_TWITCH_DEVICE_CLIENT_ID = "kd1unb4b3q4t58fwlpcbzcbnm76a8fp"
+# Twitch's public Smart TV client accepts the device authorization grant.
+DEFAULT_TWITCH_DEVICE_GRANT_CLIENT_ID = "ue6666qo983tsx6so1t0vnawi233wa"
 
 
 class Settings(BaseSettings):
@@ -32,6 +34,9 @@ class Settings(BaseSettings):
     # TwitchDropsMiner). Leave the env var blank to use this default.
     twitch_device_client_id: str = ""
     twitch_device_client_secret: str = ""
+    # The Smart TV client used for the device-code grant. It is public; no
+    # client secret is involved.
+    twitch_device_grant_client_id: str = DEFAULT_TWITCH_DEVICE_GRANT_CLIENT_ID
     twitch_oauth_redirect_uri: str = "https://www.twitch.tv/"
 
     telegram_bot_token: str = ""
@@ -103,6 +108,14 @@ class Settings(BaseSettings):
     def device_client_id(self) -> str:
         """Twitch first-party client used for the progress login (blank = default)."""
         return self.twitch_device_client_id or DEFAULT_TWITCH_DEVICE_CLIENT_ID
+
+    @property
+    def device_grant_client_id(self) -> str:
+        """Smart TV client used by the device-code grant (blank = default)."""
+        return (
+            self.twitch_device_grant_client_id.strip()
+            or DEFAULT_TWITCH_DEVICE_GRANT_CLIENT_ID
+        )
 
 
 @lru_cache
