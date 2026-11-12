@@ -242,3 +242,60 @@ class TwitchConnectResult(BaseModel):
     connected: bool = False
     login: str | None = None
     message: str | None = None
+
+
+class AuthUserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    login: str
+    display_name: str
+    profile_image_url: str
+    role: str
+    telegram_enabled: bool
+    telegram_chat_id: str
+
+
+class RegistrationStateOut(BaseModel):
+    open: bool
+    invite_required: bool
+
+
+class AuthMeOut(BaseModel):
+    authenticated: bool
+    user: AuthUserOut | None = None
+    registration: RegistrationStateOut
+    telegram_bot_configured: bool = False
+
+
+class AuthConnectIn(BaseModel):
+    redirect_url: str
+    invite_code: str = ""
+
+
+class AuthConnectOut(BaseModel):
+    connected: bool = True
+    user: AuthUserOut
+    created: bool = False
+
+
+class TelegramSettingsIn(BaseModel):
+    telegram_chat_id: str = ""
+    telegram_enabled: bool = False
+
+
+class AdminUserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    login: str
+    display_name: str
+    role: str
+    is_active: bool
+    created_at: datetime
+    last_login_at: datetime | None = None
+    telegram_enabled: bool
+
+
+class AdminUserUpdate(BaseModel):
+    is_active: bool
