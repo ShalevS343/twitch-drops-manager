@@ -227,6 +227,32 @@ async def test_public_connect_with_bad_code_is_403(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_connect_rejects_a_foreign_origin(monkeypatch):
+    settings = _settings(public_origin="https://drops.example")
+    engine, _factory, app = await _stack(
+        monkeypatch, settings, FakeTwitchProvider()
+    )
+
+    async with _client(app) as client:
+        response = await client.post(
+            "/api/v1/auth/twitch/connect",
+            json={"redirect_url": "https://twitch.tv/#access_token=token"},
+            headers={"Origin": "https://evil.example"},
+        )
+        assert response.status_code == 403
+        assert client.cookies.get("tdm_session") is None
+
+        response = await client.post(
+            "/api/v1/auth/twitch/connect",
+            json={"redirect_url": "https://twitch.tv/#access_token=token"},
+            headers={"Origin": "https://drops.example"},
+        )
+        assert response.status_code == 200
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_connect_rate_limit_returns_429(monkeypatch):
     settings = _settings()
     provider = FakeTwitchProvider()
@@ -458,6 +484,8 @@ async def test_failed_registration_does_not_trigger_a_sync(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_first_progress_sync_targets_the_given_user(monkeypatch):
+    import asyncio
+
     from app.api.v1 import auth as auth_module
 
     calls: list[tuple[object, int]] = []
@@ -482,6 +510,7 @@ async def test_first_progress_sync_targets_the_given_user(monkeypatch):
     )
 
     await auth_module._first_progress_sync(42)
+    await asyncio.gather(*list(auth_module._sync_tasks))
 
     assert calls == [(fake_session, 42)]
 

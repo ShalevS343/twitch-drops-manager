@@ -24,6 +24,7 @@ from app.repositories.games import GameRepository
 from app.repositories.notifications import NotificationRepository
 from app.repositories.streams import StreamRepository
 from app.repositories.user_games import UserGameRepository
+from app.repositories.user_sessions import UserSessionRepository
 from app.repositories.users import UserRepository
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ class ScanService:
         started_at = utcnow()
 
         try:
+            await UserSessionRepository(self.session).delete_expired()
             payload = await self.sunkwi.fetch_games()
             games = payload.get("games", []) if isinstance(payload, dict) else []
 

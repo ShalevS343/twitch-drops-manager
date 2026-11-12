@@ -38,3 +38,9 @@ class AccountConflictError(AuthError):
     """A signed-in user tried to connect a different Twitch account."""
 
     status_code = 409
+
+
+class LastAdminError(AuthError):
+    """Disabling this account would leave no active administrator."""
+
+    status_code = 400

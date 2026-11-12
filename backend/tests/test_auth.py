@@ -17,6 +17,7 @@ from app.core.exceptions import (
     AccountConflictError,
     AccountDisabledError,
     InvalidAuthRequestError,
+    LastAdminError,
     ProviderError,
     RegistrationClosedError,
 )
@@ -25,11 +26,13 @@ from app.core.security import (
     CSRF_COOKIE,
     SESSION_COOKIE,
     clear_auth_cookies,
+    compare_secrets,
     create_auth_session,
     get_current_user,
     get_optional_user,
     hash_token,
     new_opaque_token,
+    prune_expired_sessions,
     set_auth_cookies,
 )
 from app.domain.models import (
@@ -188,7 +191,7 @@ async def test_second_user_requires_a_valid_invite_code(monkeypatch):
         calls.append((left, right))
         return left == right
 
-    monkeypatch.setattr("app.services.auth_service.secrets.compare_digest", fake_compare)
+    monkeypatch.setattr("app.services.auth_service.compare_secrets", fake_compare)
     settings = _settings(registration_code="secret-code")
 
     async with factory() as session:
@@ -211,7 +214,7 @@ async def test_second_user_requires_a_valid_invite_code(monkeypatch):
         result = await service.connect("url", "secret-code")
         assert result.created is True
         assert result.user.role == "user"
-        assert calls == [("wrong-code", "secret-code"), ("secret-code", "secret-code")]
+        assert calls == [("secret-code", "wrong-code"), ("secret-code", "secret-code")]
 
     await engine.dispose()
 
@@ -653,6 +656,109 @@ def test_cookie_secure_setting_can_force_http_cookies():
     assert response.cookies[SESSION_COOKIE]["secure"] is False
 
 
+def test_compare_secrets_handles_non_ascii_values():
+    assert compare_secrets("café", "café") is True
+    assert compare_secrets("café", "cafe") is False
+    assert compare_secrets("", "é") is False
+
+
+@pytest.mark.asyncio
+async def test_non_ascii_invite_code_is_compared_safely():
+    engine, factory = await _session()
+    settings = _settings(registration_code="café")
+
+    async with factory() as session:
+        await UserRepository(session).create(twitch_user_id="123", login="viewer")
+        await session.commit()
+
+        provider = FakeTwitchProvider(
+            info={
+                "client_id": "client",
+                "user_id": "456",
+                "login": "second",
+                "expires_in": 3600,
+            }
+        )
+        result = await AuthService(
+            session, settings=settings, provider=provider
+        ).connect("url", "café")
+        assert result.created is True
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_first_admin_claim_prevents_a_second_admin():
+    engine, factory = await _session()
+    settings = _settings(registration_open=True)
+
+    async with factory() as session:
+        first = await AuthService(
+            session,
+            settings=settings,
+            provider=FakeTwitchProvider(),
+        ).connect("url", "")
+        second = await AuthService(
+            session,
+            settings=settings,
+            provider=FakeTwitchProvider(
+                info={
+                    "client_id": "client",
+                    "user_id": "456",
+                    "login": "second",
+                    "expires_in": 3600,
+                }
+            ),
+        ).connect("url", "")
+
+        assert first.user.role == "admin"
+        assert second.user.role == "user"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_last_active_admin_cannot_be_disabled():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        admin = await UserRepository(session).create(
+            twitch_user_id="123", login="admin", role="admin"
+        )
+        await session.commit()
+        service = AuthService(session, settings=_settings(), provider=FakeTwitchProvider())
+
+        with pytest.raises(LastAdminError):
+            await service.set_user_active(admin.id, False)
+
+        assert (await UserRepository(session).get(admin.id)).is_active is True
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_prune_expired_sessions_deletes_only_expired_rows():
+    engine, factory = await _session()
+
+    async with factory() as session:
+        user = await UserRepository(session).create(
+            twitch_user_id="123", login="viewer"
+        )
+        await create_auth_session(session, user.id, ttl_days=-1)
+        await create_auth_session(session, user.id, ttl_days=30)
+        await session.commit()
+
+        await prune_expired_sessions(session)
+
+        remaining = (await session.execute(select(UserSession))).scalars().all()
+        assert len(remaining) == 1
+        assert remaining[0].expires_at.replace(tzinfo=timezone.utc) > datetime.now(
+            timezone.utc
+        )
+
+    await engine.dispose()
+
+
 def test_opaque_tokens_are_unique_and_hashes_are_stable():
     first = new_opaque_token()
     second = new_opaque_token()
@@ -770,6 +876,37 @@ async def test_csrf_is_required_when_the_session_cookie_is_present(monkeypatch):
             "/api/v1/thing", headers={"Origin": "http://testserver"}
         )
         assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_csrf_accepts_matching_non_ascii_cookie_and_header(monkeypatch):
+    monkeypatch.setattr(
+        "app.core.middleware.get_settings", lambda: _settings(cors_origins="")
+    )
+    # HTTP header values arrive as latin-1 bytes; build the ASGI scope directly
+    # because httpx refuses to encode non-ASCII header strings.
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/api/v1/thing",
+        "raw_path": b"/api/v1/thing",
+        "query_string": b"",
+        "headers": [
+            (b"cookie", "tdm_session=session; tdm_csrf=café".encode("latin-1")),
+            (b"x-csrf-token", "café".encode("latin-1")),
+            (b"origin", b"http://testserver"),
+        ],
+        "client": ("127.0.0.1", 1234),
+        "server": ("testserver", 80),
+    }
+
+    async def call_next(_request):
+        return JSONResponse({"ok": True})
+
+    response = await CSRFMiddleware(app=None).dispatch(Request(scope), call_next)
+    assert response.status_code == 200
 
 
 @pytest.mark.asyncio

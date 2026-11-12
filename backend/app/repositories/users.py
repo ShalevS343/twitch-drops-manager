@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models import TwitchAccount, User, UserWatchFocus
+
+FIRST_ADMIN_KEY = "first_admin_claimed"
 
 
 class UserRepository:
@@ -76,6 +78,34 @@ class UserRepository:
             .order_by(User.id)
         )
         return [int(user_id) for user_id in result.scalars().all()]
+
+    async def count_active_admins(self) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(User)
+            .where(User.role == "admin", User.is_active.is_(True))
+        )
+        return int(result.scalar_one())
+
+    async def claim_first_admin_slot(self) -> bool:
+        """Atomically claim the one-time first-admin bootstrap.
+
+        The claim, the users-exist check, and the insert are one statement.
+        ``app_meta`` is a single-row-per-key table, so only one concurrent
+        registration can insert the key and win the admin role.
+        """
+        result = await self.session.execute(
+            text(
+                "INSERT OR IGNORE INTO app_meta (key, value, updated_at) "
+                "SELECT :key, '1', :now "
+                "WHERE NOT EXISTS (SELECT 1 FROM users)"
+            ),
+            {
+                "key": FIRST_ADMIN_KEY,
+                "now": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        return result.rowcount == 1
 
     async def create(
         self,

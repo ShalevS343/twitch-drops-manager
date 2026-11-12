@@ -3,12 +3,14 @@ from sqlalchemy import func, select
 
 from app.core.config import Settings
 from app.core.exceptions import ProviderError
+from app.core.security import create_auth_session
 from app.domain.models import (
     Campaign,
     Game,
     Stream,
     UserCampaignStart,
     UserGame,
+    UserSession,
 )
 from app.repositories.user_games import UserGameRepository
 from app.services.scan_service import ScanService
@@ -180,6 +182,24 @@ async def _run_scan(session, telegram, *, twitch=None, payload_data=None):
     return await _service(
         session, telegram, twitch=twitch, payload_data=payload_data
     ).run()
+
+
+@pytest.mark.asyncio
+async def test_scan_prunes_expired_sessions():
+    engine, factory = await _scan_session()
+
+    async with factory() as session:
+        user = await create_user(session, twitch_user_id="123", login="viewer")
+        await create_auth_session(session, user.id, ttl_days=-1)
+        await create_auth_session(session, user.id, ttl_days=30)
+        await session.commit()
+
+        await _run_scan(session, FakeTelegram())
+
+        remaining = (await session.execute(select(UserSession))).scalars().all()
+        assert len(remaining) == 1
+
+    await engine.dispose()
 
 
 async def _seed_campaign(

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import AdminUserDep, AuthServiceDep, SessionDep
-from app.core.exceptions import InvalidAuthRequestError
+from app.core.exceptions import InvalidAuthRequestError, LastAdminError
 from app.domain.schemas import AdminUserOut, AdminUserUpdate
 from app.repositories.users import UserRepository
 
@@ -33,6 +33,10 @@ async def update_user(
 
     try:
         user = await service.set_user_active(user_id, payload.is_active)
+    except LastAdminError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
     except InvalidAuthRequestError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"

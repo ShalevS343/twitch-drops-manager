@@ -18,6 +18,16 @@ CSRF_HEADER = "X-CSRF-Token"
 LAST_USED_TOUCH_SECONDS = 3600
 
 
+def compare_secrets(expected: str, provided: str) -> bool:
+    """Constant-time string comparison that is safe for non-ASCII input."""
+    try:
+        return secrets.compare_digest(
+            expected.encode("utf-8"), provided.encode("utf-8")
+        )
+    except (UnicodeEncodeError, AttributeError):
+        return False
+
+
 def new_opaque_token() -> str:
     return secrets.token_urlsafe(32)
 
@@ -126,6 +136,12 @@ async def get_optional_user(request: Request, session: AsyncSession) -> User | N
         await session.commit()
 
     return user
+
+
+async def prune_expired_sessions(session: AsyncSession) -> None:
+    """Delete expired session rows and commit the cleanup."""
+    await UserSessionRepository(session).delete_expired()
+    await session.commit()
 
 
 async def get_current_user(request: Request, session: AsyncSession) -> User:
