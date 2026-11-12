@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.exceptions import NotConfiguredError, ProviderError
-from app.domain.models import TwitchAuth
+from app.core.exceptions import ProviderError, ReconnectRequiredError
+from app.domain.models import TwitchAccount, User
 from app.domain.parsing import (
     campaign_gql_id_from_external_id,
     parse_earned_rewards,
@@ -19,12 +19,13 @@ from app.repositories.campaign_completions import CampaignCompletionRepository
 from app.repositories.campaigns import CampaignRepository
 from app.repositories.notifications import NotificationRepository
 from app.repositories.progress import ProgressRepository
-from app.repositories.twitch_auth import TwitchAuthRepository
+from app.repositories.twitch_accounts import TwitchAccountRepository
+from app.repositories.users import UserRepository
 
 logger = logging.getLogger(__name__)
 
-TOKEN_REFRESH_MARGIN = timedelta(minutes=5)
 SNAPSHOT_RETENTION = timedelta(hours=24)
+RECONNECT_MESSAGE = "Twitch login expired; reconnect your account"
 
 
 @dataclass
@@ -36,27 +37,44 @@ class ProgressResult:
 
 
 class ProgressService:
+    """Sync one user's Twitch drop inventory and notifications."""
+
     def __init__(
         self,
         session: AsyncSession,
+        user_id: int,
         settings: Settings,
         provider: TwitchUserProvider,
         telegram: TelegramProvider,
     ) -> None:
         self.session = session
+        self.user_id = user_id
         self.settings = settings
         self.provider = provider
         self.telegram = telegram
+        self.accounts = TwitchAccountRepository(session)
+        self.users = UserRepository(session)
 
     async def run(self) -> ProgressResult:
-        auth = await TwitchAuthRepository(self.session).get()
-        if auth is None:
-            return ProgressResult(
-                connected=False, campaign_count=0, drop_count=0, notified_count=0
-            )
+        account = await self.accounts.get_for_user(self.user_id)
+        if account is None:
+            return self._empty(connected=False)
 
-        auth = await self._ensure_token(auth)
-        inventory = await self.provider.fetch_inventory(auth.access_token)
+        # A user already marked for reconnect stays skipped until they log in
+        # again (which clears the flag on the account row).
+        if account.reconnect_required:
+            return self._empty(connected=False)
+
+        user = await self.users.get(self.user_id)
+        if user is None:
+            return self._empty(connected=False)
+
+        account = await self._ensure_token(account)
+        try:
+            inventory = await self.provider.fetch_inventory(account.access_token)
+        except ReconnectRequiredError as exc:
+            await self._mark_reconnect()
+            raise ReconnectRequiredError(RECONNECT_MESSAGE) from exc
 
         campaigns = inventory.get("dropCampaignsInProgress") or []
         if not isinstance(campaigns, list):
@@ -66,13 +84,14 @@ class ProgressService:
         await self._record_completions(rows, inventory)
 
         now = datetime.now(timezone.utc)
-        repo = ProgressRepository(self.session)
+        repo = ProgressRepository(self.session, self.user_id)
         await repo.replace(rows)
         await repo.add_snapshots(rows)
         await repo.prune_snapshots(now - SNAPSHOT_RETENTION)
+        await self.accounts.mark_synced(self.user_id)
         await self.session.commit()
 
-        notified = await self._notify(rows)
+        notified = await self._notify(user, rows)
         await self.session.commit()
 
         campaign_count = len(
@@ -85,9 +104,36 @@ class ProgressService:
             notified_count=notified,
         )
 
-    async def _record_completions(
-        self, rows: list[dict], inventory: dict
-    ) -> None:
+    def _empty(self, *, connected: bool) -> ProgressResult:
+        return ProgressResult(
+            connected=connected,
+            campaign_count=0,
+            drop_count=0,
+            notified_count=0,
+        )
+
+    async def _ensure_token(self, account: TwitchAccount) -> TwitchAccount:
+        expires = account.expires_at
+        if expires is not None and expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+
+        if not account.access_token:
+            await self._mark_reconnect()
+            raise ReconnectRequiredError(RECONNECT_MESSAGE)
+
+        # The implicit grant has no refresh token. An expired token can only be
+        # replaced by signing in again.
+        if expires is not None and expires <= datetime.now(timezone.utc):
+            await self._mark_reconnect()
+            raise ReconnectRequiredError(RECONNECT_MESSAGE)
+
+        return account
+
+    async def _mark_reconnect(self) -> None:
+        await self.accounts.mark_reconnect(self.user_id, RECONNECT_MESSAGE)
+        await self.session.commit()
+
+    async def _record_completions(self, rows: list[dict], inventory: dict) -> None:
         """Persist campaigns whose rewards are all claimed.
 
         ``dropCampaignsInProgress`` drops a campaign after its final reward is
@@ -128,44 +174,14 @@ class ProgressService:
                     }
                 )
 
-        await CampaignCompletionRepository(self.session).upsert_many(completed)
+        await CampaignCompletionRepository(
+            self.session, self.user_id
+        ).upsert_many(completed)
 
-    async def _ensure_token(self, auth: TwitchAuth) -> TwitchAuth:
-        expires = auth.expires_at
-        if expires is not None and expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-
-        if (
-            auth.access_token
-            and expires is not None
-            and expires - TOKEN_REFRESH_MARGIN > datetime.now(timezone.utc)
-        ):
-            return auth
-
-        # Legacy implicit tokens report expires_in=0, i.e. no known expiry.
-        if auth.access_token and expires is None:
-            return auth
-
-        if not auth.refresh_token:
-            raise NotConfiguredError("Twitch login expired; reconnect your account")
-
-        data = await self.provider.refresh(auth.refresh_token)
-        expires_at = datetime.now(timezone.utc) + timedelta(
-            seconds=int(data.get("expires_in") or 0)
-        )
-
-        auth = await TwitchAuthRepository(self.session).save(
-            user_id=auth.user_id,
-            login=auth.login,
-            access_token=str(data["access_token"]),
-            refresh_token=str(data.get("refresh_token") or auth.refresh_token),
-            expires_at=expires_at,
-        )
-        await self.session.commit()
-        return auth
-
-    async def _notify(self, rows: list[dict]) -> int:
+    async def _notify(self, user: User, rows: list[dict]) -> int:
         if not self.telegram.configured:
+            return 0
+        if not user.telegram_enabled or not (user.telegram_chat_id or "").strip():
             return 0
 
         events: list[tuple[str, str]] = []
@@ -228,7 +244,7 @@ class ProgressService:
         if not events:
             return 0
 
-        repo = NotificationRepository(self.session)
+        repo = NotificationRepository(self.session, self.user_id)
         claimed: list[tuple[str, str]] = []
         for key, line in events:
             if await repo.claim(key):
@@ -243,7 +259,7 @@ class ProgressService:
         message = "\n".join(lines)
 
         try:
-            await self.telegram.send(message)
+            await self.telegram.send(message, user.telegram_chat_id)
         except ProviderError as exc:
             logger.warning("Telegram notification failed: %s", exc)
             for key, _ in claimed:

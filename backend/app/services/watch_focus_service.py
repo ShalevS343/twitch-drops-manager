@@ -5,7 +5,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ProviderError
-from app.domain.models import WatchFocus, utcnow
+from app.domain.models import User, UserWatchFocus, utcnow
 from app.domain.schemas import (
     WatchCandidateOut,
     WatchFocusOut,
@@ -15,6 +15,7 @@ from app.domain.schemas import (
 from app.providers.telegram import TelegramProvider
 from app.repositories.notifications import NotificationRepository
 from app.repositories.progress import ProgressRepository
+from app.repositories.users import UserRepository
 from app.repositories.watch_focus import WatchFocusRepository
 from app.services.progress_metrics import drop_remaining_minutes
 from app.services.watch_queue_service import (
@@ -74,7 +75,7 @@ def _build_candidates(
 
 
 def _find_current(
-    items: list[WatchQueueItemOut], row: WatchFocus
+    items: list[WatchQueueItemOut], row: UserWatchFocus
 ) -> FocusCandidate | None:
     """Resolve the stored focus after a scan replaced stream rows.
 
@@ -101,7 +102,7 @@ def _find_current(
     return None
 
 
-def _clear_target(row: WatchFocus) -> None:
+def _clear_target(row: UserWatchFocus) -> None:
     row.stream_id = None
     row.user_login = ""
     row.user_name = ""
@@ -116,7 +117,7 @@ def _clear_target(row: WatchFocus) -> None:
     row.focused_at = None
 
 
-def _apply_target(row: WatchFocus, candidate: FocusCandidate, reason: str) -> None:
+def _apply_target(row: UserWatchFocus, candidate: FocusCandidate, reason: str) -> None:
     moved = (
         row.user_login != candidate.stream.user_login
         or row.campaign_id != candidate.campaign.campaign_id
@@ -153,14 +154,16 @@ class WatchFocusService:
     def __init__(
         self,
         session: AsyncSession,
+        user_id: int,
         telegram: TelegramProvider | None = None,
     ) -> None:
         self.session = session
+        self.user_id = user_id
         self.telegram = telegram
-        self.repo = WatchFocusRepository(session)
+        self.repo = WatchFocusRepository(session, user_id)
 
     def _state(
-        self, row: WatchFocus | None, items: list[WatchQueueItemOut]
+        self, row: UserWatchFocus | None, items: list[WatchQueueItemOut]
     ) -> WatchStateOut:
         enabled = bool(row and row.enabled)
         status = "idle"
@@ -194,12 +197,20 @@ class WatchFocusService:
         if self.telegram is None or not self.telegram.configured:
             return True
 
-        repo = NotificationRepository(self.session)
+        user: User | None = await UserRepository(self.session).get(self.user_id)
+        if (
+            user is None
+            or not user.telegram_enabled
+            or not user.telegram_chat_id.strip()
+        ):
+            return True
+
+        repo = NotificationRepository(self.session, self.user_id)
         if not await repo.claim(dedupe_key):
             return True
 
         try:
-            await self.telegram.send(message)
+            await self.telegram.send(message, user.telegram_chat_id)
         except ProviderError as exc:
             logger.warning("Watcher notification failed: %s", exc)
             await repo.release(dedupe_key)
@@ -207,7 +218,7 @@ class WatchFocusService:
         return True
 
     async def _campaign_remaining(self, campaign_id: str) -> int:
-        rows = await ProgressRepository(self.session).list()
+        rows = await ProgressRepository(self.session, self.user_id).list()
         return max(
             (
                 drop_remaining_minutes(row)
@@ -219,12 +230,12 @@ class WatchFocusService:
 
     async def get_state(self) -> WatchStateOut:
         row = await self.repo.get()
-        items = await build_watch_queue(self.session)
+        items = await build_watch_queue(self.session, self.user_id)
         return self._state(row, items)
 
     async def set_enabled(self, enabled: bool) -> WatchStateOut:
         row = await self.repo.get_or_create()
-        items = await build_watch_queue(self.session)
+        items = await build_watch_queue(self.session, self.user_id)
 
         if not enabled:
             row.enabled = False
@@ -261,7 +272,7 @@ class WatchFocusService:
             raise WatchFocusError(f"Unknown dispatch strategy: {strategy}")
 
         row = await self.repo.get()
-        items = await build_watch_queue(self.session)
+        items = await build_watch_queue(self.session, self.user_id)
 
         if strategy == "manual":
             if stream_id is None or not campaign_id:
@@ -328,7 +339,7 @@ class WatchFocusService:
         - No target yet: select the next candidate when one appears.
         """
         row = await self.repo.get()
-        items = await build_watch_queue(self.session)
+        items = await build_watch_queue(self.session, self.user_id)
         if row is None or not row.enabled:
             return self._state(row, items)
 

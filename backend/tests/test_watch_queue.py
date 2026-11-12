@@ -11,12 +11,13 @@ from app.api.v1.watch_queue import list_watch_queue
 from app.core.db import Base
 from app.domain.models import (
     Campaign,
-    DropProgress,
     Game,
-    ProgressSnapshot,
     Stream,
     StreamCampaignMatch,
+    UserDropProgress,
+    UserProgressSnapshot,
 )
+from tests.support import create_user
 
 
 async def _session():
@@ -76,6 +77,7 @@ async def _add_stream(
 
 
 def _progress(
+    user_id: int,
     drop_id: str,
     campaign: Campaign,
     *,
@@ -83,8 +85,9 @@ def _progress(
     current: int,
     claimed: bool = False,
     drop_name: str | None = None,
-) -> DropProgress:
-    return DropProgress(
+) -> UserDropProgress:
+    return UserDropProgress(
+        user_id=user_id,
         drop_id=drop_id,
         drop_name=drop_name or drop_id,
         campaign_gql_id=campaign.external_id.rsplit(":", 1)[-1],
@@ -103,9 +106,10 @@ async def test_watch_queue_filters_in_progress_and_selects_next_drop():
     engine, factory = await _session()
 
     async with factory() as session:
-        game = Game(name="Rust", selected=True)
+        game = Game(name="Rust")
         session.add(game)
         await session.flush()
+        user = await create_user(session, twitch_user_id="1", login="one")
 
         in_progress = await _add_campaign(
             session, game, "Rust:campaign-1", "Campaign One", "2026-11-10T00:00:00Z"
@@ -124,15 +128,15 @@ async def test_watch_queue_filters_in_progress_and_selects_next_drop():
 
         session.add_all(
             [
-                _progress("drop-1", in_progress, required=100, current=40),
-                _progress("drop-2", in_progress, required=40, current=10),
-                _progress("drop-claimed", in_progress, required=30, current=30, claimed=True),
-                _progress("drop-ready", ready, required=30, current=30),
+                _progress(user.id, "drop-1", in_progress, required=100, current=40),
+                _progress(user.id, "drop-2", in_progress, required=40, current=10),
+                _progress(user.id, "drop-claimed", in_progress, required=30, current=30, claimed=True),
+                _progress(user.id, "drop-ready", ready, required=30, current=30),
             ]
         )
         await session.commit()
 
-        items = await list_watch_queue(session)
+        items = await list_watch_queue(session, user)
 
         logins = [item.user_login for item in items]
         assert "beta" not in logins
@@ -163,9 +167,10 @@ async def test_watch_queue_sorts_by_earliest_end_remaining_and_viewers():
     engine, factory = await _session()
 
     async with factory() as session:
-        game = Game(name="Rust", selected=True)
+        game = Game(name="Rust")
         session.add(game)
         await session.flush()
+        user = await create_user(session, twitch_user_id="1", login="one")
 
         early = await _add_campaign(
             session, game, "Rust:early", "Early", "2026-11-08T00:00:00Z"
@@ -182,14 +187,14 @@ async def test_watch_queue_sorts_by_earliest_end_remaining_and_viewers():
 
         session.add_all(
             [
-                _progress("drop-early", early, required=20, current=10),
-                _progress("drop-late", late, required=200, current=100),
-                _progress("drop-unknown", unknown, required=100, current=50),
+                _progress(user.id, "drop-early", early, required=20, current=10),
+                _progress(user.id, "drop-late", late, required=200, current=100),
+                _progress(user.id, "drop-unknown", unknown, required=100, current=50),
             ]
         )
         await session.commit()
 
-        items = await list_watch_queue(session)
+        items = await list_watch_queue(session, user)
 
         assert [item.user_login for item in items] == [
             "early-stream",
@@ -206,15 +211,16 @@ async def test_watch_queue_uses_a_single_flat_join_and_three_queries():
     engine, factory = await _session()
 
     async with factory() as session:
-        game = Game(name="Rust", selected=True)
+        game = Game(name="Rust")
         session.add(game)
         await session.flush()
+        user = await create_user(session, twitch_user_id="1", login="one")
 
         campaign = await _add_campaign(
             session, game, "Rust:campaign-1", "Campaign One", "2026-11-10T00:00:00Z"
         )
         await _add_stream(session, game, "alpha", 100, [campaign])
-        session.add(_progress("drop-1", campaign, required=100, current=40))
+        session.add(_progress(user.id, "drop-1", campaign, required=100, current=40))
         await session.commit()
 
         statements: list[str] = []
@@ -225,7 +231,7 @@ async def test_watch_queue_uses_a_single_flat_join_and_three_queries():
             statements.append(statement)
 
         event.listen(engine.sync_engine, "before_cursor_execute", record_statement)
-        items = await list_watch_queue(session)
+        items = await list_watch_queue(session, user)
         event.remove(engine.sync_engine, "before_cursor_execute", record_statement)
 
         assert len(items) == 1
@@ -240,16 +246,18 @@ async def test_watch_queue_falls_back_to_flat_campaign_name_and_ends_at():
     engine, factory = await _session()
 
     async with factory() as session:
-        game = Game(name="Rust", selected=True)
+        game = Game(name="Rust")
         session.add(game)
         await session.flush()
+        user = await create_user(session, twitch_user_id="1", login="one")
 
         campaign = await _add_campaign(
             session, game, "Rust:campaign-1", "Campaign One", "2026-11-10T00:00:00Z"
         )
         await _add_stream(session, game, "alpha", 100, [campaign])
         session.add(
-            DropProgress(
+            UserDropProgress(
+                user_id=user.id,
                 drop_id="drop-1",
                 drop_name="Drop One",
                 campaign_gql_id="campaign-1",
@@ -262,7 +270,7 @@ async def test_watch_queue_falls_back_to_flat_campaign_name_and_ends_at():
         )
         await session.commit()
 
-        items = await list_watch_queue(session)
+        items = await list_watch_queue(session, user)
 
         assert len(items) == 1
         assert items[0].campaigns[0].campaign_name == "Campaign One"
@@ -276,32 +284,35 @@ async def test_watch_queue_reports_campaign_remaining_minutes():
     engine, factory = await _session()
 
     async with factory() as session:
-        game = Game(name="Rust", selected=True)
+        game = Game(name="Rust")
         session.add(game)
         await session.flush()
+        user = await create_user(session, twitch_user_id="1", login="one")
 
         campaign = await _add_campaign(
             session, game, "Rust:campaign-1", "Campaign One", "2026-11-10T00:00:00Z"
         )
         await _add_stream(session, game, "alpha", 100, [campaign])
-        session.add(_progress("drop-1", campaign, required=120, current=60))
+        session.add(_progress(user.id, "drop-1", campaign, required=120, current=60))
 
         now = datetime.now(timezone.utc)
         session.add_all(
             [
-                ProgressSnapshot(
+                UserProgressSnapshot(
+                    user_id=user.id,
                     drop_id="drop-1",
                     current_minutes=30,
                     recorded_at=now - timedelta(minutes=60),
                 ),
-                ProgressSnapshot(
+                UserProgressSnapshot(
+                    user_id=user.id,
                     drop_id="drop-1", current_minutes=60, recorded_at=now
                 ),
             ]
         )
         await session.commit()
 
-        items = await list_watch_queue(session)
+        items = await list_watch_queue(session, user)
 
         assert len(items) == 1
         assert items[0].campaigns[0].remaining_minutes == 60

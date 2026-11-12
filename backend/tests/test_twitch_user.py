@@ -1,7 +1,7 @@
 import pytest
 
 from app.core.config import Settings
-from app.core.exceptions import NotConfiguredError, ProviderError
+from app.core.exceptions import ProviderError, ReconnectRequiredError
 from app.providers import twitch_user
 from app.providers.twitch_user import TwitchUserProvider
 
@@ -127,14 +127,14 @@ async def test_fetch_profile_returns_empty_dict_for_missing_user(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fetch_profile_raises_not_configured_on_401(monkeypatch):
+async def test_fetch_profile_raises_reconnect_required_on_401(monkeypatch):
     client = FakeClient([FakeResponse({}, status_code=401)])
     monkeypatch.setattr(
         twitch_user.httpx, "AsyncClient", lambda **kwargs: client
     )
 
     provider = TwitchUserProvider(_settings())
-    with pytest.raises(NotConfiguredError):
+    with pytest.raises(ReconnectRequiredError):
         await provider.fetch_profile("token", "123")
 
 

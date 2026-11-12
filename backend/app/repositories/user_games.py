@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.models import Game, UserGame
+from app.domain.models import Game, User, UserGame
 
 
 class UserGameRepository:
@@ -22,6 +24,54 @@ class UserGameRepository:
     async def selected_names(self, user_id: int) -> list[str]:
         return [game.name for game in await self.list_games(user_id)]
 
+    async def game_ids(self, user_id: int) -> set[int]:
+        result = await self.session.execute(
+            select(UserGame.game_id).where(UserGame.user_id == user_id)
+        )
+        return set(result.scalars().all())
+
+    async def list_union_names(self) -> set[str]:
+        """Names tracked by at least one active user."""
+        result = await self.session.execute(
+            select(Game.name)
+            .join(UserGame, UserGame.game_id == Game.id)
+            .join(User, User.id == UserGame.user_id)
+            .where(User.is_active.is_(True))
+            .distinct()
+        )
+        return set(result.scalars().all())
+
+    async def names_by_user(self, user_ids: Iterable[int]) -> dict[int, set[str]]:
+        ids = list(user_ids)
+        if not ids:
+            return {}
+        result = await self.session.execute(
+            select(UserGame.user_id, Game.name)
+            .join(Game, Game.id == UserGame.game_id)
+            .where(UserGame.user_id.in_(ids))
+        )
+        names: dict[int, set[str]] = {}
+        for user_id, name in result.all():
+            names.setdefault(int(user_id), set()).add(str(name))
+        return names
+
+    async def telegram_targets(self) -> dict[int, set[str]]:
+        """Selected game names for active users who can receive Telegram."""
+        result = await self.session.execute(
+            select(UserGame.user_id, Game.name)
+            .join(Game, Game.id == UserGame.game_id)
+            .join(User, User.id == UserGame.user_id)
+            .where(
+                User.is_active.is_(True),
+                User.telegram_enabled.is_(True),
+                User.telegram_chat_id != "",
+            )
+        )
+        names: dict[int, set[str]] = {}
+        for user_id, name in result.all():
+            names.setdefault(int(user_id), set()).add(str(name))
+        return names
+
     async def replace(self, user_id: int, names: list[str]) -> list[Game]:
         wanted: dict[str, str] = {}
         for raw in names:
@@ -38,7 +88,7 @@ class UserGameRepository:
 
         for key, name in wanted.items():
             if key not in by_name:
-                game = Game(name=name, selected=False)
+                game = Game(name=name)
                 self.session.add(game)
                 by_name[key] = game
         await self.session.flush()

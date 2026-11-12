@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Literal
 
@@ -77,8 +79,10 @@ class ScanResultOut(BaseModel):
 
 class StatusOut(BaseModel):
     app: str
+    user: AuthUserOut | None = None
     twitch_configured: bool
     telegram_configured: bool
+    telegram_ready: bool = False
     games_selected: list[str]
     campaign_count: int
     stream_count: int
@@ -227,6 +231,9 @@ class TwitchUserStatusOut(BaseModel):
     display_name: str | None = None
     profile_image_url: str | None = None
     connected_at: datetime | None = None
+    reconnect_required: bool = False
+    last_error: str | None = None
+    last_synced_at: datetime | None = None
 
 
 class TwitchConnectOut(BaseModel):

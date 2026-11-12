@@ -21,29 +21,6 @@ from app.services.scan_service import ScanService
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
-async def get_scan_service(session: SessionDep) -> ScanService:
-    return build_scan_service(session)
-
-
-async def get_progress_service(session: SessionDep) -> ProgressService:
-    return build_progress_service(session)
-
-
-ScanServiceDep = Annotated[ScanService, Depends(get_scan_service)]
-ProgressServiceDep = Annotated[ProgressService, Depends(get_progress_service)]
-TelegramDep = Annotated[TelegramProvider, Depends(get_telegram_provider)]
-TwitchUserDep = Annotated[TwitchUserProvider, Depends(get_twitch_user_provider)]
-
-
-async def get_auth_service(
-    session: SessionDep, provider: TwitchUserDep
-) -> AuthService:
-    return AuthService(session, provider=provider)
-
-
-AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
-
-
 async def get_current_user_dep(request: Request, session: SessionDep) -> User:
     return await get_current_user(request, session)
 
@@ -56,3 +33,30 @@ async def get_admin_user_dep(user: CurrentUserDep) -> User:
 
 
 AdminUserDep = Annotated[User, Depends(get_admin_user_dep)]
+
+
+async def get_scan_service(session: SessionDep) -> ScanService:
+    return build_scan_service(session)
+
+
+async def get_progress_service(
+    session: SessionDep, user: CurrentUserDep
+) -> ProgressService:
+    return build_progress_service(session, user.id)
+
+
+ScanServiceDep = Annotated[ScanService, Depends(get_scan_service)]
+ProgressServiceDep = Annotated[ProgressService, Depends(get_progress_service)]
+TelegramDep = Annotated[TelegramProvider, Depends(get_telegram_provider)]
+TwitchUserDep = Annotated[TwitchUserProvider, Depends(get_twitch_user_provider)]
+
+
+async def get_auth_service(
+    session: SessionDep, provider: TwitchUserDep
+) -> AuthService:
+    # AuthService resolves settings through its own module so tests and the
+    # running app share one configuration path.
+    return AuthService(session, provider=provider)
+
+
+AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]

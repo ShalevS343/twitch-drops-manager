@@ -4,15 +4,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api.v1.progress import (
-    shutdown_profile_refresh,
-    start_profile_refresh_warmup,
-)
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.db import engine, init_db
 from app.core.logging import configure_logging
 from app.core.middleware import CSRFMiddleware, NoStoreMiddleware
+from app.services.profile_service import get_profile_service
 
 settings = get_settings()
 
@@ -21,11 +18,11 @@ settings = get_settings()
 async def lifespan(_app: FastAPI):
     configure_logging()
     await init_db()
-    start_profile_refresh_warmup()
+    await get_profile_service().warm_up()
     try:
         yield
     finally:
-        await shutdown_profile_refresh()
+        await get_profile_service().shutdown()
         await engine.dispose()
 
 

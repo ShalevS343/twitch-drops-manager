@@ -47,6 +47,23 @@ class TwitchAccountRepository:
         await self.session.flush()
         return account
 
+    async def mark_reconnect(self, user_id: int, error: str) -> None:
+        account = await self.get_for_user(user_id)
+        if account is None:
+            return
+        account.reconnect_required = True
+        account.last_error = error
+        await self.session.flush()
+
+    async def mark_synced(self, user_id: int) -> None:
+        account = await self.get_for_user(user_id)
+        if account is None:
+            return
+        account.last_synced_at = datetime.now(timezone.utc)
+        account.reconnect_required = False
+        account.last_error = ""
+        await self.session.flush()
+
     async def delete_for_user(self, user_id: int) -> None:
         await self.session.execute(
             delete(TwitchAccount).where(TwitchAccount.user_id == user_id)

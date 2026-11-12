@@ -5,16 +5,19 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.models import CampaignCompletion
+from app.domain.models import UserCampaignCompletion
 
 
 class CampaignCompletionRepository:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, user_id: int) -> None:
         self.session = session
+        self.user_id = user_id
 
-    async def list(self) -> list[CampaignCompletion]:
+    async def list(self) -> list[UserCampaignCompletion]:
         result = await self.session.execute(
-            select(CampaignCompletion).order_by(CampaignCompletion.id)
+            select(UserCampaignCompletion)
+            .where(UserCampaignCompletion.user_id == self.user_id)
+            .order_by(UserCampaignCompletion.id)
         )
         return list(result.scalars().all())
 
@@ -24,8 +27,9 @@ class CampaignCompletionRepository:
 
         ids = {str(item["campaign_gql_id"]) for item in items}
         result = await self.session.execute(
-            select(CampaignCompletion.campaign_gql_id).where(
-                CampaignCompletion.campaign_gql_id.in_(ids)
+            select(UserCampaignCompletion.campaign_gql_id).where(
+                UserCampaignCompletion.user_id == self.user_id,
+                UserCampaignCompletion.campaign_gql_id.in_(ids),
             )
         )
         existing = set(result.scalars().all())
@@ -35,7 +39,8 @@ class CampaignCompletionRepository:
             if campaign_gql_id in existing:
                 continue
             self.session.add(
-                CampaignCompletion(
+                UserCampaignCompletion(
+                    user_id=self.user_id,
                     campaign_gql_id=campaign_gql_id,
                     campaign_name=str(item.get("campaign_name") or ""),
                     game_name=str(item.get("game_name") or ""),

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.models import User
+from app.domain.models import TwitchAccount, User, UserWatchFocus
 
 
 class UserRepository:
@@ -30,6 +30,52 @@ class UserRepository:
     async def count(self) -> int:
         result = await self.session.execute(select(func.count()).select_from(User))
         return int(result.scalar_one())
+
+    async def list_active_ids_with_accounts(self) -> list[int]:
+        result = await self.session.execute(
+            select(User.id)
+            .join(TwitchAccount, TwitchAccount.user_id == User.id)
+            .where(User.is_active.is_(True))
+            .order_by(User.id)
+        )
+        return [int(user_id) for user_id in result.scalars().all()]
+
+    async def list_active_with_telegram(self) -> list[User]:
+        result = await self.session.execute(
+            select(User)
+            .where(
+                User.is_active.is_(True),
+                User.telegram_enabled.is_(True),
+                User.telegram_chat_id != "",
+            )
+            .order_by(User.id)
+        )
+        return list(result.scalars().all())
+
+    async def list_active_ids_with_focus(self) -> list[int]:
+        result = await self.session.execute(
+            select(User.id)
+            .join(UserWatchFocus, UserWatchFocus.user_id == User.id)
+            .where(
+                User.is_active.is_(True),
+                UserWatchFocus.enabled.is_(True),
+            )
+            .order_by(User.id)
+        )
+        return [int(user_id) for user_id in result.scalars().all()]
+
+    async def list_ids_missing_profile(self) -> list[int]:
+        """Active connected users without a stored Twitch profile."""
+        result = await self.session.execute(
+            select(User.id)
+            .join(TwitchAccount, TwitchAccount.user_id == User.id)
+            .where(
+                User.is_active.is_(True),
+                User.display_name == "",
+            )
+            .order_by(User.id)
+        )
+        return [int(user_id) for user_id in result.scalars().all()]
 
     async def create(
         self,

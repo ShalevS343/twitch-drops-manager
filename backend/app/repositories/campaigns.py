@@ -18,17 +18,21 @@ class CampaignRepository:
         game_name: str | None = None,
         status: str | None = None,
         active_only: bool = False,
+        game_ids: set[int] | None = None,
     ) -> list[Campaign]:
         stmt = (
             select(Campaign)
             .options(selectinload(Campaign.game), selectinload(Campaign.rewards))
             .order_by(Campaign.name)
+            .join(Game)
         )
 
         if game_name:
-            stmt = stmt.join(Game).where(func.lower(Game.name) == game_name.lower())
-        else:
-            stmt = stmt.join(Game).where(Game.selected.is_(True))
+            stmt = stmt.where(func.lower(Game.name) == game_name.lower())
+        if game_ids is not None:
+            if not game_ids:
+                return []
+            stmt = stmt.where(Game.id.in_(game_ids))
 
         if active_only:
             stmt = stmt.where(Campaign.status == "ACTIVE")

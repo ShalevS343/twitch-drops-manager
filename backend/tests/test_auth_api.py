@@ -97,6 +97,11 @@ async def _stack(monkeypatch, settings: Settings, provider: FakeTwitchProvider):
     monkeypatch.setattr("app.services.auth_service.get_settings", lambda: settings)
     monkeypatch.setattr("app.core.middleware.get_settings", lambda: settings)
     monkeypatch.setattr("app.api.v1.auth.get_settings", lambda: settings)
+
+    async def noop_sync(_user_id: int) -> None:
+        return None
+
+    monkeypatch.setattr("app.api.v1.auth._first_progress_sync", noop_sync)
     rate_limit.reset_auth_limiter()
 
     return engine, factory, app
@@ -449,3 +454,34 @@ async def test_failed_registration_does_not_trigger_a_sync(monkeypatch):
         assert synced == []
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_first_progress_sync_targets_the_given_user(monkeypatch):
+    from app.api.v1 import auth as auth_module
+
+    calls: list[tuple[object, int]] = []
+    fake_session = object()
+
+    class FakeContext:
+        async def __aenter__(self):
+            return fake_session
+
+        async def __aexit__(self, *_exc):
+            return False
+
+    class FakeService:
+        async def run(self):
+            return None
+
+    monkeypatch.setattr(auth_module, "SessionLocal", lambda: FakeContext())
+    monkeypatch.setattr(
+        auth_module,
+        "build_progress_service",
+        lambda session, user_id: calls.append((session, user_id)) or FakeService(),
+    )
+
+    await auth_module._first_progress_sync(42)
+
+    assert calls == [(fake_session, 42)]
+

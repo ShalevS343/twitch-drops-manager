@@ -6,7 +6,13 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.domain.models import Campaign, Game, Stream, StreamCampaignMatch
+from app.domain.models import (
+    Campaign,
+    Game,
+    Stream,
+    StreamCampaignMatch,
+    UserGame,
+)
 
 
 class StreamRepository:
@@ -34,7 +40,10 @@ class StreamRepository:
         return list(result.scalars().unique().all())
 
     async def list_rows(
-        self, game_name: str | None = None, live: bool | None = True
+        self,
+        user_id: int,
+        game_name: str | None = None,
+        live: bool | None = True,
     ) -> list[Any]:
         """Return flat stream/game/campaign-name rows for the streams endpoint."""
         stmt = (
@@ -52,11 +61,15 @@ class StreamRepository:
                 Game.name.label("game_name"),
                 Game.box_art_url,
                 Game.twitch_game_id,
-                Game.selected,
+                UserGame.id.isnot(None).label("selected"),
                 Campaign.external_id.label("campaign_external_id"),
                 Campaign.name.label("campaign_name"),
             )
             .join(Game, Stream.game_id == Game.id)
+            .outerjoin(
+                UserGame,
+                (UserGame.game_id == Game.id) & (UserGame.user_id == user_id),
+            )
             .outerjoin(StreamCampaignMatch, StreamCampaignMatch.stream_id == Stream.id)
             .outerjoin(Campaign, StreamCampaignMatch.campaign_id == Campaign.id)
             .order_by(Stream.viewers.desc())
@@ -66,6 +79,11 @@ class StreamRepository:
             stmt = stmt.where(Stream.live.is_(live))
         if game_name:
             stmt = stmt.where(func.lower(Game.name) == game_name.lower())
+        stmt = stmt.where(
+            Game.id.in_(
+                select(UserGame.game_id).where(UserGame.user_id == user_id)
+            )
+        )
 
         result = await self.session.execute(stmt)
         return list(result.all())

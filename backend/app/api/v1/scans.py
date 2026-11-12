@@ -1,20 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import ScanServiceDep, SessionDep
+from app.api.deps import AdminUserDep, CurrentUserDep, ScanServiceDep, SessionDep
 from app.core.exceptions import NotConfiguredError, ProviderError
-from app.core.security import require_api_token
 from app.domain.schemas import ScanResultOut, ScanRunOut
 from app.repositories.scans import ScanRunRepository
 
 router = APIRouter()
 
 
-@router.post(
-    "/scans",
-    response_model=ScanResultOut,
-    dependencies=[Depends(require_api_token)],
-)
-async def trigger_scan(service: ScanServiceDep) -> ScanResultOut:
+@router.post("/scans", response_model=ScanResultOut)
+async def trigger_scan(
+    _admin: AdminUserDep, service: ScanServiceDep
+) -> ScanResultOut:
     try:
         result = await service.run()
     except NotConfiguredError as exc:
@@ -35,7 +32,9 @@ async def trigger_scan(service: ScanServiceDep) -> ScanResultOut:
 
 
 @router.get("/scans/latest", response_model=ScanRunOut)
-async def latest_scan(session: SessionDep) -> ScanRunOut:
+async def latest_scan(
+    session: SessionDep, _user: CurrentUserDep
+) -> ScanRunOut:
     run = await ScanRunRepository(session).latest()
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No scans yet")

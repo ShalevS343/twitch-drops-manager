@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import logging
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -42,15 +41,7 @@ router = APIRouter()
 
 
 async def _first_progress_sync(user_id: int) -> None:
-    """Best-effort first inventory sync for a newly established session.
-
-    The legacy progress service is still singleton-scoped until the scope task
-    reworks the factory. Skipping it until then avoids writing another user's
-    inventory; once ``build_progress_service`` accepts a user id this runs.
-    """
-    if "user_id" not in inspect.signature(build_progress_service).parameters:
-        return
-
+    """Best-effort first inventory sync after a session is established."""
     async with SessionLocal() as session:
         try:
             await build_progress_service(session, user_id).run()

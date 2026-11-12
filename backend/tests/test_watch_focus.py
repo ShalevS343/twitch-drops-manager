@@ -1,21 +1,21 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
-from app.core.db import Base
 from app.domain.models import (
     Campaign,
-    DropProgress,
     Game,
     Stream,
     StreamCampaignMatch,
-    WatchFocus,
+    UserDropProgress,
+    UserWatchFocus,
 )
 from app.repositories.watch_focus import WatchFocusRepository
 from app.services.watch_focus_service import WatchFocusError, WatchFocusService
+from tests.support import create_user, make_engine
 
 
 class RecordingTelegram:
@@ -23,22 +23,15 @@ class RecordingTelegram:
 
     def __init__(self) -> None:
         self.messages: list[str] = []
+        self.chat_ids: list[str] = []
 
-    async def send(self, message: str) -> None:
+    async def send(self, message: str, chat_id: str) -> None:
         self.messages.append(message)
+        self.chat_ids.append(chat_id)
 
 
 async def _session():
-    engine = create_async_engine(
-        "sqlite+aiosqlite://",
-        poolclass=StaticPool,
-        connect_args={"check_same_thread": False},
-    )
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    return engine, factory
+    return await make_engine()
 
 
 async def _add_campaign(
@@ -85,9 +78,15 @@ async def _add_stream(
 
 
 def _progress(
-    drop_id: str, campaign: Campaign, *, required: int, current: int
-) -> DropProgress:
-    return DropProgress(
+    user_id: int,
+    drop_id: str,
+    campaign: Campaign,
+    *,
+    required: int,
+    current: int,
+) -> UserDropProgress:
+    return UserDropProgress(
+        user_id=user_id,
         drop_id=drop_id,
         drop_name=drop_id,
         campaign_gql_id=campaign.external_id.rsplit(":", 1)[-1],
@@ -100,7 +99,14 @@ def _progress(
 
 
 async def _seed(session):
-    game = Game(name="Rust", selected=True)
+    user = await create_user(
+        session,
+        twitch_user_id="1",
+        login="viewer",
+        telegram_chat_id="111",
+        telegram_enabled=True,
+    )
+    game = Game(name="Rust")
     session.add(game)
     await session.flush()
 
@@ -117,28 +123,48 @@ async def _seed(session):
 
     session.add_all(
         [
-            _progress("drop-early", early, required=20, current=10),
-            _progress("drop-late", late, required=100, current=10),
+            _progress(user.id, "drop-early", early, required=20, current=10),
+            _progress(user.id, "drop-late", late, required=100, current=10),
         ]
     )
     await session.commit()
-    return early, late, early_stream, late_low, late_high
+    return SimpleNamespace(
+        user=user,
+        early=early,
+        late=late,
+        early_stream=early_stream,
+        late_low=late_low,
+        late_high=late_high,
+    )
+
+
+def _service(session, user, telegram=None) -> WatchFocusService:
+    return WatchFocusService(session, user.id, telegram=telegram)
 
 
 @pytest.mark.asyncio
-async def test_watch_focus_repository_keeps_a_single_row():
+async def test_watch_focus_repository_keeps_one_row_per_user():
     engine, factory = await _session()
 
     async with factory() as session:
-        repo = WatchFocusRepository(session)
-        first = await repo.get_or_create()
-        second = await repo.get_or_create()
+        user = await create_user(session, twitch_user_id="1", login="one")
+        other = await create_user(session, twitch_user_id="2", login="two")
         await session.commit()
 
-        assert first.id == 1
-        assert second.id == 1
-        count = await session.scalar(select(func.count()).select_from(WatchFocus))
-        assert count == 1
+        repo = WatchFocusRepository(session, user.id)
+        first = await repo.get_or_create()
+        second = await repo.get_or_create()
+        other_row = await WatchFocusRepository(session, other.id).get_or_create()
+        await session.commit()
+
+        assert first.id == second.id
+        assert first.user_id == user.id
+        assert other_row.user_id == other.id
+        assert first.id != other_row.id
+        count = await session.scalar(
+            select(func.count()).select_from(UserWatchFocus)
+        )
+        assert count == 2
 
     await engine.dispose()
 
@@ -148,9 +174,9 @@ async def test_enable_focused_mode_dispatches_the_most_urgent_live():
     engine, factory = await _session()
 
     async with factory() as session:
-        await _seed(session)
+        seeded = await _seed(session)
 
-        state = await WatchFocusService(session).set_enabled(True)
+        state = await _service(session, seeded.user).set_enabled(True)
 
         assert state.enabled is True
         assert state.status == "focused"
@@ -166,7 +192,9 @@ async def test_enable_focused_mode_dispatches_the_most_urgent_live():
             "late-low",
         }
 
-        count = await session.scalar(select(func.count()).select_from(WatchFocus))
+        count = await session.scalar(
+            select(func.count()).select_from(UserWatchFocus)
+        )
         assert count == 1
 
     await engine.dispose()
@@ -177,12 +205,12 @@ async def test_manual_focus_replaces_the_single_watcher():
     engine, factory = await _session()
 
     async with factory() as session:
-        _, _, _, late_low, _ = await _seed(session)
-        service = WatchFocusService(session)
+        seeded = await _seed(session)
+        service = _service(session, seeded.user)
 
         await service.set_enabled(True)
         state = await service.focus(
-            stream_id=late_low.id, campaign_id="late", strategy="manual"
+            stream_id=seeded.late_low.id, campaign_id="late", strategy="manual"
         )
 
         assert state.focus is not None
@@ -190,7 +218,9 @@ async def test_manual_focus_replaces_the_single_watcher():
         assert state.focus.campaign_id == "late"
         assert state.focus.reason == "manual"
 
-        count = await session.scalar(select(func.count()).select_from(WatchFocus))
+        count = await session.scalar(
+            select(func.count()).select_from(UserWatchFocus)
+        )
         assert count == 1
 
     await engine.dispose()
@@ -201,15 +231,17 @@ async def test_manual_focus_rejects_a_stream_outside_the_queue():
     engine, factory = await _session()
 
     async with factory() as session:
-        await _seed(session)
+        seeded = await _seed(session)
 
         with pytest.raises(WatchFocusError):
-            await WatchFocusService(session).focus(
+            await _service(session, seeded.user).focus(
                 stream_id=9999, campaign_id="early", strategy="manual"
             )
 
         # A rejected request does not leave a half-enabled watcher behind.
-        assert await WatchFocusRepository(session).get() is None
+        assert (
+            await WatchFocusRepository(session, seeded.user.id).get() is None
+        )
 
     await engine.dispose()
 
@@ -219,16 +251,16 @@ async def test_reconcile_notifies_and_keeps_focus_when_live_goes_offline():
     engine, factory = await _session()
 
     async with factory() as session:
-        _, _, early_stream, _, _ = await _seed(session)
+        seeded = await _seed(session)
         telegram = RecordingTelegram()
-        service = WatchFocusService(session, telegram=telegram)
+        service = _service(session, seeded.user, telegram)
 
         state = await service.set_enabled(True)
         assert state.focus is not None
         assert state.focus.user_login == "early-stream"
 
         # The next scan marks the focused channel offline.
-        early_stream.live = False
+        seeded.early_stream.live = False
         await session.commit()
 
         state = await service.reconcile()
@@ -244,6 +276,7 @@ async def test_reconcile_notifies_and_keeps_focus_when_live_goes_offline():
             "late-low",
         }
         assert len(telegram.messages) == 1
+        assert telegram.chat_ids == ["111"]
         assert "is no longer live" in telegram.messages[0]
         assert "Early Campaign" in telegram.messages[0]
 
@@ -252,7 +285,9 @@ async def test_reconcile_notifies_and_keeps_focus_when_live_goes_offline():
         assert again.status == "offline"
         assert len(telegram.messages) == 1
 
-        count = await session.scalar(select(func.count()).select_from(WatchFocus))
+        count = await session.scalar(
+            select(func.count()).select_from(UserWatchFocus)
+        )
         assert count == 1
 
     await engine.dispose()
@@ -263,9 +298,9 @@ async def test_reconcile_keeps_focus_offline_when_no_live_is_left():
     engine, factory = await _session()
 
     async with factory() as session:
-        await _seed(session)
+        seeded = await _seed(session)
         telegram = RecordingTelegram()
-        service = WatchFocusService(session, telegram=telegram)
+        service = _service(session, seeded.user, telegram)
         await service.set_enabled(True)
 
         await session.execute(Stream.__table__.update().values(live=False))
@@ -287,15 +322,15 @@ async def test_reconcile_turns_focus_off_when_campaign_completes():
     engine, factory = await _session()
 
     async with factory() as session:
-        await _seed(session)
+        seeded = await _seed(session)
         telegram = RecordingTelegram()
-        service = WatchFocusService(session, telegram=telegram)
+        service = _service(session, seeded.user, telegram)
         await service.set_enabled(True)
 
         # Claiming the last drop completes the focused campaign.
         await session.execute(
-            DropProgress.__table__.update()
-            .where(DropProgress.drop_id == "drop-early")
+            UserDropProgress.__table__.update()
+            .where(UserDropProgress.drop_id == "drop-early")
             .values(is_claimed=True, is_ready=False)
         )
         await session.commit()
@@ -322,21 +357,21 @@ async def test_reconcile_notifies_again_after_live_returns():
     engine, factory = await _session()
 
     async with factory() as session:
-        _, _, early_stream, _, _ = await _seed(session)
+        seeded = await _seed(session)
         telegram = RecordingTelegram()
-        service = WatchFocusService(session, telegram=telegram)
+        service = _service(session, seeded.user, telegram)
         await service.set_enabled(True)
 
-        early_stream.live = False
+        seeded.early_stream.live = False
         await session.commit()
         await service.reconcile()
 
-        early_stream.live = True
+        seeded.early_stream.live = True
         await session.commit()
         online = await service.reconcile()
         assert online.status == "focused"
 
-        early_stream.live = False
+        seeded.early_stream.live = False
         await session.commit()
         await service.reconcile()
 
@@ -350,8 +385,8 @@ async def test_next_moves_to_another_live_and_keeps_current_when_none_exists():
     engine, factory = await _session()
 
     async with factory() as session:
-        await _seed(session)
-        service = WatchFocusService(session)
+        seeded = await _seed(session)
+        service = _service(session, seeded.user)
         first = await service.set_enabled(True)
         assert first.focus is not None
         assert first.focus.user_login == "early-stream"
@@ -382,8 +417,8 @@ async def test_auto_can_target_a_specific_campaign():
     engine, factory = await _session()
 
     async with factory() as session:
-        await _seed(session)
-        service = WatchFocusService(session)
+        seeded = await _seed(session)
+        service = _service(session, seeded.user)
 
         state = await service.focus(campaign_id="late", strategy="auto")
 
@@ -399,8 +434,8 @@ async def test_disable_clears_the_focus_and_allows_reenable():
     engine, factory = await _session()
 
     async with factory() as session:
-        await _seed(session)
-        service = WatchFocusService(session)
+        seeded = await _seed(session)
+        service = _service(session, seeded.user)
 
         await service.set_enabled(True)
         stopped = await service.set_enabled(False)
@@ -420,7 +455,8 @@ async def test_watcher_waits_when_progress_has_no_open_drops():
     engine, factory = await _session()
 
     async with factory() as session:
-        game = Game(name="Rust", selected=True)
+        user = await create_user(session, twitch_user_id="1", login="one")
+        game = Game(name="Rust")
         session.add(game)
         await session.flush()
         campaign = await _add_campaign(
@@ -429,7 +465,7 @@ async def test_watcher_waits_when_progress_has_no_open_drops():
         await _add_stream(session, game, "alpha", 100, [campaign])
         await session.commit()
 
-        state = await WatchFocusService(session).set_enabled(True)
+        state = await _service(session, user).set_enabled(True)
 
         assert state.enabled is True
         assert state.status == "waiting"
