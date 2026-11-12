@@ -57,7 +57,7 @@
 
 **Interfaces:**
 - `api.createTelegramLink()`, `api.unlinkTelegram()`; `TelegramLink` type.
-- Settings: Connect Telegram button opens deep link, shows waiting state, polls `/auth/me` until linked; toggle on after link; manual field remains.
+- Settings: Connect Telegram button opens deep link, shows waiting state, polls `/auth/me` until linked; toggle on after link. **The manual chat-id field was removed by follow-up: chat id is link-only/read-only.**
 - Remove `.notice` usages and CSS; convert closed-registration and missing-bot messages to plain muted text.
 
 - [ ] Add API types/client/hooks.

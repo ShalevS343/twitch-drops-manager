@@ -277,7 +277,8 @@ class AuthConnectOut(BaseModel):
 
 
 class TelegramSettingsIn(BaseModel):
-    telegram_chat_id: str = ""
+    model_config = ConfigDict(extra="forbid")
+
     telegram_enabled: bool = False
 
 

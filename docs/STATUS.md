@@ -32,8 +32,8 @@ deployed yet**.
   admin Users list, admin-only scan action, profile/sign-out/disconnect.
 - Telegram auto-link: one-time deep links and a worker long poller link a private
   chat from Settings. The poller survives database/provider failures with
-  exponential backoff; `/start` re-enables a linked chat; manual chat ids cannot
-  steal another account's chat.
+  exponential backoff; `/start` re-enables a linked chat. The chat ID is
+  read-only — only the link flow can set it; `PATCH /auth/me` only toggles alerts.
 - Deployment: compose passes the new auth env vars; `VITE_API_TOKEN` build arg
   removed; nginx preserves inbound `X-Forwarded-Proto`; nginx basic auth has been
   removed. Access is Twitch login + invite code, with `/health` public.

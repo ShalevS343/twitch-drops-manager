@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -193,32 +193,19 @@ class AuthService:
             await self.session.execute(delete(model).where(model.user_id == user_id))
         await self.session.commit()
 
-    async def update_telegram(
-        self, user_id: int, chat_id: str, enabled: bool
-    ) -> User:
+    async def update_telegram(self, user_id: int, enabled: bool) -> User:
         user = await self.users.get(user_id)
         if user is None:
             raise InvalidAuthRequestError("User not found")
 
-        chat_id = (chat_id or "").strip()
-        if chat_id:
-            owner = (
-                await self.session.execute(
-                    select(User)
-                    .where(
-                        func.trim(User.telegram_chat_id) == chat_id,
-                        User.id != user.id,
-                    )
-                    .limit(1)
-                )
-            ).scalars().first()
-            if owner is not None:
-                raise AccountConflictError(
-                    "This Telegram chat is already linked to another account"
-                )
+        chat_id = (user.telegram_chat_id or "").strip()
+        if enabled and not chat_id:
+            raise InvalidAuthRequestError(
+                "Connect Telegram with the link before enabling alerts"
+            )
 
         await self.users.set_telegram(user, chat_id, enabled)
-        if not enabled or not chat_id:
+        if not enabled:
             await self.session.execute(
                 delete(UserCampaignStart).where(
                     UserCampaignStart.user_id == user_id

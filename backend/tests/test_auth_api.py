@@ -326,7 +326,7 @@ async def test_logout_clears_cookies_and_deletes_the_session(monkeypatch):
 async def test_patch_telegram_only_affects_the_current_user(monkeypatch):
     settings = _settings(registration_open=True)
     provider = FakeTwitchProvider()
-    engine, _factory, app = await _stack(monkeypatch, settings, provider)
+    engine, factory, app = await _stack(monkeypatch, settings, provider)
 
     async with _client(app) as first, _client(app) as second:
         first_connect = await first.post(
@@ -334,6 +334,11 @@ async def test_patch_telegram_only_affects_the_current_user(monkeypatch):
             json={"redirect_url": "https://twitch.tv/#access_token=token"},
         )
         first_id = first_connect.json()["user"]["id"]
+
+        async with factory() as session:
+            user = await session.get(User, first_id)
+            user.telegram_chat_id = "555"
+            await session.commit()
 
         provider.as_user("456", "second")
         second_connect = await second.post(
@@ -344,12 +349,19 @@ async def test_patch_telegram_only_affects_the_current_user(monkeypatch):
 
         response = await first.patch(
             "/api/v1/auth/me",
-            json={"telegram_chat_id": "555", "telegram_enabled": True},
+            json={"telegram_enabled": True},
             headers=_csrf(first),
         )
         assert response.status_code == 200
         assert response.json()["telegram_chat_id"] == "555"
         assert response.json()["telegram_enabled"] is True
+
+        rejected = await first.patch(
+            "/api/v1/auth/me",
+            json={"telegram_chat_id": "999"},
+            headers=_csrf(first),
+        )
+        assert rejected.status_code == 422
 
         other = await second.get("/api/v1/auth/me")
         assert other.json()["user"]["telegram_chat_id"] == ""
@@ -417,7 +429,7 @@ async def test_session_endpoints_require_authentication(monkeypatch):
     async with _client(app) as client:
         assert (await client.post("/api/v1/auth/logout")).status_code == 401
         assert (
-            await client.patch("/api/v1/auth/me", json={"telegram_chat_id": ""})
+            await client.patch("/api/v1/auth/me", json={"telegram_enabled": False})
         ).status_code == 401
         assert (
             await client.post("/api/v1/auth/twitch/disconnect")

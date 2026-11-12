@@ -243,7 +243,6 @@ export interface TwitchLoginResult {
 }
 
 export interface UpdateMeInput {
-  telegram_chat_id?: string
   telegram_enabled?: boolean
 }
 
