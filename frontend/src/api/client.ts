@@ -1,4 +1,6 @@
 import type {
+  AdminUser,
+  AuthMe,
   Campaign,
   Game,
   ProgressCampaign,
@@ -7,8 +9,9 @@ import type {
   Status,
   Stream,
   TwitchConnect,
-  TwitchConnectResult,
+  TwitchLoginResult,
   TwitchUserStatus,
+  UpdateMeInput,
   WatchFocusInput,
   WatchQueueItem,
   WatchState,
@@ -16,32 +19,115 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+export class ApiError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+let unauthorizedHandler: (() => void) | null = null
+
+/**
+ * Registers the callback used when the API reports an expired/missing session.
+ * The auth provider uses it to clear caches and send the user back to the gate.
+ */
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  unauthorizedHandler = handler
+}
+
+function readCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null
+
+  const prefix = `${name}=`
+  const match = document.cookie
+    .split(';')
+    .map((row) => row.trim())
+    .find((row) => row.startsWith(prefix))
+
+  if (!match) return null
+
+  const value = match.slice(prefix.length)
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = import.meta.env.VITE_API_TOKEN as string | undefined
+  const method = (init?.method ?? 'GET').toUpperCase()
   const headers = new Headers(init?.headers)
 
   if (init?.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
-  if (token) {
-    headers.set('X-API-Token', token)
+
+  if (UNSAFE_METHODS.has(method)) {
+    const csrf = readCookie('tdm_csrf')
+    if (csrf) {
+      headers.set('X-CSRF-Token', csrf)
+    }
   }
 
-  const response = await fetch(`${API_BASE}${path}`, { ...init, headers })
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    method,
+    headers,
+    credentials: 'include',
+  })
 
   if (!response.ok) {
-    let detail = response.statusText
-    const data = (await response.json().catch(() => null)) as { detail?: string } | null
-    if (data?.detail) {
+    let detail = response.statusText || `Request failed with status ${response.status}`
+    const data = (await response.json().catch(() => null)) as
+      | { detail?: unknown }
+      | null
+
+    if (typeof data?.detail === 'string' && data.detail.trim()) {
       detail = data.detail
+    } else if (data?.detail) {
+      detail = JSON.stringify(data.detail)
     }
-    throw new Error(detail)
+
+    if (response.status === 401 && path !== '/auth/me') {
+      unauthorizedHandler?.()
+    }
+
+    throw new ApiError(detail, response.status)
+  }
+
+  if (response.status === 204) {
+    return undefined as T
   }
 
   return (await response.json()) as T
 }
 
 export const api = {
+  authMe: () => request<AuthMe>('/auth/me'),
+  twitchAuthorize: () => request<TwitchConnect>('/auth/twitch/authorize'),
+  twitchConnect: (redirectUrl: string, inviteCode?: string) =>
+    request<TwitchLoginResult>('/auth/twitch/connect', {
+      method: 'POST',
+      body: JSON.stringify({
+        redirect_url: redirectUrl,
+        ...(inviteCode ? { invite_code: inviteCode } : {}),
+      }),
+    }),
+  logout: () => request<{ ok?: boolean }>('/auth/logout', { method: 'POST' }),
+  updateMe: (input: UpdateMeInput) =>
+    request<AuthMe>('/auth/me', {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+  twitchDisconnect: () =>
+    request<{ disconnected: boolean }>('/auth/twitch/disconnect', { method: 'POST' }),
+
   status: () => request<Status>('/status'),
   games: () => request<Game[]>('/games'),
   campaigns: () => request<Campaign[]>('/campaigns'),
@@ -69,12 +155,11 @@ export const api = {
     }),
   stopWatcher: () => request<WatchState>('/watcher', { method: 'DELETE' }),
   twitchStatus: () => request<TwitchUserStatus>('/twitch/status'),
-  twitchConnectUrl: () => request<TwitchConnect>('/twitch/connect'),
-  twitchConnect: (redirectUrl: string) =>
-    request<TwitchConnectResult>('/twitch/connect', {
-      method: 'POST',
-      body: JSON.stringify({ redirect_url: redirectUrl }),
+
+  adminUsers: () => request<AdminUser[]>('/admin/users'),
+  setUserActive: (id: number, isActive: boolean) =>
+    request<AdminUser>(`/admin/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_active: isActive }),
     }),
-  twitchLogout: () =>
-    request<{ disconnected: boolean }>('/twitch/logout', { method: 'POST' }),
 }

@@ -14,6 +14,7 @@ import {
   useStatus,
   useTwitchStatus,
 } from './hooks/useApi'
+import { useAuth } from './auth/AuthContext'
 import { useTab } from './hooks/useTab'
 import { TABS } from './lib/tabs'
 import { Avatar } from './components/ui/Avatar'
@@ -28,6 +29,7 @@ interface Toast {
 
 export default function App() {
   const { tab, navigate } = useTab()
+  const { user, isAdmin, logout } = useAuth()
   const status = useStatus()
   const twitch = useTwitchStatus()
   const scan = useScan()
@@ -35,6 +37,7 @@ export default function App() {
 
   const [toast, setToast] = useState<Toast | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -60,6 +63,8 @@ export default function App() {
   const meta = TABS.find((item) => item.id === tab) ?? TABS[0]
   const connected = twitch.data?.connected === true
   const twitchName = twitch.data?.display_name || twitch.data?.login
+  const accountName = user?.display_name || user?.login || 'Account'
+  const roleLabel = isAdmin ? 'Admin' : 'Signed in'
 
   async function handleScan() {
     try {
@@ -88,6 +93,20 @@ export default function App() {
         tone: 'danger',
         message: err instanceof Error ? err.message : 'Could not sync drop progress',
       })
+    }
+  }
+
+  async function handleLogout() {
+    setSigningOut(true)
+    try {
+      await logout()
+    } catch (err) {
+      setToast({
+        tone: 'danger',
+        message: err instanceof Error ? err.message : 'Could not sign out',
+      })
+    } finally {
+      setSigningOut(false)
     }
   }
 
@@ -160,14 +179,14 @@ export default function App() {
               <a
                 className="mobile-connection"
                 href="#/profile"
-                aria-label={
-                  connected
-                    ? `Twitch connected as ${twitchName ?? 'unknown'}`
-                    : 'Connect Twitch'
-                }
+                aria-label={`Signed in as ${accountName}. Manage account`}
               >
-                <span className={`status-dot${connected ? ' online' : ''}`} />
-                <span>{connected ? twitchName || 'Connected' : 'Connect'}</span>
+                <Avatar name={accountName} src={user?.profile_image_url} size="sm" />
+                <span>{accountName}</span>
+                <span
+                  className={`status-dot${connected ? ' online' : ''}`}
+                  aria-hidden="true"
+                />
               </a>
 
               <button
@@ -188,19 +207,44 @@ export default function App() {
                 </span>
               </button>
 
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleScan}
+                  disabled={scan.isPending}
+                  title="Scan campaigns and live streams, then send new alerts"
+                  aria-label="Scan campaigns and live streams"
+                >
+                  <Icon name="scan" size={16} />
+                  <span className="btn-label">
+                    {scan.isPending ? 'Scanning…' : 'Scan for new drops'}
+                  </span>
+                </button>
+              )}
+
               <button
                 type="button"
-                className="btn btn-primary"
-                onClick={handleScan}
-                disabled={scan.isPending}
-                title="Scan campaigns and live streams, then send new alerts"
-                aria-label="Scan campaigns and live streams"
+                className="btn btn-ghost btn-icon"
+                onClick={handleLogout}
+                disabled={signingOut}
+                aria-label="Sign out"
+                title="Sign out"
               >
-                <Icon name="scan" size={16} />
-                <span className="btn-label">
-                  {scan.isPending ? 'Scanning…' : 'Scan for new drops'}
-                </span>
+                <Icon name="logout" size={16} />
               </button>
+
+              <a
+                className="user-chip"
+                href="#/profile"
+                aria-label={`Signed in as ${accountName}. Open account settings`}
+              >
+                <Avatar name={accountName} src={user?.profile_image_url} size="sm" />
+                <span className="user-chip-copy">
+                  <span className="user-chip-name">{accountName}</span>
+                  <span className="user-chip-role">{roleLabel}</span>
+                </span>
+              </a>
             </div>
           </header>
 
@@ -233,24 +277,16 @@ export default function App() {
             />
 
             <div className="sidebar-footer">
-              <a className="connection-chip" href="#/profile">
-                {connected ? (
-                  <Avatar
-                    name={twitchName}
-                    src={twitch.data?.profile_image_url}
-                    size="sm"
-                  />
-                ) : (
-                  <span className="connection-icon" aria-hidden="true">
-                    <Icon name="twitch" size={16} />
-                  </span>
-                )}
+              <a
+                className="connection-chip"
+                href="#/profile"
+                aria-label={`Signed in as ${accountName}. Manage account`}
+              >
+                <Avatar name={accountName} src={user?.profile_image_url} size="sm" />
                 <span className="connection-copy">
-                  <span className="connection-label">
-                    {connected ? twitchName || 'Twitch connected' : 'Twitch not connected'}
-                  </span>
+                  <span className="connection-label">{accountName}</span>
                   <span className="connection-sub">
-                    {connected ? 'Connected · Manage' : 'Connect account'}
+                    {roleLabel} · {connected ? twitchName || 'Twitch connected' : 'Twitch not connected'}
                   </span>
                 </span>
                 <span
@@ -258,6 +294,16 @@ export default function App() {
                   aria-hidden="true"
                 />
               </a>
+
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm sidebar-signout"
+                onClick={handleLogout}
+                disabled={signingOut}
+              >
+                <Icon name="logout" size={15} />
+                {signingOut ? 'Signing out…' : 'Sign out'}
+              </button>
             </div>
           </aside>
 

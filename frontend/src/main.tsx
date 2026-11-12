@@ -3,6 +3,8 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 
 import App from './App'
+import { AuthProvider } from './auth/AuthContext'
+import { AuthGate } from './components/AuthGate'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -10,6 +12,7 @@ const queryClient = new QueryClient({
     queries: {
       refetchOnWindowFocus: false,
       staleTime: 30_000,
+      retry: 1,
     },
   },
 })
@@ -17,7 +20,11 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <AuthProvider>
+        <AuthGate>
+          <App />
+        </AuthGate>
+      </AuthProvider>
     </QueryClientProvider>
   </React.StrictMode>,
 )

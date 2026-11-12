@@ -194,6 +194,9 @@ export interface TwitchUserStatus {
   display_name: string | null
   profile_image_url: string | null
   connected_at: string | null
+  reconnect_required?: boolean
+  last_error?: string | null
+  last_synced_at?: string | null
 }
 
 export interface TwitchConnect {
@@ -205,4 +208,53 @@ export interface TwitchConnectResult {
   connected: boolean
   login: string | null
   message: string | null
+}
+
+export type UserRole = 'admin' | 'user'
+
+export interface AuthUser {
+  id: number
+  login: string
+  display_name: string
+  profile_image_url: string | null
+  role: UserRole
+  telegram_enabled: boolean
+  telegram_chat_id: string
+}
+
+export interface Registration {
+  open: boolean
+  invite_required: boolean
+}
+
+export interface AuthMe {
+  authenticated: boolean
+  user?: AuthUser
+  registration: Registration
+  telegram_bot_configured: boolean
+}
+
+export interface TwitchLoginResult {
+  connected?: boolean
+  login?: string | null
+  message?: string | null
+  redirect_url?: string
+  invite_code?: string
+}
+
+export interface UpdateMeInput {
+  telegram_chat_id?: string
+  telegram_enabled?: boolean
+}
+
+export interface AdminUser {
+  id: number
+  login: string
+  display_name: string
+  profile_image_url?: string | null
+  role: UserRole
+  is_active: boolean
+  created_at: string | null
+  last_login_at: string | null
+  telegram_enabled: boolean
 }

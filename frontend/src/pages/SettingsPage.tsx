@@ -9,7 +9,7 @@ import {
   useRefreshProgress,
   useScan,
   useTestTelegram,
-  useTwitchLogout,
+  useTwitchDisconnect,
   type StatusQuery,
   type TwitchStatusQuery,
 } from '../hooks/useApi'
@@ -38,7 +38,7 @@ export function SettingsPage({ status, twitch }: Props) {
   const scan = useScan()
   const refresh = useRefreshProgress()
   const testTelegram = useTestTelegram()
-  const logout = useTwitchLogout()
+  const logout = useTwitchDisconnect()
   const connect = useTwitchConnect()
 
   const connected = twitch.data?.connected === true

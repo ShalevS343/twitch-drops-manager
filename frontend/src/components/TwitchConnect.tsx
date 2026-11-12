@@ -3,12 +3,31 @@ import { useCallback, useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { api } from '../api/client'
-import type { TwitchConnect as TwitchConnectInfo } from '../api/types'
+import type { TwitchConnect as TwitchConnectInfo, TwitchLoginResult } from '../api/types'
 import { Icon } from './ui/Icon'
+
+export type TwitchConnectMode = 'login' | 'reconnect'
+
+export interface TwitchConnectOptions {
+  /** Sign-in gate copy and behaviour; defaults to reconnecting an existing user. */
+  mode?: TwitchConnectMode
+  /** Ask for the shared invite code before submitting. */
+  inviteRequired?: boolean
+  /** Override the connect call, e.g. to route through the auth provider. */
+  authenticate?: (
+    redirectUrl: string,
+    inviteCode?: string,
+  ) => Promise<TwitchLoginResult>
+  /** Runs after a successful connection, before caches are invalidated. */
+  onConnected?: () => void | Promise<void>
+}
 
 export interface TwitchConnectController {
   connect: TwitchConnectInfo | null
   redirectUrl: string
+  inviteCode: string
+  inviteRequired: boolean
+  mode: TwitchConnectMode
   starting: boolean
   saving: boolean
   error: string | null
@@ -17,13 +36,21 @@ export interface TwitchConnectController {
   save: (event: FormEvent<HTMLFormElement>) => Promise<void>
   cancel: () => void
   setRedirectUrl: (value: string) => void
+  setInviteCode: (value: string) => void
 }
 
-export function useTwitchConnect(): TwitchConnectController {
+export function useTwitchConnect(
+  options: TwitchConnectOptions = {},
+): TwitchConnectController {
   const queryClient = useQueryClient()
+
+  const mode = options.mode ?? 'reconnect'
+  const inviteRequired = options.inviteRequired ?? false
+  const { authenticate, onConnected } = options
 
   const [connect, setConnect] = useState<TwitchConnectInfo | null>(null)
   const [redirectUrl, setRedirectUrl] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [starting, setStarting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -34,7 +61,7 @@ export function useTwitchConnect(): TwitchConnectController {
     setError(null)
     setNotice(null)
     try {
-      const info = await api.twitchConnectUrl()
+      const info = await api.twitchAuthorize()
       setConnect(info)
       window.open(info.authorize_url, '_blank', 'noopener,noreferrer')
     } catch (err) {
@@ -50,13 +77,18 @@ export function useTwitchConnect(): TwitchConnectController {
       setSaving(true)
       setError(null)
       try {
-        const result = await api.twitchConnect(redirectUrl)
+        const submit = authenticate ?? api.twitchConnect
+        const result = await submit(redirectUrl.trim(), inviteCode.trim() || undefined)
         setConnect(null)
         setRedirectUrl('')
+        setInviteCode('')
         setNotice(
           result.message ??
-            `Connected as ${result.login ?? 'Twitch user'}. Your progress is syncing.`,
+            (mode === 'login'
+              ? `Signed in as ${result.login ?? 'your Twitch account'}.`
+              : `Connected as ${result.login ?? 'your Twitch account'}. Your progress is syncing.`),
         )
+        await onConnected?.()
         await queryClient.invalidateQueries()
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not save the Twitch token')
@@ -64,18 +96,22 @@ export function useTwitchConnect(): TwitchConnectController {
         setSaving(false)
       }
     },
-    [queryClient, redirectUrl],
+    [authenticate, inviteCode, mode, onConnected, queryClient, redirectUrl],
   )
 
   const cancel = useCallback(() => {
     setConnect(null)
     setRedirectUrl('')
+    setInviteCode('')
     setError(null)
   }, [])
 
   return {
     connect,
     redirectUrl,
+    inviteCode,
+    inviteRequired,
+    mode,
     starting,
     saving,
     error,
@@ -84,10 +120,13 @@ export function useTwitchConnect(): TwitchConnectController {
     save,
     cancel,
     setRedirectUrl,
+    setInviteCode,
   }
 }
 
 export function TwitchConnect({ connect }: { connect: TwitchConnectController }) {
+  const isLogin = connect.mode === 'login'
+
   return (
     <>
       {connect.notice && (
@@ -117,7 +156,11 @@ export function TwitchConnect({ connect }: { connect: TwitchConnectController })
               Twitch sends you to <code>twitch.tv/#access_token=…</code>. Copy the{' '}
               <strong>entire URL</strong> from the address bar.
             </li>
-            <li>Paste it below and save.</li>
+            <li>
+              {isLogin
+                ? 'Paste it below, add an invite code if one is required, then sign in.'
+                : 'Paste it below and save.'}
+            </li>
           </ol>
 
           <form onSubmit={connect.save}>
@@ -133,13 +176,42 @@ export function TwitchConnect({ connect }: { connect: TwitchConnectController })
               placeholder="https://www.twitch.tv/#access_token=..."
               spellCheck={false}
             />
+
+            {connect.inviteRequired && (
+              <div className="invite-field">
+                <label className="field-label" htmlFor="twitch-invite-code">
+                  Invite code
+                </label>
+                <input
+                  id="twitch-invite-code"
+                  className="search-input"
+                  type="text"
+                  value={connect.inviteCode}
+                  onChange={(event) => connect.setInviteCode(event.target.value)}
+                  placeholder="Ask the admin for the invite code"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <p className="muted small">
+                  Only needed when creating a new account. Existing accounts can sign
+                  in without one.
+                </p>
+              </div>
+            )}
+
             <div className="form-actions">
               <button
                 type="submit"
                 className="btn btn-primary"
                 disabled={connect.saving || !connect.redirectUrl.trim()}
               >
-                {connect.saving ? 'Saving…' : 'Save Twitch connection'}
+                {connect.saving
+                  ? isLogin
+                    ? 'Signing in…'
+                    : 'Saving…'
+                  : isLogin
+                    ? 'Sign in with Twitch'
+                    : 'Save Twitch connection'}
               </button>
               <button
                 type="button"
@@ -147,7 +219,7 @@ export function TwitchConnect({ connect }: { connect: TwitchConnectController })
                 onClick={connect.cancel}
                 disabled={connect.saving}
               >
-                Cancel connection
+                Cancel
               </button>
             </div>
           </form>

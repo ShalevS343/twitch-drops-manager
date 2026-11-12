@@ -3,7 +3,7 @@ import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { Icon } from '../components/ui/Icon'
 import { LoadingState } from '../components/ui/Spinner'
-import { useTwitchLogout, type TwitchStatusQuery } from '../hooks/useApi'
+import { useTwitchDisconnect, type TwitchStatusQuery } from '../hooks/useApi'
 import { formatDateTime } from '../lib/format'
 
 interface Props {
@@ -12,7 +12,7 @@ interface Props {
 
 export function ProfilePage({ twitch }: Props) {
   const connect = useTwitchConnect()
-  const logout = useTwitchLogout()
+  const logout = useTwitchDisconnect()
 
   if (twitch.isLoading) {
     return <LoadingState label="Loading Twitch profile…" />
