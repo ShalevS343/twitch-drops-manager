@@ -30,6 +30,8 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ### Telegram — link-only chat id
 
+- Merged `feat/telegram-link-only` into `main` in `b558ca0`; backend suite **224
+  passed**, ruff clean, frontend build passes.
 - Removed the editable Telegram chat-ID field from Settings. The chat ID is now
   read-only and can only be set by completing **Connect Telegram**.
 - `PATCH /auth/me` now only toggles `telegram_enabled`; sending a chat ID is

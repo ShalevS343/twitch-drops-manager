@@ -1,9 +1,9 @@
 # Status / handoff
 
 Last updated: **2026-11-12**
-Source of truth: `main`, multi-user merged in `78d2603` and Telegram auto-link
-merged in `f1278a8`. Deployment config and docs are committed; **nothing is
-deployed yet**.
+Source of truth: `main`, multi-user merged in `78d2603`, Telegram auto-link in
+`f1278a8`, and link-only chat ID in `b558ca0`. Deployment config and docs are
+committed; **nothing is deployed yet**.
 
 ## Current state
 
@@ -42,8 +42,9 @@ deployed yet**.
 
 ### Validation
 
-- Merged to `main` in `78d2603` (multi-user) and `f1278a8` (Telegram).
-- Backend suite: **227 tests passed** (`pytest -q`); `ruff check app tests` is
+- Merged to `main` in `78d2603` (multi-user), `f1278a8` (Telegram auto-link),
+  and `b558ca0` (link-only chat ID).
+- Backend suite: **224 tests passed** (`pytest -q`); `ruff check app tests` is
   clean.
 - Frontend: `npm run build` passes.
 - `docker compose --project-directory infra -f infra/docker-compose.yml config -q`
