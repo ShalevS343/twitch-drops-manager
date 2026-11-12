@@ -1,5 +1,6 @@
 import type { WatchQueueCampaign, WatchQueueItem } from '../api/types'
 import { endsSoon, formatRemaining, formatTimeUntil } from '../lib/format'
+import { safeExternalUrl } from '../lib/url'
 import { Badge } from './ui/Badge'
 import { Icon } from './ui/Icon'
 
@@ -17,6 +18,7 @@ export function WatchQueueCard({
   activeStreamId,
 }: WatchQueueCardProps) {
   const hasEndingSoon = item.campaigns.some((campaign) => endsSoon(campaign.ends_at))
+  const itemUrl = safeExternalUrl(item.url)
   const isActiveStream =
     item.stream_id === activeStreamId &&
     item.campaigns.some((campaign) => campaign.campaign_id === activeCampaignId)
@@ -105,15 +107,17 @@ export function WatchQueueCard({
       </ul>
 
       <div className="card-footer">
-        <a
-          className="btn btn-ghost btn-sm"
-          href={item.url}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <Icon name="external" size={14} />
-          Open stream on Twitch
-        </a>
+        {itemUrl && (
+          <a
+            className="btn btn-ghost btn-sm"
+            href={itemUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Icon name="external" size={14} />
+            Open stream on Twitch
+          </a>
+        )}
       </div>
     </article>
   )

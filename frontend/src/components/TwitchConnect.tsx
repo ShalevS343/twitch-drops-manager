@@ -5,6 +5,7 @@ import type { FormEvent } from 'react'
 import { api } from '../api/client'
 import type { TwitchConnect as TwitchConnectInfo, TwitchLoginResult } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
+import { safeExternalUrl } from '../lib/url'
 import { Icon } from './ui/Icon'
 
 export type TwitchConnectMode = 'login' | 'reconnect'
@@ -64,8 +65,13 @@ export function useTwitchConnect(
     setNotice(null)
     try {
       const info = await api.twitchAuthorize()
+      const authorizeUrl = safeExternalUrl(info.authorize_url)
+      if (!authorizeUrl) {
+        setError('The server returned an unsafe Twitch authorization URL.')
+        return
+      }
       setConnect(info)
-      window.open(info.authorize_url, '_blank', 'noopener,noreferrer')
+      window.open(authorizeUrl, '_blank', 'noopener,noreferrer')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start Twitch login')
     } finally {
@@ -133,6 +139,7 @@ export function useTwitchConnect(
 
 export function TwitchConnect({ connect }: { connect: TwitchConnectController }) {
   const isLogin = connect.mode === 'login'
+  const authorizeUrl = safeExternalUrl(connect.connect?.authorize_url)
 
   return (
     <>
@@ -154,9 +161,13 @@ export function TwitchConnect({ connect }: { connect: TwitchConnectController })
         <div className="connect-box">
           <ol className="connect-steps">
             <li>
-              <a href={connect.connect.authorize_url} target="_blank" rel="noreferrer">
-                Authorize this app on Twitch
-              </a>{' '}
+              {authorizeUrl ? (
+                <a href={authorizeUrl} target="_blank" rel="noopener noreferrer">
+                  Authorize this app on Twitch
+                </a>
+              ) : (
+                <span>Authorize this app on Twitch</span>
+              )}{' '}
               (opens in a new tab), then click <strong>Authorize</strong>.
             </li>
             <li>

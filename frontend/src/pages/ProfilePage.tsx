@@ -8,6 +8,7 @@ import { LoadingState } from '../components/ui/Spinner'
 import { useAuth } from '../auth/AuthContext'
 import { useTwitchDisconnect, type TwitchStatusQuery } from '../hooks/useApi'
 import { formatDateTime } from '../lib/format'
+import { safeExternalUrl } from '../lib/url'
 
 interface Props {
   twitch: TwitchStatusQuery
@@ -26,7 +27,9 @@ export function ProfilePage({ twitch }: Props) {
   const data = twitch.data
   const twitchConnected = data?.connected === true
   const displayName = user.display_name || user.login || 'Twitch user'
-  const twitchProfileUrl = `https://www.twitch.tv/${encodeURIComponent(user.login)}`
+  const twitchProfileUrl = safeExternalUrl(
+    `https://www.twitch.tv/${encodeURIComponent(user.login)}`,
+  )
   const telegramChatId = user.telegram_chat_id?.trim() ?? ''
   const telegramReady =
     telegramBotConfigured && user.telegram_enabled && Boolean(telegramChatId)
@@ -77,12 +80,12 @@ export function ProfilePage({ twitch }: Props) {
             <p className="profile-login">@{user.login || 'unknown'}</p>
           </div>
           <div className="profile-actions">
-            {twitchConnected && (
+            {twitchConnected && twitchProfileUrl && (
               <a
                 className="btn btn-primary"
                 href={twitchProfileUrl}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
               >
                 <Icon name="external" size={16} />
                 Open Twitch profile

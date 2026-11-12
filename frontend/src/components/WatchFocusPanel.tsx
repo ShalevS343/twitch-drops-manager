@@ -1,6 +1,7 @@
 import type { WatchCandidate, WatchState } from '../api/types'
 import { useFocusWatcher, useSetWatcherEnabled, useStopWatcher, useWatcher } from '../hooks/useApi'
 import { formatRemaining, formatTimeUntil } from '../lib/format'
+import { safeExternalUrl } from '../lib/url'
 import { Badge } from './ui/Badge'
 import { Icon } from './ui/Icon'
 import { LoadingState } from './ui/Spinner'
@@ -54,6 +55,7 @@ export function WatchFocusPanel() {
     state?.status === 'focused' || state?.status === 'offline'
       ? state.focus
       : null
+  const focusedUrl = safeExternalUrl(focused?.stream_url)
   const reason = state ? reasonCopy(state) : null
 
   function dispatch(candidate: WatchCandidate) {
@@ -188,15 +190,17 @@ export function WatchFocusPanel() {
             {reason && <p className="watch-focus-reason">{reason}</p>}
           </div>
           <div className="watch-focus-actions">
-            <a
-              className="btn btn-secondary btn-sm"
-              href={focused.stream_url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Icon name="external" size={13} />
-              Open stream
-            </a>
+            {focusedUrl && (
+              <a
+                className="btn btn-secondary btn-sm"
+                href={focusedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Icon name="external" size={13} />
+                Open stream
+              </a>
+            )}
           </div>
         </div>
       )}

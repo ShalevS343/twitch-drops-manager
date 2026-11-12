@@ -15,6 +15,7 @@ import {
   progressPercent,
 } from '../lib/campaigns'
 import { endsSoon, formatRemaining, formatTimeUntil } from '../lib/format'
+import { safeExternalUrl } from '../lib/url'
 import type { ProgressCampaign } from '../api/types'
 import { Badge } from '../components/ui/Badge'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -278,35 +279,47 @@ export function OverviewPage({ status, twitch }: Props) {
             <ul className="list">
               {queue.slice(0, 3).map((item) => {
                 const nextCampaign = item.campaigns[0]
-                return (
-                  <li key={item.stream_id}>
-                    <a
-                      className="list-item list-item-link"
-                      href={item.url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <div className="list-item-main">
-                        <span className="list-item-title">
-                          {item.user_name || item.user_login}
-                        </span>
-                        <span className="list-item-meta">
-                          {item.game_name || 'Unknown game'}
-                          {nextCampaign?.next_drop_name
-                            ? ` · Next: ${nextCampaign.next_drop_name}`
-                            : ''}
-                        </span>
-                      </div>
-                      <span className="list-item-trailing">
-                        <Badge tone="live" dot>
-                          Live
-                        </Badge>
+                const streamUrl = safeExternalUrl(item.url)
+                const content = (
+                  <>
+                    <div className="list-item-main">
+                      <span className="list-item-title">
+                        {item.user_name || item.user_login}
+                      </span>
+                      <span className="list-item-meta">
+                        {item.game_name || 'Unknown game'}
+                        {nextCampaign?.next_drop_name
+                          ? ` · Next: ${nextCampaign.next_drop_name}`
+                          : ''}
+                      </span>
+                    </div>
+                    <span className="list-item-trailing">
+                      <Badge tone="live" dot>
+                        Live
+                      </Badge>
+                      {streamUrl && (
                         <span className="queue-watch">
                           Open stream
                           <Icon name="external" size={13} />
                         </span>
-                      </span>
-                    </a>
+                      )}
+                    </span>
+                  </>
+                )
+                return (
+                  <li key={item.stream_id}>
+                    {streamUrl ? (
+                      <a
+                        className="list-item list-item-link"
+                        href={streamUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {content}
+                      </a>
+                    ) : (
+                      <div className="list-item">{content}</div>
+                    )}
                   </li>
                 )
               })}

@@ -32,6 +32,7 @@ frontend/src/
     format.ts                date/time/remaining formatters
     streamGroups.ts          per-game limiting/grouping helpers
     tabs.ts                  tab ids + metadata
+    url.ts                   safe http(s) URL checks for API-provided links
   pages/
     AuthPage.tsx             Twitch authorize/paste + invite code
     OverviewPage.tsx
@@ -59,6 +60,27 @@ queries load for that user. `POST /auth/logout` ends the session and returns to
 the gate.
 
 Tabs are unchanged after sign-in.
+
+### URL safety and session freshness
+
+Any URL supplied by the API is normalized through `lib/url.ts` before it reaches
+an `href` or `src`. `safeExternalUrl(value)` parses with `new URL(value,
+window.location.origin)` and returns the normalized URL only for `http:` or
+`https:`; missing, malformed, `javascript:`, `data:`, `vbscript:`, and
+protocol-relative/backslash values return `null`. This covers campaign
+`details_url`, live stream URLs, the Twitch authorize URL, Telegram
+`deep_link`, and profile images. Unsafe links are not rendered as anchors: the
+campaign footer falls back to plain campaign-name text, and unsafe stream links,
+authorize links, and avatars are omitted or replaced by their plain-text/initial
+fallbacks. External anchors use `target="_blank"` with
+`rel="noopener noreferrer"`.
+
+`AuthContext` re-checks `/auth/me` on `focus`, `visibilitychange`, and `pageshow`.
+The `pageshow` handler is limited to `event.persisted` restores, because a
+BFCache-restored page keeps its frozen React state and could otherwise keep
+showing the previous authenticated user; a normal load already runs the initial
+`/auth/me` check. All three listeners are removed on unmount.
+
 ## Tabs
 
 Hash routes, default `#/overview`; invalid hashes are normalized:
