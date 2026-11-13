@@ -1293,6 +1293,7 @@ code {
 
 .form-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
 }
@@ -2281,12 +2282,13 @@ code {
   }
 
   .settings-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .settings-section,
   .settings-section:nth-child(n + 3) {
     grid-column: 1 / -1;
+    min-width: 0;
   }
 }
 
@@ -2489,6 +2491,28 @@ code {
 
   .topbar-actions .user-chip {
     display: none;
+  }
+
+  .list-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .list-item-main {
+    flex: 1 1 140px;
+  }
+
+  .list-item-title,
+  .list-item-meta {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .list-item-actions,
+  .list-item-trailing {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
 
   .mobile-connection {
