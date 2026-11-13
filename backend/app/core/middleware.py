@@ -92,6 +92,10 @@ class NoStoreMiddleware(BaseHTTPMiddleware):
         prefix = settings.api_prefix.rstrip("/")
         path = request.url.path
         is_api = path == prefix or path.startswith(f"{prefix}/")
-        if is_api and request.cookies.get(SESSION_COOKIE):
+        # Flow ids are bearer values and poll responses can create a session, so
+        # every device-login response is uncacheable even before a session
+        # cookie exists.
+        device_auth = path.startswith(f"{prefix}/auth/twitch/device/")
+        if is_api and (request.cookies.get(SESSION_COOKIE) or device_auth):
             response.headers["Cache-Control"] = "no-store"
         return response

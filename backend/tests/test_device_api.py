@@ -15,7 +15,7 @@ from app.api.v1.router import api_router
 from app.core import rate_limit
 from app.core.config import Settings
 from app.core.db import Base, get_session
-from app.core.middleware import CSRFMiddleware
+from app.core.middleware import CSRFMiddleware, NoStoreMiddleware
 from app.core.rate_limit import SlidingWindowRateLimiter
 from app.domain.models import TwitchAccount, TwitchDeviceFlow
 from app.services.factory import get_twitch_user_provider
@@ -89,6 +89,7 @@ async def _stack(monkeypatch, provider):
     app = FastAPI()
     app.include_router(api_router, prefix="/api/v1")
     app.add_middleware(CSRFMiddleware)
+    app.add_middleware(NoStoreMiddleware)
     app.dependency_overrides[get_session] = override_session
     app.dependency_overrides[get_twitch_user_provider] = lambda: provider
 
@@ -133,6 +134,32 @@ async def test_start_returns_code_and_never_exposes_device_code(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_all_device_endpoints_send_no_store(monkeypatch):
+    from app.core.exceptions import DeviceFlowPendingError
+
+    provider = FakeDeviceProvider()
+    provider.poll_results = [DeviceFlowPendingError("pending")]
+    engine, _factory, app = await _stack(monkeypatch, provider)
+
+    async with _client(app) as client:
+        start = await client.post("/api/v1/auth/twitch/device/start")
+        assert start.headers["cache-control"] == "no-store"
+        flow_id = start.json()["flow_id"]
+
+        poll = await client.post(
+            "/api/v1/auth/twitch/device/poll", json={"flow_id": flow_id}
+        )
+        assert poll.headers["cache-control"] == "no-store"
+
+        cancel = await client.post(
+            "/api/v1/auth/twitch/device/cancel", json={"flow_id": flow_id}
+        )
+        assert cancel.headers["cache-control"] == "no-store"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_pending_poll_returns_interval(monkeypatch):
     from app.core.exceptions import DeviceFlowPendingError
 
@@ -144,14 +171,14 @@ async def test_pending_poll_returns_interval(monkeypatch):
         start = await client.post("/api/v1/auth/twitch/device/start")
         flow_id = start.json()["flow_id"]
 
-        first = await client.get(f"/api/v1/auth/twitch/device/{flow_id}")
+        first = await client.post("/api/v1/auth/twitch/device/poll", json={"flow_id": flow_id})
         assert first.status_code == 200
         assert first.json() == {"status": "pending", "interval": 5}
         assert client.cookies.get("tdm_session") is None
 
         # The second call is throttled server-side; it stays pending and does
         # not consume the queued (empty) provider response.
-        second = await client.get(f"/api/v1/auth/twitch/device/{flow_id}")
+        second = await client.post("/api/v1/auth/twitch/device/poll", json={"flow_id": flow_id})
         assert second.status_code == 200
         assert second.json() == {"status": "pending", "interval": 5}
 
@@ -170,9 +197,11 @@ async def test_success_sets_cookies_and_stores_the_smart_tv_client(monkeypatch):
         start = await client.post("/api/v1/auth/twitch/device/start")
         flow_id = start.json()["flow_id"]
 
-        response = await client.get(f"/api/v1/auth/twitch/device/{flow_id}")
+        response = await client.post("/api/v1/auth/twitch/device/poll", json={"flow_id": flow_id})
         assert response.status_code == 200
         payload = response.json()
+        assert payload["status"] == "connected"
+        assert payload["interval"] == 5
         assert payload["connected"] is True
         assert payload["created"] is True
         assert payload["user"]["login"] == "viewer"
@@ -182,8 +211,13 @@ async def test_success_sets_cookies_and_stores_the_smart_tv_client(monkeypatch):
         me = await client.get("/api/v1/auth/me")
         assert me.json()["authenticated"] is True
 
-        # One-time use.
-        again = await client.get(f"/api/v1/auth/twitch/device/{flow_id}")
+        # One-time use. After success the session cookie is present, so the
+        # normal CSRF rule applies to the poll POST.
+        again = await client.post(
+            "/api/v1/auth/twitch/device/poll",
+            json={"flow_id": flow_id},
+            headers={"X-CSRF-Token": client.cookies.get("tdm_csrf")},
+        )
         assert again.status_code == 410
 
     async with factory() as session:
@@ -208,11 +242,11 @@ async def test_denied_flow_returns_400_and_becomes_gone(monkeypatch):
         start = await client.post("/api/v1/auth/twitch/device/start")
         flow_id = start.json()["flow_id"]
 
-        response = await client.get(f"/api/v1/auth/twitch/device/{flow_id}")
+        response = await client.post("/api/v1/auth/twitch/device/poll", json={"flow_id": flow_id})
         assert response.status_code == 400
         assert client.cookies.get("tdm_session") is None
 
-        again = await client.get(f"/api/v1/auth/twitch/device/{flow_id}")
+        again = await client.post("/api/v1/auth/twitch/device/poll", json={"flow_id": flow_id})
         assert again.status_code == 410
 
     await engine.dispose()
@@ -234,7 +268,7 @@ async def test_locally_expired_flow_returns_400(monkeypatch):
             flow.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
             await session.commit()
 
-        response = await client.get(f"/api/v1/auth/twitch/device/{flow_id}")
+        response = await client.post("/api/v1/auth/twitch/device/poll", json={"flow_id": flow_id})
         assert response.status_code == 400
 
     await engine.dispose()
@@ -249,11 +283,11 @@ async def test_cancel_deletes_the_flow(monkeypatch):
         start = await client.post("/api/v1/auth/twitch/device/start")
         flow_id = start.json()["flow_id"]
 
-        response = await client.delete(f"/api/v1/auth/twitch/device/{flow_id}")
+        response = await client.post("/api/v1/auth/twitch/device/cancel", json={"flow_id": flow_id})
         assert response.status_code == 200
         assert response.json() == {"cancelled": True}
 
-        poll = await client.get(f"/api/v1/auth/twitch/device/{flow_id}")
+        poll = await client.post("/api/v1/auth/twitch/device/poll", json={"flow_id": flow_id})
         assert poll.status_code == 410
 
     await engine.dispose()
@@ -265,7 +299,7 @@ async def test_unknown_flow_is_410(monkeypatch):
     engine, _factory, app = await _stack(monkeypatch, provider)
 
     async with _client(app) as client:
-        response = await client.get("/api/v1/auth/twitch/device/unknown")
+        response = await client.post("/api/v1/auth/twitch/device/poll", json={"flow_id": "unknown"})
         assert response.status_code == 410
 
     await engine.dispose()
@@ -324,5 +358,73 @@ async def test_signed_in_start_binds_the_current_user(monkeypatch):
             )
         ).scalar_one()
         assert flow.current_user_id == user_id
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_cancel_requires_csrf_for_a_live_session(monkeypatch):
+    provider = FakeDeviceProvider()
+    engine, factory, app = await _stack(monkeypatch, provider)
+
+    async with factory() as session:
+        user = await create_user(session, twitch_user_id="1", login="one")
+        await session.commit()
+        user_id = user.id
+
+    async with _client(app) as client:
+        from app.core.security import create_auth_session
+
+        async with factory() as session:
+            token, csrf, _row = await create_auth_session(
+                session, user_id, 30
+            )
+            await session.commit()
+        client.cookies.set("tdm_session", token)
+        client.cookies.set("tdm_csrf", csrf)
+
+        start = await client.post("/api/v1/auth/twitch/device/start")
+        assert start.status_code == 200
+        flow_id = start.json()["flow_id"]
+
+        missing = await client.post(
+            "/api/v1/auth/twitch/device/cancel", json={"flow_id": flow_id}
+        )
+        assert missing.status_code == 403
+        assert missing.headers["cache-control"] == "no-store"
+
+        cancelled = await client.post(
+            "/api/v1/auth/twitch/device/cancel",
+            json={"flow_id": flow_id},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert cancelled.status_code == 200
+        assert cancelled.json() == {"cancelled": True}
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_device_success_schedules_the_first_progress_sync(monkeypatch):
+    provider = FakeDeviceProvider()
+    provider.poll_results = [
+        {"access_token": "access-token", "expires_in": 3600}
+    ]
+    engine, _factory, app = await _stack(monkeypatch, provider)
+    synced: list[int] = []
+
+    async def fake_sync(user_id: int) -> None:
+        synced.append(user_id)
+
+    monkeypatch.setattr("app.api.v1.auth._first_progress_sync", fake_sync)
+
+    async with _client(app) as client:
+        start = await client.post("/api/v1/auth/twitch/device/start")
+        flow_id = start.json()["flow_id"]
+        poll = await client.post(
+            "/api/v1/auth/twitch/device/poll", json={"flow_id": flow_id}
+        )
+        assert poll.status_code == 200
+        assert synced == [poll.json()["user"]["id"]]
 
     await engine.dispose()

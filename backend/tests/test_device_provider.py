@@ -167,6 +167,22 @@ async def test_poll_device_token_terminal_error_is_sanitized(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_poll_device_token_5xx_is_a_transient_provider_error(monkeypatch):
+    client = FakeClient(
+        [FakeResponse({"message": "upstream unavailable"}, status_code=503)]
+    )
+    _patch_client(monkeypatch, client)
+
+    provider = TwitchUserProvider(_settings())
+    with pytest.raises(ProviderError) as excinfo:
+        await provider.poll_device_token("device-secret", SMART_TV)
+
+    assert not isinstance(excinfo.value, DeviceFlowTerminalError)
+    assert "upstream unavailable" not in str(excinfo.value)
+    assert "503" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
 async def test_fetch_inventory_uses_the_supplied_client_id(monkeypatch):
     client = FakeClient(
         [FakeResponse({"data": {"currentUser": {"inventory": {}}}})]

@@ -312,6 +312,12 @@ class DeviceFlowStartIn(BaseModel):
     invite_code: str = Field(default="", max_length=255)
 
 
+class DeviceFlowRefIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    flow_id: str = Field(min_length=1, max_length=128)
+
+
 class DeviceFlowStartOut(BaseModel):
     flow_id: str
     user_code: str
@@ -322,6 +328,11 @@ class DeviceFlowStartOut(BaseModel):
 
 class DeviceFlowPendingOut(BaseModel):
     status: Literal["pending"] = "pending"
+    interval: int
+
+
+class DeviceFlowConnectedOut(AuthConnectOut):
+    status: Literal["connected"] = "connected"
     interval: int
 
 

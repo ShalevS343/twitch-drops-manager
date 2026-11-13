@@ -133,31 +133,61 @@ class TwitchDeviceService:
             interval=flow.interval_seconds,
         )
 
+    async def _mark_terminal(
+        self, flow_id: str, status: str
+    ) -> bool:
+        """Persist a terminal status without ever downgrading ``connected``."""
+        changed = await self.flows.set_status(flow_id, status)
+        await self.session.commit()
+        return changed
+
     async def poll(self, flow_id: str) -> DevicePollResult:
+        now = datetime.now(timezone.utc)
         flow = await self.flows.get_by_flow_id(flow_id)
         if flow is None or flow.status != "pending":
             raise DeviceFlowNotFoundError("This login code is no longer valid")
 
-        now = datetime.now(timezone.utc)
         expires_at = _aware(flow.expires_at)
         if expires_at is not None and expires_at <= now:
-            flow.status = "expired"
-            await self.session.commit()
+            if not await self._mark_terminal(flow_id, "expired"):
+                raise DeviceFlowNotFoundError(
+                    "This login code is no longer valid"
+                )
             raise DeviceFlowExpiredError(
                 "This login code expired; start a new one"
             )
 
-        last_polled_at = _aware(flow.last_polled_at)
-        if (
-            last_polled_at is not None
-            and now < last_polled_at + timedelta(seconds=flow.interval_seconds)
-        ):
-            return DevicePollResult(pending=True, interval=flow.interval_seconds)
+        not_after = now - timedelta(seconds=flow.interval_seconds)
+        claimed = await self.flows.claim_poll(
+            flow_id, now=now, not_after=not_after
+        )
+        if not claimed:
+            # Another tab/request holds this cadence slot. Re-read so a flow
+            # that just completed or expired is reported correctly.
+            flow = await self.flows.get_by_flow_id(flow_id)
+            if flow is None or flow.status != "pending":
+                raise DeviceFlowNotFoundError(
+                    "This login code is no longer valid"
+                )
+            expires_at = _aware(flow.expires_at)
+            if expires_at is not None and expires_at <= now:
+                if not await self._mark_terminal(flow_id, "expired"):
+                    raise DeviceFlowNotFoundError(
+                        "This login code is no longer valid"
+                    )
+                raise DeviceFlowExpiredError(
+                    "This login code expired; start a new one"
+                )
+            return DevicePollResult(
+                pending=True, interval=flow.interval_seconds
+            )
 
-        # Persist the upstream poll time before the network call so a duplicate
-        # request cannot start a second poll while this one is in flight.
-        flow.last_polled_at = now
+        # Persist the atomic claim before the network call. A duplicate request
+        # can no longer enter the upstream poll until the interval elapses.
         await self.session.commit()
+        flow = await self.flows.get_by_flow_id(flow_id)
+        if flow is None or flow.status != "pending":
+            raise DeviceFlowNotFoundError("This login code is no longer valid")
 
         try:
             token_body = await self.provider.poll_device_token(
@@ -170,28 +200,41 @@ class TwitchDeviceService:
             await self.session.commit()
             return DevicePollResult(pending=True, interval=flow.interval_seconds)
         except DeviceFlowExpiredTokenError:
-            flow.status = "expired"
-            await self.session.commit()
+            if not await self._mark_terminal(flow_id, "expired"):
+                raise DeviceFlowNotFoundError(
+                    "This login code is no longer valid"
+                ) from None
             raise DeviceFlowExpiredError(
                 "This login code expired; start a new one"
             ) from None
         except DeviceFlowAccessDeniedError:
-            flow.status = "denied"
-            await self.session.commit()
+            if not await self._mark_terminal(flow_id, "denied"):
+                raise DeviceFlowNotFoundError(
+                    "This login code is no longer valid"
+                ) from None
             raise DeviceFlowDeniedError(
                 "Twitch authorization was denied"
             ) from None
         except DeviceFlowTerminalError as exc:
-            flow.status = "error"
-            await self.session.commit()
+            if not await self._mark_terminal(flow_id, "error"):
+                raise DeviceFlowNotFoundError(
+                    "This login code is no longer valid"
+                ) from exc
             raise InvalidAuthRequestError(
                 "Twitch could not complete the login; start a new code"
             ) from exc
+        except ProviderError:
+            # Network errors and Twitch 5xx/429 responses are transient. The
+            # cadence claim above already prevents a tight retry loop, so keep
+            # the flow pending instead of failing the login.
+            return DevicePollResult(pending=True, interval=flow.interval_seconds)
 
         token = str(token_body.get("access_token") or "").strip()
         if not token:
-            flow.status = "error"
-            await self.session.commit()
+            if not await self._mark_terminal(flow_id, "error"):
+                raise DeviceFlowNotFoundError(
+                    "This login code is no longer valid"
+                )
             raise InvalidAuthRequestError(
                 "Twitch could not complete the login; start a new code"
             )
@@ -199,16 +242,20 @@ class TwitchDeviceService:
         try:
             info = await self.provider.validate(token)
         except ProviderError as exc:
-            flow.status = "error"
-            await self.session.commit()
+            if not await self._mark_terminal(flow_id, "error"):
+                raise DeviceFlowNotFoundError(
+                    "This login code is no longer valid"
+                ) from exc
             raise InvalidAuthRequestError(
                 "Twitch rejected the login; start a new code"
             ) from exc
 
         expected_client = flow.client_id or self.settings.device_grant_client_id
         if str(info.get("client_id") or "") != expected_client:
-            flow.status = "error"
-            await self.session.commit()
+            if not await self._mark_terminal(flow_id, "error"):
+                raise DeviceFlowNotFoundError(
+                    "This login code is no longer valid"
+                )
             raise InvalidAuthRequestError(
                 "That Twitch token was issued for a different client"
             )
@@ -230,15 +277,15 @@ class TwitchDeviceService:
         except AuthError:
             # The Twitch device code has been consumed; never allow a retry on
             # the same row (for example after fixing an invite code).
-            flow.status = "error"
-            await self.session.commit()
+            await self._mark_terminal(flow_id, "error")
             raise
 
-        flow.status = "connected"
+        interval = flow.interval_seconds
+        await self.flows.set_status(flow_id, "connected")
         await self.session.commit()
         return DevicePollResult(
             pending=False,
-            interval=flow.interval_seconds,
+            interval=interval,
             auth=result,
         )
 

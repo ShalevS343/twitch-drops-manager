@@ -16,8 +16,9 @@ tables are frozen after migration and are not read by current code (see
 - `users` owns `login`, `display_name`, `profile_image_url`, `role`,
   `is_active`, `telegram_chat_id` (empty = not set), `telegram_enabled`
   (opt-in), and `games_seeded` (one-time default-game bootstrap).
-- `twitch_accounts` owns only the token, expiry, connected timestamp, and sync
-  health. Reconnect updates the token row and user profile in one transaction.
+- `twitch_accounts` owns only the token, the issuing Twitch client id, expiry,
+  connected timestamp, and sync health. Reconnect updates the token row and user
+  profile in one transaction.
 - A local user is permanently bound to one Twitch id. Signing in with another
   Twitch account creates/loads a separate user; it never relinks the old one.
 - Completion, progress, notification, and start rows cascade on user deletion,
@@ -74,11 +75,35 @@ Per-user OAuth token and sync health.
 | `id` | int PK | |
 | `user_id` | FK → users, **unique**, indexed, cascade | one Twitch account per user |
 | `access_token` | text | **secret**, plaintext in SQLite |
+| `client_id` | string(64), not null, default `""` | Twitch client that issued the token; empty legacy rows fall back to the configured Android/GQL client |
 | `expires_at` | datetime, nullable | null = no known expiry (legacy implicit token) |
 | `connected_at` | datetime | set on connect/reconnect |
 | `last_synced_at` | datetime, nullable | last successful progress sync |
 | `last_error` | text | redacted, user-facing |
 | `reconnect_required` | bool | set on user-token 401/expiry; cleared on success |
+
+### `twitch_device_flows`
+
+Short-lived Smart TV device authorizations. The browser sees only `flow_id`;
+`device_code` is a secret and is never logged or returned.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | int PK | |
+| `flow_id` | string(64), **unique**, indexed | 256-bit opaque bearer value returned to the browser |
+| `device_code` | text | **secret** Twitch device code |
+| `user_code` | string | 8-character code shown to the user |
+| `verification_uri` | string | normally `https://www.twitch.tv/activate` |
+| `client_id` | string(64) | Smart TV client used for this grant |
+| `invite_code` | string | optional invite supplied at start |
+| `current_user_id` | FK → users, nullable, indexed, set-null | binds a reconnect to the signed-in user |
+| `interval_seconds` | int | current poll interval; increased on `slow_down` |
+| `last_polled_at` | datetime, nullable | atomic claim time for the upstream poll cadence |
+| `status` | string | `pending`, `connected`, `denied`, `expired`, `error` |
+| `created_at`, `expires_at`, `updated_at` | datetime | 30-minute TTL; expired rows are pruned on start and during the worker scan |
+
+Rows are single-use. A successful flow remains `connected` until cleanup and is
+never downgraded by a later or duplicate poll.
 
 ### `user_games`
 
@@ -183,7 +208,8 @@ and pruned when the campaign leaves the catalog.
 | `key` | string PK | |
 | `value` | string | |
 
-Holds migration/version flags such as `multi_user_v1`.
+Holds migration/version flags such as `multi_user_v1` and
+`twitch_device_login_v1`.
 
 ## Shared tables
 
@@ -213,6 +239,7 @@ remove them once the rollback window has passed.
 
 ```
 users 1─1 twitch_accounts
+users 1─* twitch_device_flows (current_user_id, nullable)
 users 1─* user_sessions
 users 1─* user_games *─1 games
 users 1─* user_drop_progress 1─* user_progress_snapshots
@@ -247,9 +274,24 @@ Matching uses the `external_id` suffix (`"{game}:{gql_id}"`).
 
 ## Migration
 
-No Alembic. `init_db()` calls `create_all` (new tables are additive), then both
-the API and worker call `run_multi_user_migration()`. SQLite's write lock
-serializes them; the first process sets the flag.
+No Alembic. `init_db()` calls `create_all` (new tables are additive), creates
+missing model indexes, runs the additive schema migrations, then runs the
+multi-user data migration. Both the API and worker call `init_db()`; SQLite's
+write lock serializes them.
+
+### Additive schema migrations (`run_schema_migrations`)
+
+1. If `twitch_accounts` exists but lacks `client_id`, execute
+   `ALTER TABLE twitch_accounts ADD COLUMN client_id VARCHAR(64) NOT NULL DEFAULT ''`.
+   Existing rows are preserved with an empty value (Android/GQL fallback).
+   The column check uses SQLite's `PRAGMA table_info`; the whole migration is
+   SQLite-specific (ADR-001).
+2. Record `app_meta['twitch_device_login_v1'] = 'done'`.
+3. The migration is safe to re-run; the column presence, not the flag, makes it
+   idempotent. It runs before the multi-user copy so migrated legacy accounts get
+   the new column's default.
+
+### Multi-user data migration (`run_multi_user_migration`)
 
 1. Open one transaction with `BEGIN IMMEDIATE` semantics and check
    `app_meta['multi_user_v1']` inside it. If set, commit and return.
@@ -294,8 +336,8 @@ keep it until the soak period ends.
 **Rollback:** the previous release reads/writes the frozen legacy tables, so any
 data written after migration is invisible to it. A rollback that must keep
 post-upgrade data requires restoring the pre-upgrade backup. New tables are
-additive, so an older release can ignore them, but do not downgrade the DB
-schema without a backup.
+additive and `twitch_accounts.client_id` has a default, so an older release can
+ignore them, but do not downgrade the DB schema without a backup.
 
 ## Backup / restore
 

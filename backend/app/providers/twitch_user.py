@@ -264,6 +264,13 @@ class TwitchUserProvider:
         if message == "access_denied":
             raise DeviceFlowAccessDeniedError("Twitch authorization was denied")
 
+        if response.status_code >= 500 or response.status_code == 429:
+            # Transient upstream failure: the caller keeps the flow pending and
+            # retries on the next cadence tick instead of failing the login.
+            raise ProviderError(
+                f"Twitch device authorization unavailable ({response.status_code})"
+            )
+
         raise DeviceFlowTerminalError(
             f"Twitch device authorization failed ({response.status_code})"
         )
