@@ -127,9 +127,10 @@ TanStack Query; all requests go through `api/client.ts`:
   watcher enable/focus/next/stop, Telegram settings, admin enable/disable,
   Twitch device start/poll/cancel, Twitch connect/reconnect, logout, disconnect.
 - Device login calls `POST /auth/twitch/device/start`,
-  `GET /auth/twitch/device/{flow_id}`, and `DELETE /auth/twitch/device/{flow_id}`
-  through `api.startTwitchDevice`, `api.pollTwitchDevice`, and
-  `api.cancelTwitchDevice`.
+  `POST /auth/twitch/device/poll`, and `POST /auth/twitch/device/cancel` through
+  `api.startTwitchDevice`, `api.pollTwitchDevice`, and
+  `api.cancelTwitchDevice`. The opaque `flow_id` travels in the JSON body
+  (`{flow_id}`), never in the URL.
 
 Invalidation: scan refreshes all queries; game save refreshes games/campaigns/
 status; progress refresh refreshes progress/watch queue/twitch/status; logout
@@ -145,27 +146,37 @@ response/next query reflects the newly created tracked row.
 2. `POST /auth/twitch/device/start` returns `flow_id`, the 8-character
    `user_code`, `verification_uri`, `expires_at`, and the current poll `interval`.
 3. The UI shows the code with **Copy code**, links to
-   `twitch.tv/activate`, and displays a waiting state. The user enters the code
-   and approves access on Twitch.
-4. The UI polls `GET /auth/twitch/device/{flow_id}` every `interval` seconds and
-   adopts the interval returned by each pending response (the backend raises it
-   on Twitch `slow_down`). Polling stops on success, **Cancel**, a terminal error,
-   the local `expires_at` timeout, or unmount.
+   `twitch.tv/activate`, and displays a waiting state. Before the activation
+   link, it shows a prominent warning: **Only enter a code you generated in this
+   app.** Never enter a code someone sent you. The user enters the code and
+   approves the device login on Twitch.
+4. The UI polls `POST /auth/twitch/device/poll` with `{flow_id}` every `interval`
+   seconds and adopts the interval returned by each pending response (the backend
+   raises it on Twitch `slow_down`). Polling stops on success, **Cancel**, a
+   terminal error, the local `expires_at` timeout, or unmount. Transient
+   `502`/`503`/`504` poll failures are retried up to three times on the current
+   interval while keeping the `sessionStorage` record; only after the retries are
+   exhausted does the error state clear it.
 5. On success the session cookies are already set. The controller refreshes
    `/auth/me`, which purges all caches when the signed-in identity changes, and
    invalidates the user-scoped queries for an in-place reconnect.
-6. **Cancel** calls `DELETE /auth/twitch/device/{flow_id}` as a best effort and
-   clears the waiting state.
+6. **Cancel** calls `POST /auth/twitch/device/cancel` with `{flow_id}` as a best
+   effort and clears the waiting state.
+
+`start()` refuses to begin another flow while one is already waiting, and the
+page-level **Connect with code** / **Reconnect with code** buttons (plus the
+advanced URL button) are disabled while `device.flow` exists. The user must
+cancel the visible flow rather than silently orphaning it.
 
 While waiting, `DeviceConnect` stores
 `{flow_id, user_code, interval, verification_uri}` (plus `expires_at` and the
 login/reconnect mode) in `sessionStorage`. Reloading the page or returning from
-the Twitch app resumes polling from that record. The
-record is removed on success, cancel, expiry, terminal error, or a mode mismatch
-(a reconnect flow must not resume on the signed-out gate). If Twitch accepted the
-code but the success response never reached this browser, the error state
-explains that the confirmation may have been lost and offers **Start a new
-code**; the stored flow is already cleared so the user can retry cleanly.
+the Twitch app resumes polling from that record. The record is removed on
+success, cancel, expiry, terminal error, or a mode mismatch (a reconnect flow
+must not resume on the signed-out gate). If Twitch accepted the code but the
+success response never reached this browser, the error state explains that the
+confirmation may have been lost and offers **Start a new code**; the stored flow
+is already cleared so the user can retry cleanly.
 
 ### Advanced / desktop fallback
 

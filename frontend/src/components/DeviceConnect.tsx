@@ -41,6 +41,7 @@ export interface DeviceConnectController {
   copyFailed: boolean
   error: string | null
   notice: string | null
+  retryNotice: string | null
   start: () => Promise<void>
   cancel: () => Promise<void>
   copyCode: () => Promise<void>
@@ -51,6 +52,10 @@ const STORAGE_KEY = 'tdm.twitch.device.flow'
 const DEFAULT_INTERVAL_SECONDS = 5
 const MAX_INTERVAL_SECONDS = 60 * 60
 const COPY_FEEDBACK_MS = 2500
+const MAX_TRANSIENT_POLL_RETRIES = 3
+const TRANSIENT_POLL_STATUSES = new Set([502, 503, 504])
+const TRANSIENT_RETRY_MESSAGE =
+  'Twitch is temporarily unavailable. Retrying automatically…'
 
 const EXPIRED_MESSAGE =
   'This Twitch code expired. Start a new code to connect.'
@@ -167,6 +172,10 @@ function startErrorMessage(err: unknown): string {
   return detail
 }
 
+function isTransientPollError(err: unknown): boolean {
+  return err instanceof ApiError && TRANSIENT_POLL_STATUSES.has(err.status)
+}
+
 function pollErrorMessage(err: unknown): string {
   if (!(err instanceof ApiError)) {
     return 'Could not reach the server while waiting for Twitch. Start a new code to try again. If you already approved this code, the confirmation may not have reached this browser.'
@@ -239,6 +248,7 @@ export function useDeviceConnect(
   const [copyFailed, setCopyFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [retryNotice, setRetryNotice] = useState<string | null>(null)
 
   const flowRef = useRef<DeviceFlow | null>(null)
   const intervalRef = useRef(DEFAULT_INTERVAL_SECONDS)
@@ -260,6 +270,7 @@ export function useDeviceConnect(
       intervalRef.current = DEFAULT_INTERVAL_SECONDS
       setCopied(false)
       setCopyFailed(false)
+      setRetryNotice(null)
       setPhase('error')
       setError(message)
     },
@@ -273,6 +284,7 @@ export function useDeviceConnect(
       intervalRef.current = DEFAULT_INTERVAL_SECONDS
       setCopied(false)
       setCopyFailed(false)
+      setRetryNotice(null)
       setPhase('success')
       setError(null)
 
@@ -339,6 +351,7 @@ export function useDeviceConnect(
     let cancelled = false
     let inFlight = false
     let timer: number | null = null
+    let transientFailures = 0
 
     function schedule(seconds: number) {
       const delay = Math.max(1, Math.floor(seconds)) * 1000
@@ -362,6 +375,8 @@ export function useDeviceConnect(
         if (cancelled) return
 
         if (isPending(result)) {
+          transientFailures = 0
+          setRetryNotice(null)
           const nextInterval =
             normalizeInterval(result.interval) ?? intervalRef.current
           intervalRef.current = nextInterval
@@ -375,6 +390,17 @@ export function useDeviceConnect(
         await finishWithSuccessRef.current(result)
       } catch (err) {
         if (cancelled) return
+        if (
+          isTransientPollError(err) &&
+          transientFailures < MAX_TRANSIENT_POLL_RETRIES
+        ) {
+          // A 502/503/504 is usually a proxy blip, not a dead flow. Keep the
+          // sessionStorage record and retry on the current cadence.
+          transientFailures += 1
+          setRetryNotice(TRANSIENT_RETRY_MESSAGE)
+          schedule(intervalRef.current)
+          return
+        }
         finishWithErrorRef.current(pollErrorMessage(err))
       } finally {
         inFlight = false
@@ -417,13 +443,16 @@ export function useDeviceConnect(
   }, [])
 
   const start = useCallback(async () => {
-    if (startingRef.current) return
+    // A waiting flow must be cancelled before another one starts, otherwise the
+    // old flow id is dropped from memory while it is still pending at Twitch.
+    if (startingRef.current || flowRef.current) return
     startingRef.current = true
     setStarting(true)
     setError(null)
     setNotice(null)
     setCopied(false)
     setCopyFailed(false)
+    setRetryNotice(null)
     setPhase('starting')
 
     try {
@@ -453,6 +482,7 @@ export function useDeviceConnect(
     setNotice(null)
     setCopied(false)
     setCopyFailed(false)
+    setRetryNotice(null)
     if (!active) return
 
     setCanceling(true)
@@ -495,6 +525,7 @@ export function useDeviceConnect(
     copyFailed,
     error,
     notice,
+    retryNotice,
     start,
     cancel,
     copyCode,
@@ -586,6 +617,14 @@ export function DeviceConnect({
 
       {connect.flow && (
         <div className="device-flow">
+          <p className="alert alert-danger" role="note">
+            <Icon name="alert" size={16} />
+            <span>
+              <strong>Only enter a code you generated in this app.</strong>{' '}
+              Never enter a code someone sent you.
+            </span>
+          </p>
+
           <p className="field-label">Enter this code on Twitch</p>
 
           <div className="device-code-row">
@@ -612,7 +651,7 @@ export function DeviceConnect({
             ) : (
               <code>{connect.flow.verificationUri}</code>
             )}
-            , enter the code, and approve access for Drops Manager.
+            , enter the code, and approve the device login.
           </p>
 
           <p className="alert alert-warning" role="status">
@@ -624,6 +663,13 @@ export function DeviceConnect({
                 : ''}
             </span>
           </p>
+
+          {connect.retryNotice && (
+            <p className="alert alert-warning" role="status">
+              <Icon name="alert" size={16} />
+              <span>{connect.retryNotice}</span>
+            </p>
+          )}
 
           {connect.copyFailed && (
             <p className="alert alert-warning" role="status">
