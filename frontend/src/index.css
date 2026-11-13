@@ -60,6 +60,7 @@ body {
   font-size: 15px;
   line-height: 1.6;
   overflow-x: clip;
+  overflow-wrap: anywhere;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -232,8 +233,17 @@ code {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1;
+  min-width: 0;
   padding: 4px 8px 22px;
   color: var(--text);
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .brand:hover {
@@ -806,6 +816,7 @@ code {
 
 .panel,
 .card {
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1086,8 +1097,10 @@ code {
 
 .quick-actions .btn {
   width: 100%;
+  min-width: 0;
   justify-content: center;
   text-align: center;
+  white-space: normal;
 }
 
 /* ------------------------------------------------------------------ lists */
@@ -2354,6 +2367,21 @@ code {
     display: inline-flex;
   }
 
+  .mobile-connection {
+    min-width: 0;
+  }
+
+  .mobile-connection > span:not(.status-dot) {
+    max-width: 140px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .topbar-actions .user-chip {
+    display: none;
+  }
+
   .content {
     padding: 20px;
   }
@@ -2394,6 +2422,7 @@ code {
   .sidebar {
     position: fixed;
     inset: 0 auto 0 0;
+    z-index: 60;
     display: flex;
     flex-direction: column;
     align-items: stretch;
@@ -2416,7 +2445,18 @@ code {
 
   .sidebar .brand {
     display: flex;
-    padding-right: 46px;
+    padding: 4px 0 18px;
+  }
+
+  .sidebar .sidebar-head {
+    position: sticky;
+    top: -14px;
+    z-index: 2;
+    display: flex;
+    align-items: flex-start;
+    margin: -14px -14px 0;
+    padding: 14px 14px 0;
+    background: var(--bg);
   }
 
   .sidebar .nav-section-label {
@@ -2428,15 +2468,13 @@ code {
   }
 
   .drawer-close {
-    position: absolute;
-    top: 14px;
-    right: 14px;
-    z-index: 1;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    margin-top: 2px;
     padding: 0;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);

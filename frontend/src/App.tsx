@@ -56,14 +56,30 @@ export default function App() {
     if (!mobileNavOpen) {
       if (drawerWasOpenRef.current) {
         drawerWasOpenRef.current = false
-        burgerRef.current?.focus()
+        const burger = burgerRef.current
+        const burgerVisible =
+          burger &&
+          burger.getClientRects().length > 0 &&
+          window.getComputedStyle(burger).visibility !== 'hidden'
+
+        if (burgerVisible) {
+          burger.focus()
+        } else {
+          document.querySelector<HTMLElement>('.nav-link.active')?.focus()
+        }
       }
       return
     }
 
     drawerWasOpenRef.current = true
-    const previousOverflow = document.body.style.overflow
+    const previousBodyOverflow = document.body.style.overflow
+    const previousHtmlOverflow = document.documentElement.style.overflow
+    const previousBodyOverscroll = document.body.style.overscrollBehavior
+    const previousHtmlOverscroll = document.documentElement.style.overscrollBehavior
     document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+    document.body.style.overscrollBehavior = 'none'
+    document.documentElement.style.overscrollBehavior = 'none'
     const focusFrame = window.requestAnimationFrame(() => {
       drawerCloseRef.current?.focus()
     })
@@ -76,30 +92,52 @@ export default function App() {
       }
       if (event.key !== 'Tab') return
 
+      const drawer = drawerRef.current
+      if (!drawer) return
       const items = Array.from(
-        drawerRef.current?.querySelectorAll<HTMLElement>(
+        drawer.querySelectorAll<HTMLElement>(
           'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ) ?? [],
+        ),
       ).filter((element) => element.offsetParent !== null)
 
       if (items.length === 0) return
       const first = items[0]
       const last = items[items.length - 1]
+      const active = document.activeElement
 
-      if (event.shiftKey && document.activeElement === first) {
+      if (!active || !drawer.contains(active)) {
+        event.preventDefault()
+        first.focus()
+        return
+      }
+
+      if (event.shiftKey && active === first) {
         event.preventDefault()
         last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && active === last) {
         event.preventDefault()
         first.focus()
       }
     }
 
+    function handleFocusIn(event: FocusEvent) {
+      const drawer = drawerRef.current
+      const target = event.target as Node | null
+      if (drawer && target && !drawer.contains(target)) {
+        drawerCloseRef.current?.focus()
+      }
+    }
+
     document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('focusin', handleFocusIn)
     return () => {
       window.cancelAnimationFrame(focusFrame)
       document.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = previousOverflow
+      document.removeEventListener('focusin', handleFocusIn)
+      document.body.style.overflow = previousBodyOverflow
+      document.documentElement.style.overflow = previousHtmlOverflow
+      document.body.style.overscrollBehavior = previousBodyOverscroll
+      document.documentElement.style.overscrollBehavior = previousHtmlOverscroll
     }
   }, [mobileNavOpen])
 
@@ -320,10 +358,8 @@ export default function App() {
           </header>
 
           {mobileNavOpen && (
-            <button
-              type="button"
+            <div
               className="nav-scrim"
-              tabIndex={-1}
               aria-hidden="true"
               onClick={closeMobileNav}
             />
@@ -337,29 +373,31 @@ export default function App() {
             aria-modal={mobileNavOpen ? true : undefined}
             aria-label="Dashboard navigation"
           >
-            <button
-              ref={drawerCloseRef}
-              type="button"
-              className="drawer-close"
-              aria-label="Close navigation"
-              onClick={closeMobileNav}
-            >
-              <Icon name="x" size={18} />
-            </button>
+            <div className="sidebar-head">
+              <a
+                className="brand"
+                href="#/overview"
+                aria-label="Twitch Drops Manager overview"
+              >
+                <span className="brand-mark">
+                  <Icon name="gift" size={20} />
+                </span>
+                <span className="brand-copy">
+                  <span className="brand-name">Drops Manager</span>
+                  <span className="brand-sub">Twitch dashboard</span>
+                </span>
+              </a>
 
-            <a
-              className="brand"
-              href="#/overview"
-              aria-label="Twitch Drops Manager overview"
-            >
-              <span className="brand-mark">
-                <Icon name="gift" size={20} />
-              </span>
-              <span className="brand-copy">
-                <span className="brand-name">Drops Manager</span>
-                <span className="brand-sub">Twitch dashboard</span>
-              </span>
-            </a>
+              <button
+                ref={drawerCloseRef}
+                type="button"
+                className="drawer-close"
+                aria-label="Close navigation"
+                onClick={closeMobileNav}
+              >
+                <Icon name="x" size={18} />
+              </button>
+            </div>
 
             <div className="nav-section-label">Dashboard</div>
             <TabNav
