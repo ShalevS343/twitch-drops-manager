@@ -32,7 +32,6 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
-app.add_middleware(NoStoreMiddleware)
 app.add_middleware(CSRFMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -47,6 +46,8 @@ if settings.allowed_host_list:
     app.add_middleware(
         TrustedHostMiddleware, allowed_hosts=settings.allowed_host_list
     )
+# Outermost so even CSRF/host rejections for device-flow calls are uncacheable.
+app.add_middleware(NoStoreMiddleware)
 app.include_router(api_router, prefix=settings.api_prefix)
 
 

@@ -6,6 +6,7 @@ import asyncio
 import logging
 from functools import lru_cache
 
+from app.core.config import get_settings
 from app.core.db import SessionLocal
 from app.core.exceptions import (
     NotConfiguredError,
@@ -45,9 +46,12 @@ class ProfileService:
 
             display_name = user.display_name
             profile_image_url = user.profile_image_url
+            client_id = account.client_id or get_settings().gql_client_id
             try:
                 profile = await provider.fetch_profile(
-                    account.access_token, user.twitch_user_id
+                    account.access_token,
+                    user.twitch_user_id,
+                    client_id=client_id,
                 )
                 display_name = str(profile.get("displayName") or display_name)
                 profile_image_url = str(profile.get("profileImageURL") or "")

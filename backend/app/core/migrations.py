@@ -11,12 +11,16 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.core.config import get_settings
 
 MIGRATION_KEY = "multi_user_v1"
 MIGRATION_DONE = "done"
+
+SCHEMA_MIGRATION_KEY = "twitch_device_login_v1"
+SCHEMA_MIGRATION_DONE = "done"
 
 
 def _as_datetime(value: Any) -> datetime | None:
@@ -48,6 +52,65 @@ def _as_datetime(value: Any) -> datetime | None:
 async def _has_table(connection: AsyncConnection, name: str) -> bool:
     return bool(
         await connection.run_sync(lambda sync: inspect(sync).has_table(name))
+    )
+
+
+async def _column_names(connection: AsyncConnection, table: str) -> list[str]:
+    # SQLite-specific introspection: the app's only supported database is
+    # SQLite (ADR-001). A Postgres port would use information_schema instead.
+    result = await connection.execute(text(f"PRAGMA table_info({table})"))
+    return [str(row[1]) for row in result.all()]
+
+
+async def run_schema_migrations(connection: AsyncConnection) -> None:
+    """Apply additive schema changes that ``create_all`` cannot make.
+
+    Runs in the caller's transaction, is safe to re-run, and never rewrites or
+    drops existing rows. The migration flag is an audit record: the column
+    check is what makes the change idempotent.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+
+    if not await _has_table(connection, "app_meta"):
+        await connection.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS app_meta ("
+                "key VARCHAR(64) PRIMARY KEY, "
+                "value VARCHAR(255) NOT NULL DEFAULT '', "
+                "updated_at DATETIME NOT NULL)"
+            )
+        )
+
+    if await _has_table(connection, "twitch_accounts"):
+        columns = await _column_names(connection, "twitch_accounts")
+        if "client_id" not in columns:
+            try:
+                await connection.execute(
+                    text(
+                        "ALTER TABLE twitch_accounts "
+                        "ADD COLUMN client_id VARCHAR(64) NOT NULL DEFAULT ''"
+                    )
+                )
+            except OperationalError:
+                # Two workers can race on startup. If the other one already
+                # added the column, this is the expected no-op.
+                if "client_id" not in await _column_names(
+                    connection, "twitch_accounts"
+                ):
+                    raise
+
+    await connection.execute(
+        text(
+            "INSERT OR IGNORE INTO app_meta (key, value, updated_at) "
+            "VALUES (:key, :value, :now)"
+        ),
+        {"key": SCHEMA_MIGRATION_KEY, "value": SCHEMA_MIGRATION_DONE, "now": now},
+    )
+    await connection.execute(
+        text(
+            "UPDATE app_meta SET value = :value, updated_at = :now WHERE key = :key"
+        ),
+        {"key": SCHEMA_MIGRATION_KEY, "value": SCHEMA_MIGRATION_DONE, "now": now},
     )
 
 

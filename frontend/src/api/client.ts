@@ -11,6 +11,10 @@ import type {
   Stream,
   TelegramLink,
   TwitchConnect,
+  TwitchDeviceCancel,
+  TwitchDeviceFlowInput,
+  TwitchDevicePoll,
+  TwitchDeviceStart,
   TwitchLoginResult,
   TwitchUserStatus,
   UpdateMeInput,
@@ -121,6 +125,25 @@ export const api = {
         ...(inviteCode ? { invite_code: inviteCode } : {}),
       }),
     }),
+  startTwitchDevice: (inviteCode?: string) =>
+    request<TwitchDeviceStart>('/auth/twitch/device/start', {
+      method: 'POST',
+      body: JSON.stringify(inviteCode ? { invite_code: inviteCode } : {}),
+    }),
+  pollTwitchDevice: (flowId: string) => {
+    const body: TwitchDeviceFlowInput = { flow_id: flowId }
+    return request<TwitchDevicePoll>('/auth/twitch/device/poll', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  },
+  cancelTwitchDevice: (flowId: string) => {
+    const body: TwitchDeviceFlowInput = { flow_id: flowId }
+    return request<TwitchDeviceCancel>('/auth/twitch/device/cancel', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  },
   logout: () => request<{ ok?: boolean }>('/auth/logout', { method: 'POST' }),
   updateMe: (input: UpdateMeInput) =>
     request<AuthUser>('/auth/me', {

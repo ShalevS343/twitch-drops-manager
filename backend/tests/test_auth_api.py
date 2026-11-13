@@ -48,7 +48,7 @@ class FakeTwitchProvider:
     async def validate(self, _token):
         return dict(self.info)
 
-    async def fetch_profile(self, _access_token, _user_id=""):
+    async def fetch_profile(self, _access_token, _user_id="", client_id=""):
         return dict(self.profile)
 
     def as_user(self, user_id: str, login: str) -> None:
@@ -68,6 +68,7 @@ def _settings(**overrides) -> Settings:
         "owner_twitch_id": "123",
         "default_games": "",
         "twitch_gql_client_id": "client",
+        "twitch_device_client_id": "client",
         "telegram_bot_token": "",
         "cors_origins": "",
     }

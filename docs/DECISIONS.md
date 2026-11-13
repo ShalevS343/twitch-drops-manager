@@ -34,7 +34,7 @@ the profile. Never persist passwords.
 **Consequences:** works with real accounts, no client secret for progress, but
 depends on an unofficial API and a first-party client id that Twitch may rotate.
 Device-code flow was tried and rejected because GQL returned 401 for third-party
-tokens.
+tokens. (The Smart TV device grant is now the primary login; see ADR-021.)
 
 ## ADR-004 — Telegram digests + atomic dedupe
 
@@ -329,3 +329,52 @@ access is intentionally unavailable. In-process limiters assume the current
 single-worker deployment. CSRF remains double-submit rather than session-bound,
 and a Twitch client-secret/Telegram-token rotation is still an operator action if
 an old build ever logged them.
+
+## ADR-021 — Device-code Twitch login for phones
+
+**Context:** the implicit grant redirects to
+`https://www.twitch.tv/#access_token=...`; the Twitch mobile app swallows that URL,
+so phone users have no address bar to copy from. Twitch's Smart TV public client
+accepts the device authorization grant, and GQL accepts the resulting token with
+that client id.
+
+**Decision:** add a device-code login as the primary **Connect Twitch** flow:
+
+- `POST /auth/twitch/device/start` calls Twitch's `/oauth2/device` with the Smart
+  TV client id and no scopes, then stores a short-lived flow row. The browser gets
+  only the opaque `flow_id`, the 8-character `user_code`, the activation URI, the
+  expiry, and the polling interval. The Twitch `device_code` never leaves the
+  server.
+- Polling and cancellation use `POST /auth/twitch/device/poll` and
+  `POST /auth/twitch/device/cancel` with `{"flow_id": "..."}` in the body, so the
+  bearer flow id does not appear in Uvicorn/access-log request lines.
+- The server owns the poll cadence. An atomic conditional update on
+  `last_polled_at` admits one upstream poll per interval; duplicate tabs get
+  `pending` without contacting Twitch. `slow_down` increases and persists the
+  interval. Transient Twitch/network failures keep the flow pending.
+- Flows expire after 30 minutes, are single-use, and are cleaned up on start and
+  during the worker scan. The registration gate, first-admin claim, disabled-user
+  check, current-session conflict, sessions, and CSRF remain the same as the
+  implicit flow.
+- Each `twitch_accounts` row stores the client id that issued its token. Implicit
+  logins store the Android client; device logins store the Smart TV client.
+  Progress/profile GQL uses `account.client_id`, falling back to the configured
+  GQL client for legacy rows.
+- The implicit URL-paste flow remains as an advanced fallback. An idempotent
+  additive migration adds `twitch_accounts.client_id` and records
+  `app_meta['twitch_device_login_v1']`.
+
+**Security risk — device-grant phishing is inherent and not eliminated.** Device
+authorization can be abused by code phishing: an attacker starts a flow, sends
+the victim the attacker's `user_code`, and the victim may approve it at
+`twitch.tv/activate`. The resulting Twitch token/session belongs to the flow the
+attacker started. This design reduces the window with a 30-minute TTL, single-use
+rows, server-side cadence, and the normal invite/registration gates, and the UI is
+required to warn users to enter only codes they generated in this app. Do **not**
+describe the flow as phishing-proof. Device tokens also remain plaintext bearer
+tokens in SQLite; the volume/host stays the security boundary.
+
+**Consequences:** phones no longer need to copy a redirect URL. The Smart TV
+client id is public but unofficial and can rotate, so the first real device-flow
+inventory sync must be verified after deploy. Existing Android-client accounts
+keep working without reconnecting; first-party GQL behavior remains unofficial.

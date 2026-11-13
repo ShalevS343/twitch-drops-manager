@@ -33,10 +33,11 @@ app/
     telegram.py           Bot API send to a specific chat
   repositories/
     users.py user_sessions.py twitch_accounts.py user_games.py
-    progress.py campaign_completions.py notifications.py campaign_starts.py
-    watch_focus.py campaigns.py games.py streams.py scans.py
+    twitch_device_flows.py progress.py campaign_completions.py notifications.py
+    campaign_starts.py watch_focus.py campaigns.py games.py streams.py scans.py
   services/
-    auth_service.py       connect/logout/disconnect/registration/Telegram settings
+    auth_service.py       connect/complete_login/logout/disconnect/registration
+    twitch_device_service.py  start/poll/cancel the Twitch device grant
     profile_service.py    per-user profile refresh + warm-up
     scan_service.py       shared catalog + streams + per-user campaign starts
     progress_service.py   per-user inventory + snapshots + ready/deadline alerts
@@ -53,12 +54,16 @@ tests/                    pytest suite (auth, isolation, migration, worker, …)
 1. `configure_logging()` — `httpx`/`httpcore` are set to `WARNING` so request
    URLs (and the Telegram bot token) are not logged.
 2. `init_db()` — creates tables, creates missing model indexes with
-   `checkfirst=True`, then runs `run_multi_user_migration()`.
+   `checkfirst=True`, runs `run_schema_migrations()` (adds
+   `twitch_accounts.client_id` and records `app_meta['twitch_device_login_v1']`),
+   then runs `run_multi_user_migration()`.
 3. Middleware:
    - `TrustedHostMiddleware` when `ALLOWED_HOSTS` is set.
    - CSRF check on unsafe `/api/v1/*` methods when a session cookie exists
-     (the public connect endpoint is exempt).
-   - `Cache-Control: no-store` on authenticated API responses.
+     (public connect and device-start endpoints are exempt; device poll/cancel
+     are not).
+   - `Cache-Control: no-store` on authenticated API responses and every
+     `/auth/twitch/device/*` response.
 4. App serves `/api/v1`; on shutdown, background profile tasks are cancelled and
    the engine is disposed.
 
@@ -89,8 +94,9 @@ error instead of guessing.
 | `twitch_client_id` / `secret` | empty | Helix app credentials (shared) |
 | `twitch_gql_url` | `https://gql.twitch.tv/gql` | Internal GQL |
 | `twitch_gql_client_id` | empty | Advanced override |
-| `twitch_device_client_id` | empty → built-in first-party client | Progress login + GQL client id |
+| `twitch_device_client_id` | empty → built-in Android client | Implicit login + legacy GQL fallback |
 | `twitch_device_client_secret` | empty | Advanced |
+| `twitch_device_grant_client_id` | built-in Smart TV client | Device-code grant client id (public) |
 | `twitch_oauth_redirect_uri` | `https://www.twitch.tv/` | Implicit grant redirect |
 | `telegram_bot_token` | empty | One bot for all users |
 | `telegram_chat_id` | empty | **Seed only** for the migrating owner |
@@ -106,23 +112,47 @@ deployment-facing list.
 
 `AuthService` owns registration/login and account settings:
 
-- `connect(redirect_url, invite_code, current_user)`:
+- `connect(redirect_url, invite_code, current_user)` is the advanced implicit
+  fallback:
   - parse + validate the implicit-grant token with Twitch and enforce the
-    expected client id;
-  - resolve the Twitch user id; load the active local user or apply the
-    registration gates. An empty `users` table is **not** open by itself: the
-    first user is allowed only when the Twitch id matches non-empty
-    `OWNER_TWITCH_ID`, a valid `REGISTRATION_CODE` is supplied, or
-    `REGISTRATION_OPEN=true`. Later users need the code or explicit open
-    registration. The first-admin role is claimed atomically
-    (`claim_first_admin_slot`), so concurrent first logins yield one admin;
-  - a different Twitch id while signed in raises a `409` conflict; inactive users
-    get `403`;
-  - seed default games only when `users.games_seeded` is false, then mark it
-    true (`PUT /games` also marks it true);
-  - store the token on `twitch_accounts`, fetch the profile (login fallback),
-    create the session, set both cookies, and trigger the first progress sync
-    **after** the session is committed. Never sync on a failed registration.
+    **Android** client id (`twitch_device_client_id`);
+  - delegate to `complete_login(...)` with that client id.
+
+`complete_login(token, info, *, invite_code, current_user, client_id)` is shared
+by both login flows and owns:
+
+- resolve the Twitch user id; load the active local user or apply the
+  registration gates. An empty `users` table is **not** open by itself: the
+  first user is allowed only when the Twitch id matches non-empty
+  `OWNER_TWITCH_ID`, a valid `REGISTRATION_CODE` is supplied, or
+  `REGISTRATION_OPEN=true`. Later users need the code or explicit open
+  registration. The first-admin role is claimed atomically
+  (`claim_first_admin_slot`), so concurrent first logins yield one admin;
+- a different Twitch id while signed in raises a `409` conflict; inactive users
+  get `403`;
+- seed default games only when `users.games_seeded` is false, then mark it
+  true (`PUT /games` also marks it true);
+- fetch the profile with the supplied client id, store the token and that client
+  id on `twitch_accounts`, create the session, set both cookies, and trigger the
+  first progress sync **after** the session is committed. Never sync on a failed
+  registration.
+
+`TwitchDeviceService` owns the device-code grant:
+
+- `start(invite_code, current_user)` calls Twitch `/oauth2/device` with the Smart
+  TV client id, stores the secret `device_code`, 8-character `user_code`,
+  verification URI, invite/current-user binding, interval, and a 30-minute
+  expiry. It returns only the opaque `flow_id` and display fields.
+- `poll(flow_id)` atomically claims one upstream poll per row interval with a
+  conditional `UPDATE` on `last_polled_at`; losers get `pending` without calling
+  Twitch. It maps `authorization_pending`, `slow_down` (persisted +5s),
+  `expired_token`, `access_denied`, and terminal invalid-device responses.
+  Network/5xx/429 failures are transient and leave the flow pending. Success
+  validates the token, enforces the flow's Smart TV client id, calls
+  `complete_login`, and marks the flow `connected`; connected status is never
+  downgraded.
+- `cancel(flow_id)` deletes the row. Expired rows are deleted on start and during
+  the worker scan.
 - `logout(raw_token)` deletes that session; `disconnect(user_id)` deletes the
   Twitch account and that user's personal progress/focus/completions but keeps
   the user and session.
@@ -288,13 +318,24 @@ and is the only writer of focused mode:
 
 ### Twitch user (`twitch_user.py`)
 
-- Implicit grant with a first-party public client; the user pastes the redirect.
+- Implicit grant remains available as an advanced fallback; the primary login is
+  the Smart TV device-code grant.
+- `start_device_flow` calls `/oauth2/device` with
+  `twitch_device_grant_client_id` and empty scopes.
+- `poll_device_token` calls the token endpoint once with
+  `urn:ietf:params:oauth:grant-type:device_code`; typed errors distinguish
+  pending/slow-down/expired/denied/terminal from transient provider failures.
+  Messages never include the device code, token, or upstream body.
 - `parse_oauth_token` accepts a full URL with `#access_token=` or a raw token.
 - `validate` uses `/oauth2/validate`.
+- `fetch_inventory`/`fetch_profile` accept `client_id`; the `Client-Id` header is
+  the account's issuing client (Smart TV for device logins, Android for
+  implicit/legacy), falling back to `gql_client_id`.
 - `fetch_inventory` uses GQL `Inventory` with a raw fallback;
   `fetchRewardCampaigns: true` adds `earnedDropRewards`.
 - `fetch_profile` uses `ViewerCard`, saved on `users` via `ProfileService`.
-- Sends Android client headers because GQL rejects third-party-app tokens.
+- Sends Android user-agent/session headers because GQL rejects third-party-app
+  tokens; only `Client-Id` varies per account.
 - **Read-only**: no claim mutations, no watch heartbeats.
 
 ### Telegram (`telegram.py`)
@@ -354,11 +395,18 @@ and is the only writer of focused mode:
   cookie attributes, absolute expiry, CSRF, forwarded HTTPS, Origin/Host,
   per-IP + global auth rate limit, per-user action limits, atomic last-admin
   disable),
+- device login (start shape, TTL clamp, pending/slow-down/duplicate throttle,
+  concurrent atomic poll claim, transient upstream stay-pending, success/session
+  cookies, first-sync scheduling, denied/expired/cancel/one-time/cleanup,
+  no-downgrade of a connected flow, live-session CSRF cancel, no-store),
+- per-account client ids (implicit Android, device Smart TV, legacy fallback,
+  GQL/profile/inventory header selection),
 - games selection bounds (50 entries / 100-char names, repository guard),
 - provider redaction (Twitch client secret never in errors, scan rows, or
-  `/status`),
+  `/status`; device grant errors never include codes/tokens/bodies),
 - migration (legacy fixture, no-token bootstrap, empty `user_id`, expired token,
-  conflicting user, partial failure/rerun, concurrent startup),
+  conflicting user, partial failure/rerun, concurrent startup; additive
+  `client_id` column preserves rows and reruns as a no-op),
 - admin (non-admin `403`, self-disable `400`, session revocation, no
   token/chat-id leakage),
 - worker loops (one user fails, others continue; Telegram target/redaction;
@@ -373,7 +421,7 @@ ruff check app tests
 ```
 
 The exact pass count is recorded in [STATUS.md](STATUS.md); the current floor is
-**252 tests**.
+**307 tests**.
 
 ## Adding a backend feature
 
@@ -396,6 +444,11 @@ The exact pass count is recorded in [STATUS.md](STATUS.md); the current floor is
   workers would multiply the effective budgets; the deployment assumes one.
 - SQLite writes are serialized; the worker is sequential per user.
 - Twitch GQL is unofficial and can change without notice.
+- Device-code login does not eliminate device-grant phishing: a user who enters
+  an attacker-supplied code can authorize the attacker's flow. The UI must warn
+  to enter only self-generated codes; see ADR-021.
+- The Smart TV device client is public and unofficial; verify the first live
+  device-flow inventory sync after deploy.
 - Legacy implicit tokens have no refresh token; an expired token means reconnect.
 - Manual `POST /scans` is synchronous (~2–3s) and admin-only.
 - Per-user provider calls grow linearly with the number of active users.

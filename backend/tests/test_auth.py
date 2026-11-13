@@ -72,7 +72,7 @@ class FakeTwitchProvider:
             raise self.error
         return dict(self.info)
 
-    async def fetch_profile(self, access_token, user_id=""):
+    async def fetch_profile(self, access_token, user_id="", client_id=""):
         self.profile_calls.append((access_token, user_id))
         if self.profile_error is not None:
             raise self.profile_error
@@ -100,6 +100,7 @@ def _settings(**overrides) -> Settings:
         "default_games": "",
         "telegram_chat_id": "",
         "twitch_gql_client_id": "client",
+        "twitch_device_client_id": "client",
         "session_ttl_days": 30,
     }
     values.update(overrides)

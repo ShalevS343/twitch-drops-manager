@@ -93,6 +93,12 @@ class AuthService:
         invite_code: str = "",
         current_user: User | None = None,
     ) -> AuthResult:
+        """Implicit-grant login from a pasted Twitch redirect URL.
+
+        The implicit flow must stay on the Android client: the Smart TV client
+        does not accept the implicit grant and the Android token is the one GQL
+        already accepts for existing accounts.
+        """
         token = self.provider.parse_oauth_token(redirect_url)
         if not token:
             raise InvalidAuthRequestError(
@@ -104,14 +110,37 @@ class AuthService:
         except NotConfiguredError as exc:
             raise InvalidAuthRequestError(str(exc)) from exc
 
-        expected_client = self.settings.gql_client_id
+        expected_client = self.settings.device_client_id
         if str(info.get("client_id") or "") != expected_client:
             raise InvalidAuthRequestError(
                 "That token was issued for a different Twitch client. "
-                "Use the Connect Twitch link on this page and paste the URL "
-                "Twitch redirects you to."
+                "Use Connect with code on this page, or the advanced "
+                "paste-URL flow with the URL Twitch redirects you to."
             )
 
+        return await self.complete_login(
+            token,
+            info,
+            invite_code=invite_code,
+            current_user=current_user,
+            client_id=expected_client,
+        )
+
+    async def complete_login(
+        self,
+        token: str,
+        info: dict,
+        *,
+        invite_code: str,
+        current_user: User | None,
+        client_id: str,
+    ) -> AuthResult:
+        """Validate the user and create the app session for any login flow.
+
+        The caller has already validated ``token`` and checked that the token's
+        issuing client id matches its flow. This method owns the shared
+        user/registration/session side effects.
+        """
         twitch_user_id = str(info.get("user_id") or "").strip()
         login = str(info.get("login") or "").strip()
         if not twitch_user_id or not login:
@@ -156,7 +185,7 @@ class AuthService:
             await self.users.set_games_seeded(user, True)
 
         display_name, profile_image_url = await self._profile(
-            token, twitch_user_id, login
+            token, twitch_user_id, login, client_id
         )
         await self.users.update_profile(
             user,
@@ -165,13 +194,14 @@ class AuthService:
             profile_image_url=profile_image_url,
         )
         await self.users.touch_login(user)
-        await self.accounts.upsert(
+        await self.accounts.save(
             user_id=user.id,
             access_token=token,
             expires_at=expires_at,
             connected_at=datetime.now(timezone.utc),
             reconnect_required=False,
             last_error="",
+            client_id=client_id,
         )
         session_token, csrf_token, session_row = await create_auth_session(
             self.session, user.id, self.settings.session_ttl_days
@@ -297,12 +327,18 @@ class AuthService:
         return bool(self.settings.registration_open)
 
     async def _profile(
-        self, token: str, twitch_user_id: str, login: str
+        self,
+        token: str,
+        twitch_user_id: str,
+        login: str,
+        client_id: str,
     ) -> tuple[str, str]:
         display_name = login
         profile_image_url = ""
         try:
-            profile = await self.provider.fetch_profile(token, twitch_user_id)
+            profile = await self.provider.fetch_profile(
+                token, twitch_user_id, client_id=client_id
+            )
         except (NotConfiguredError, ProviderError):
             return display_name, profile_image_url
 

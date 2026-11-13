@@ -306,6 +306,36 @@ class AuthConnectOut(BaseModel):
     created: bool = False
 
 
+class DeviceFlowStartIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    invite_code: str = Field(default="", max_length=255)
+
+
+class DeviceFlowRefIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    flow_id: str = Field(min_length=1, max_length=128)
+
+
+class DeviceFlowStartOut(BaseModel):
+    flow_id: str
+    user_code: str
+    verification_uri: str
+    expires_at: datetime
+    interval: int
+
+
+class DeviceFlowPendingOut(BaseModel):
+    status: Literal["pending"] = "pending"
+    interval: int
+
+
+class DeviceFlowConnectedOut(AuthConnectOut):
+    status: Literal["connected"] = "connected"
+    interval: int
+
+
 class TelegramSettingsIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

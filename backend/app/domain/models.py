@@ -267,6 +267,11 @@ class TwitchAccount(Base):
         ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
     )
     access_token: Mapped[str] = mapped_column(Text, default="")
+    # Twitch binds an access token to the client that issued it. Legacy rows
+    # have an empty value and fall back to the configured Android client.
+    client_id: Mapped[str] = mapped_column(
+        String(64), default="", server_default="", nullable=False
+    )
     expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -279,6 +284,42 @@ class TwitchAccount(Base):
     last_error: Mapped[str] = mapped_column(Text, default="")
     reconnect_required: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
+    )
+
+
+class TwitchDeviceFlow(Base):
+    """Short-lived Twitch device authorization started by the login UI.
+
+    ``flow_id`` is the only value handed to the browser. ``device_code`` never
+    leaves the server and is never logged.
+    """
+
+    __tablename__ = "twitch_device_flows"
+    __table_args__ = (Index("ix_twitch_device_flows_expires", "expires_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    flow_id: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True, nullable=False
+    )
+    device_code: Mapped[str] = mapped_column(Text, nullable=False)
+    user_code: Mapped[str] = mapped_column(String(32), default="")
+    verification_uri: Mapped[str] = mapped_column(String(255), default="")
+    client_id: Mapped[str] = mapped_column(String(64), default="")
+    invite_code: Mapped[str] = mapped_column(String(255), default="")
+    current_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    interval_seconds: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    last_polled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
 
 

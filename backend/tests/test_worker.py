@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.security import hash_token
-from app.domain.models import UserSession, UserWatchFocus
+from app.domain.models import TwitchDeviceFlow, UserSession, UserWatchFocus
 from app.worker import scheduler
 from tests.support import connect_account, create_user, make_engine
 
@@ -92,6 +92,50 @@ async def test_scan_job_prunes_expired_sessions(monkeypatch):
     async with factory() as session:
         rows = (await session.execute(select(UserSession))).scalars().all()
         assert [row.token_hash for row in rows] == [hash_token("valid")]
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_scan_job_prunes_expired_device_flows(monkeypatch):
+    engine, factory = await make_engine()
+    scan = FakeScanService()
+
+    async with factory() as session:
+        now = datetime.now(timezone.utc)
+        session.add_all(
+            [
+                TwitchDeviceFlow(
+                    flow_id="expired",
+                    device_code="expired-code",
+                    user_code="AAAA1111",
+                    verification_uri="https://www.twitch.tv/activate",
+                    client_id="client",
+                    interval_seconds=5,
+                    status="pending",
+                    expires_at=now - timedelta(minutes=1),
+                ),
+                TwitchDeviceFlow(
+                    flow_id="valid",
+                    device_code="valid-code",
+                    user_code="BBBB2222",
+                    verification_uri="https://www.twitch.tv/activate",
+                    client_id="client",
+                    interval_seconds=5,
+                    status="pending",
+                    expires_at=now + timedelta(minutes=5),
+                ),
+            ]
+        )
+        await session.commit()
+
+    monkeypatch.setattr(scheduler, "build_scan_service", lambda _session: scan)
+
+    await scheduler.run_scan(session_factory=factory)
+
+    async with factory() as session:
+        rows = (await session.execute(select(TwitchDeviceFlow))).scalars().all()
+        assert [row.flow_id for row in rows] == ["valid"]
 
     await engine.dispose()
 

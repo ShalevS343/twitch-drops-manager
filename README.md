@@ -79,13 +79,15 @@ docker compose --project-directory infra -f infra/docker-compose.yml up -d --bui
 - API docs (local backend): `http://localhost:8000/docs`
 - Health: `http://localhost:8000/api/v1/health`
 
-Progress requires each person to sign in with Twitch once: approve the authorize
-page, then paste the resulting `https://www.twitch.tv/#access_token=...` URL back
-into the app. The token is stored server-side for that user's account; there are
-no passwords. The first admin needs `OWNER_TWITCH_ID`, a valid
-`REGISTRATION_CODE`, or `REGISTRATION_OPEN=true`. Later users need the invite code
-unless registration is explicitly open. Each user connects Telegram from
-Settings → Telegram → Connect Telegram; the chat id is read-only.
+Progress requires each person to sign in with Twitch once. The primary flow shows
+an 8-character code to enter at `https://www.twitch.tv/activate`; the advanced
+fallback approves the authorize page and pastes the resulting
+`https://www.twitch.tv/#access_token=...` URL back into the app. The token is
+stored server-side for that user's account; there are no passwords. The first
+admin needs `OWNER_TWITCH_ID`, a valid `REGISTRATION_CODE`, or
+`REGISTRATION_OPEN=true`. Later users need the invite code unless registration is
+explicitly open. Each user connects Telegram from Settings → Telegram → Connect
+Telegram; the chat id is read-only.
 
 There is no shared nginx basic-auth password. The public site is gated by Twitch
 login plus the invite code, and the frontend binds loopback so it is reached

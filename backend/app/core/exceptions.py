@@ -10,6 +10,26 @@ class ReconnectRequiredError(ProviderError):
     """Raised when the saved user Twitch token must be reconnected."""
 
 
+class DeviceFlowPendingError(ProviderError):
+    """Twitch says the user has not approved the device code yet."""
+
+
+class DeviceFlowSlowDownError(ProviderError):
+    """Twitch asked the caller to poll less frequently."""
+
+
+class DeviceFlowExpiredTokenError(ProviderError):
+    """The Twitch device code expired before the user approved it."""
+
+
+class DeviceFlowAccessDeniedError(ProviderError):
+    """The user declined the Twitch device authorization."""
+
+
+class DeviceFlowTerminalError(ProviderError):
+    """The device grant failed and polling must stop."""
+
+
 class AuthError(RuntimeError):
     """Base class for expected authentication/registration failures."""
 
@@ -42,6 +62,24 @@ class AccountConflictError(AuthError):
 
 class LastAdminError(AuthError):
     """Disabling this account would leave no active administrator."""
+
+    status_code = 400
+
+
+class DeviceFlowNotFoundError(AuthError):
+    """The device flow is unknown, cancelled, already used, or expired."""
+
+    status_code = 410
+
+
+class DeviceFlowExpiredError(AuthError):
+    """The device flow exceeded its lifetime before approval."""
+
+    status_code = 400
+
+
+class DeviceFlowDeniedError(AuthError):
+    """The user declined the authorization at Twitch."""
 
     status_code = 400
 

@@ -50,8 +50,9 @@ the repo and use **Pull and redeploy**.
 | `AUTH_RATE_LIMIT_PER_MINUTE` | optional | `10` | Registration/login attempts per client IP per minute; may be effectively shared behind Funnel (see below) |
 | `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE` | optional | `120` | Deployment-wide auth ceiling per minute, checked after the per-IP bucket; a single IP is stopped by its own limit first |
 | `CORS_ORIGINS` | optional | `http://localhost:5173,http://localhost:8282` | Comma-separated; local development only. The frontend is loopback-bound in production. |
-| `TWITCH_DEVICE_CLIENT_ID` | optional | built-in first-party client | Advanced progress login override |
+| `TWITCH_DEVICE_CLIENT_ID` | optional | built-in Android client | Advanced implicit-login/GQL override |
 | `TWITCH_DEVICE_CLIENT_SECRET` | optional | empty | Advanced |
+| `TWITCH_DEVICE_GRANT_CLIENT_ID` | optional | built-in Smart TV client (`ue6666qo983tsx6so1t0vnawi233wa`) | Public client for the device-code login; override only if Twitch rotates it |
 | `DATABASE_URL` | compose | `sqlite+aiosqlite:////data/drops.db` | do not override casually |
 
 `.env` and `.env.save` are local secrets and must never be committed; they are
@@ -77,9 +78,16 @@ Twitch sign-in, with new accounts requiring `REGISTRATION_CODE` unless
 4. Set a long random `REGISTRATION_CODE` (`openssl rand -base64 24`) if friends
    should be able to join, or leave it empty for a closed deployment.
 5. `cp .env.example .env && chmod 600 .env` and fill values; deploy the stack.
-6. Open the UI → sign in with Twitch, approve, paste the redirect URL. The first
-   user becomes admin; later users need the invite code.
+6. Open the UI → **Connect with code**, enter the 8-character code at
+   `https://www.twitch.tv/activate`, and approve it. The first user becomes
+   admin; later users need the invite code. The URL-paste implicit flow remains
+   under an advanced/desktop disclosure.
 7. Select games in **Settings → Games** and run **Scan for new drops** (admin).
+
+> **Device-code phishing warning:** never enter a code someone sent you. Only
+> enter a code shown by this app on a browser you control. A device code can be
+> abused to authorize someone else's login; see ADR-021. The app is not
+> phishing-proof.
 
 There is no password to set or reset. A user who signs in with a different Twitch
 account gets a different local account; sign out first.
@@ -149,7 +157,11 @@ In Portainer (or local `.env`): add `REGISTRATION_CODE`, `REGISTRATION_OPEN`,
 `OWNER_TWITCH_ID`, `SESSION_TTL_DAYS`, `SESSION_COOKIE_SECURE`, `PUBLIC_ORIGIN`,
 `ALLOWED_HOSTS`, `AUTH_RATE_LIMIT_PER_MINUTE`, and
 `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE`. Remove `API_TOKEN`, `VITE_API_TOKEN`, and
-`DROPS_AUTH_FILE`.
+`DROPS_AUTH_FILE`. The device-flow client id is public and defaults to the
+built-in Smart TV client; set `TWITCH_DEVICE_GRANT_CLIENT_ID` only if Twitch
+rotates it or you intentionally test another public client. Keep
+`TWITCH_DEVICE_CLIENT_ID` (Android) for the advanced implicit fallback and legacy
+GQL accounts.
 
 For the public Pi:
 
@@ -177,30 +189,54 @@ sign-in gate is Twitch + the invite code. Then verify:
    docker exec twitch-drops-manager-api-1 python - <<'PY'
    import sqlite3
    c = sqlite3.connect('/data/drops.db')
-   print(c.execute("select value from app_meta where key='multi_user_v1'").fetchone())
+   print(c.execute("select key, value from app_meta where key in ('multi_user_v1','twitch_device_login_v1')").fetchall())
    print(c.execute("select count(*) from users").fetchone())
    print(c.execute("select count(*) from user_games").fetchone())
+   print(c.execute("pragma table_info(twitch_accounts)").fetchall())
+   print(c.execute("select count(*) from twitch_device_flows").fetchone())
    PY
    ```
 
+   `pragma table_info(twitch_accounts)` must contain `client_id`, and both
+   `multi_user_v1` and `twitch_device_login_v1` must be `done`. Existing accounts
+   migrate with `client_id=''` and keep using the Android/GQL client; no reconnect
+   is required.
+
 2. The owner signs in with Twitch and sees their existing games, progress,
-   completions, and focus.
-3. A second test user joins with the invite code, connects their own Twitch
+   completions, and focus. On the first request after deploy, confirm one
+   successful progress sync still works for the migrated owner (the Android
+   fallback path).
+
+3. **Live device-flow check (required before calling the feature verified):**
+   from a phone, start **Connect with code**, enter the code at
+   `https://www.twitch.tv/activate`, approve it, and confirm the session appears.
+   Then trigger/observe the first inventory sync and verify
+   `twitch_accounts.client_id` is the Smart TV client id. GQL accepted that client
+   in the design spike, but the real inventory sync must be confirmed after
+   deploy. If it fails on headers, make the GQL headers client-aware before
+   rollout continues.
+
+4. Do not describe the feature as phishing-proof. Warn users to enter only codes
+   generated by this app; device-grant phishing remains possible (ADR-021).
+5. A second test user joins with the invite code, connects their own Twitch
    account, and sees only their own personal data.
-4. Isolation: the two users can have different games, progress, focus, and
+6. Isolation: the two users can have different games, progress, focus, and
    Telegram destinations at the same time.
-5. Telegram: use Settings → Telegram → Connect Telegram, press Start in the bot,
+7. Telegram: use Settings → Telegram → Connect Telegram, press Start in the bot,
    enable alerts, and send a test; only that user receives it. Campaign starts
    go only to opted-in tracking users. The chat id is read-only.
-6. CSRF: after login, `tdm_session` is `HttpOnly`; `tdm_csrf` is readable; unsafe
+8. CSRF: after login, `tdm_session` is `HttpOnly`; `tdm_csrf` is readable; unsafe
    requests send `X-CSRF-Token`. A missing/mismatched token returns `403`.
-7. Worker: progress syncs both users; one bad token marks only that user
+   Device poll/cancel also require the header once a session cookie exists.
+9. Worker: progress syncs both users; one bad token marks only that user
    `reconnect_required` and other users continue.
-8. Header/HTTPS: the public login sets `Secure` on both cookies and the response
-   carries CSP/HSTS/nosniff/frame-deny/referrer/permissions headers (see below).
-9. Security regression: confirm the Twitch client secret never appears in
-   `/status`, `/scans/latest`, or logs after a forced provider failure; confirm
-   the first-user gate rejects non-owner/non-invite logins on a fresh DB.
+10. Header/HTTPS: the public login sets `Secure` on both cookies and the response
+    carries CSP/HSTS/nosniff/frame-deny/referrer/permissions headers (see below).
+    All `/auth/twitch/device/*` responses also send `Cache-Control: no-store`.
+11. Security regression: confirm the Twitch client secret never appears in
+    `/status`, `/scans/latest`, or logs after a forced provider failure; confirm
+    the first-user gate rejects non-owner/non-invite logins on a fresh DB, and
+    that device codes/tokens never appear in API responses or logs.
 
 ### 4. Shared basic auth is removed
 

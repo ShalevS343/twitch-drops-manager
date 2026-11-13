@@ -59,10 +59,12 @@ async def connect_account(
     expires_at: datetime | None = None,
     reconnect_required: bool = False,
     last_error: str = "",
+    client_id: str = "",
 ) -> TwitchAccount:
     account = TwitchAccount(
         user_id=user.id,
         access_token=access_token,
+        client_id=client_id,
         expires_at=expires_at,
         connected_at=datetime.now(timezone.utc),
         reconnect_required=reconnect_required,
