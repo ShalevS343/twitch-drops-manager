@@ -34,6 +34,9 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   long unbroken titles/URLs at 320px, real drawer hit-testing, wheel/PageDown
   scroll lock, focus trap/return, nav-link navigation, sticky close button,
   resize focus, and the signed-out auth card.
+- **Deployed 2026-11-13 ~07:14 IST** from `7bfbcc6`; live bundle audit
+  **149/149**, health OK, scan 104 campaigns / 473 streams, pre-deploy backup at
+  `/home/server/twitch-drops-manager-backups/pre-mobile-responsive-20261113-034119.db`.
 
 ### Device-code Twitch login
 

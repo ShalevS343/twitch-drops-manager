@@ -1,14 +1,14 @@
 # Status / handoff
 
 Last updated: **2026-11-13**
-Source of truth: `main` at the device-code UI update (`4e636cf`), device-code
-login merged in `5a95d67`, multi-user in `78d2603`, Telegram auto-link in
+Source of truth: `main` at the mobile responsiveness merge (`7bfbcc6`),
+device-code login in `5a95d67`, multi-user in `78d2603`, Telegram auto-link in
 `f1278a8`, link-only chat ID in `b558ca0`, and security hardening in `5fe3bc7`.
 The current release is deployed.
 
 ## Current state
 
-### Mobile layout / navigation (built, deploy pending)
+### Mobile layout / navigation (deployed)
 
 - All dashboard pages fit phone widths (320/360/390/414) without horizontal
   clipping. The Settings admin Users list no longer widens the page; the
@@ -78,8 +78,8 @@ The current release is deployed.
 ### Validation
 
 - Merged to `main` in `78d2603` (multi-user), `f1278a8` (Telegram auto-link),
-  `b558ca0` (link-only chat ID), `5fe3bc7` (security hardening), and `5a95d67`
-  (device-code login).
+  `b558ca0` (link-only chat ID), `5fe3bc7` (security hardening), `5a95d67`
+  (device-code login), and `7bfbcc6` (mobile responsiveness + off-canvas nav).
 - Backend suite: **307 tests passed** (`pytest -q`); `ruff check app tests` is
   clean.
 - Frontend: `npm run build` passes.
@@ -90,9 +90,21 @@ The current release is deployed.
 
 ### Live deployment
 
-- **Deployed 2026-11-13 ~00:29 IST** from `main` at `5a95d67` (device-code login
-  release). Portainer stack `twitch-drops-manager` (ID 10) pulled that revision;
-  backend/frontend images were rebuilt and all three containers recreated.
+- **Deployed 2026-11-13 ~07:14 IST** from `main` at `7bfbcc6` (mobile
+  responsiveness + off-canvas navigation). Portainer stack
+  `twitch-drops-manager` (ID 10) rebuilt and recreated all three containers.
+  Portainer needed `pullImage=false` because `twitch-drops-backend:local` is
+  built locally; a pull-first redeploy fails on that image.
+- Mobile release verification: public `/api/v1/health` OK; nginx serves
+  `index-DD-S8ExU.js` / `index-BdlQDGg6.css`; CSP/HSTS headers present; worker
+  scan 104 campaigns / 473 streams and a progress sync completed; live-bundle
+  Playwright audit at 320/360/390/414/768px passed **149/149** (mocked API).
+- Pre-mobile-release WAL-safe backup (integrity `ok`, 1 user):
+  `/home/server/twitch-drops-manager-backups/pre-mobile-responsive-20261113-034119.db`.
+- **Previous deploy 2026-11-13 ~00:29 IST** from `main` at `5a95d67`
+  (device-code login release). Portainer stack `twitch-drops-manager` (ID 10)
+  pulled that revision; backend/frontend images were rebuilt and all three
+  containers recreated.
 - The previous security-hardening deploy was 2026-11-12 from `5965da4`.
 - Portainer env has `SESSION_COOKIE_SECURE=true`,
   `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE=120`, and
