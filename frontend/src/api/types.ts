@@ -216,7 +216,12 @@ export interface TwitchDeviceStart {
   interval: number
 }
 
-/** Pending response from `GET /auth/twitch/device/{flow_id}`. */
+/** Request body for the device poll/cancel endpoints; the flow id stays out of the URL. */
+export interface TwitchDeviceFlowInput {
+  flow_id: string
+}
+
+/** Pending response from `POST /auth/twitch/device/poll`. */
 export interface TwitchDevicePending {
   status: 'pending'
   interval: number
@@ -227,6 +232,11 @@ export interface TwitchDevicePending {
  * server has set the session cookies.
  */
 export type TwitchDevicePoll = TwitchDevicePending | TwitchLoginResult
+
+/** Response from `POST /auth/twitch/device/cancel`. */
+export interface TwitchDeviceCancel {
+  canceled: boolean
+}
 
 export type UserRole = 'admin' | 'user'
 

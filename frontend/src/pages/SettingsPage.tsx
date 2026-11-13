@@ -57,6 +57,7 @@ export function SettingsPage({ status, twitch }: Props) {
   const disconnect = useTwitchDisconnect()
   const connect = useTwitchConnect({ onConnected: refresh })
   const device = useDeviceConnect({ mode: 'reconnect' })
+  const deviceBusy = device.starting || device.flow !== null
   const updateMe = useUpdateMe()
   const adminUsers = useAdminUsers()
   const updateUser = useUpdateAdminUser()
@@ -529,7 +530,7 @@ export function SettingsPage({ status, twitch }: Props) {
             <button
               className="btn btn-secondary"
               onClick={device.start}
-              disabled={device.starting}
+              disabled={deviceBusy}
             >
               <Icon name="twitch" size={16} />
               {device.starting
@@ -559,7 +560,10 @@ export function SettingsPage({ status, twitch }: Props) {
         )}
 
         <DeviceConnect connect={device} showStart={false} />
-        <TwitchConnectAdvanced connect={connect} />
+        <TwitchConnectAdvanced
+          connect={connect}
+          disabled={device.flow !== null}
+        />
       </section>
 
       {isAdmin && (

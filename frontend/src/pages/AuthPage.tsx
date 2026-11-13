@@ -103,7 +103,7 @@ export function AuthPage() {
                 type="button"
                 className="btn btn-secondary"
                 onClick={connect.start}
-                disabled={connect.starting}
+                disabled={connect.starting || device.flow !== null}
               >
                 <Icon name="twitch" size={16} />
                 {connect.starting

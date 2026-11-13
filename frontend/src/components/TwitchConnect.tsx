@@ -143,8 +143,10 @@ export function useTwitchConnect(
  */
 export function TwitchConnectAdvanced({
   connect,
+  disabled = false,
 }: {
   connect: TwitchConnectController
+  disabled?: boolean
 }) {
   return (
     <details className="advanced-connect">
@@ -159,7 +161,7 @@ export function TwitchConnectAdvanced({
             type="button"
             className="btn btn-secondary"
             onClick={connect.start}
-            disabled={connect.starting}
+            disabled={connect.starting || disabled}
           >
             <Icon name="twitch" size={16} />
             {connect.starting

@@ -22,6 +22,7 @@ export function ProfilePage({ twitch }: Props) {
   const { user, isAdmin, telegramBotConfigured, logout, refresh } = useAuth()
   const connect = useTwitchConnect({ onConnected: refresh })
   const device = useDeviceConnect({ mode: 'reconnect' })
+  const deviceBusy = device.starting || device.flow !== null
   const disconnect = useTwitchDisconnect()
 
   const [signingOut, setSigningOut] = useState(false)
@@ -99,7 +100,7 @@ export function ProfilePage({ twitch }: Props) {
             <button
               className="btn btn-secondary"
               onClick={device.start}
-              disabled={device.starting}
+              disabled={deviceBusy}
             >
               <Icon name="twitch" size={16} />
               {device.starting
@@ -212,7 +213,7 @@ export function ProfilePage({ twitch }: Props) {
                 <button
                   className="btn btn-secondary"
                   onClick={device.start}
-                  disabled={device.starting}
+                  disabled={deviceBusy}
                 >
                   <Icon name="twitch" size={16} />
                   {device.starting ? 'Starting…' : 'Reconnect with code'}
@@ -286,7 +287,7 @@ export function ProfilePage({ twitch }: Props) {
               <button
                 className="btn btn-primary"
                 onClick={device.start}
-                disabled={device.starting}
+                disabled={deviceBusy}
               >
                 <Icon name="twitch" size={16} />
                 {device.starting ? 'Starting…' : 'Connect with code'}
@@ -303,7 +304,10 @@ export function ProfilePage({ twitch }: Props) {
         )}
 
         <DeviceConnect connect={device} showStart={false} />
-        <TwitchConnectAdvanced connect={connect} />
+        <TwitchConnectAdvanced
+          connect={connect}
+          disabled={device.flow !== null}
+        />
       </section>
     </div>
   )
