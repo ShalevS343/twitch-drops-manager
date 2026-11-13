@@ -1,13 +1,13 @@
 # Status / handoff
 
-Last updated: **2026-11-12**
-Source of truth: `main`, multi-user merged in `78d2603`, Telegram auto-link in
-`f1278a8`, link-only chat ID in `b558ca0`, and security hardening in `5fe3bc7`.
-Deployment config and docs are committed; **nothing is deployed yet**.
+Last updated: **2026-11-13**
+Source of truth: `main` at the device-code login merge (`5a95d67`), multi-user
+merged in `78d2603`, Telegram auto-link in `f1278a8`, link-only chat ID in
+`b558ca0`, and security hardening in `5fe3bc7`. The current release is deployed.
 
 ## Current state
 
-### Multi-user accounts (merged to `main`, **not deployed**)
+### Multi-user accounts (deployed)
 
 - Twitch is the only identity provider: no passwords or email accounts. The first
   user becomes `admin` only with a matching `OWNER_TWITCH_ID`, a valid invite
@@ -43,45 +43,57 @@ Deployment config and docs are committed; **nothing is deployed yet**.
 - Deployment: compose passes the new auth env vars; `VITE_API_TOKEN` build arg
   removed; nginx preserves inbound `X-Forwarded-Proto`; nginx basic auth has been
   removed. Access is Twitch login + invite code, with `/health` public.
+- **Device-code Twitch login is deployed and verified.** The primary Connect
+  flow shows an 8-character code and `https://www.twitch.tv/activate`; the
+  backend polls Twitch, creates the session, and the first Smart TV inventory
+  sync returned 2 campaigns / 8 drops. The existing URL-paste implicit flow is
+  still available under Advanced/desktop. `twitch_accounts.client_id` stores the
+  issuing client; legacy empty rows fall back to the Android client.
 - Docs/ADR updated: API, data model, backend, architecture, frontend, operations,
-  decisions (ADR-019), README, AGENTS.
+  decisions (ADR-019, ADR-021), README, AGENTS.
 
 ### Validation
 
 - Merged to `main` in `78d2603` (multi-user), `f1278a8` (Telegram auto-link),
-  `b558ca0` (link-only chat ID), and `5fe3bc7` (security hardening).
-- Backend suite: **252 tests passed** (`pytest -q`); `ruff check app tests` is
+  `b558ca0` (link-only chat ID), `5fe3bc7` (security hardening), and `5a95d67`
+  (device-code login).
+- Backend suite: **307 tests passed** (`pytest -q`); `ruff check app tests` is
   clean.
 - Frontend: `npm run build` passes.
 - `docker compose --project-directory infra -f infra/docker-compose.yml config -q`
   passes; `nginx -t` passes with the new map.
-- The old 71/72-test single-user baseline is superseded; **252** is the current
+- The old 71/72-test single-user baseline is superseded; **307** is the current
   floor.
 
 ### Live deployment
 
-- **Deployed 2026-11-12 ~21:31 IST** from `main` at `5965da4` (security hardening
-  release). Portainer stack `twitch-drops-manager` (ID 10) pulled that Git
-  revision; backend/frontend images were rebuilt and all three containers
-  recreated.
-- Portainer env was updated to `SESSION_COOKIE_SECURE=true` and
-  `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE=120`; `PUBLIC_ORIGIN`/`OWNER_TWITCH_ID`
-  remain set.
-- Pre-deploy WAL-safe backup:
-  `/home/server/twitch-drops-manager-backups/pre-security-deploy-20261112-212739.db`.
-- Verified: public URL `200` with no basic-auth challenge; CSP/HSTS/nosniff/
-  frame-deny/referrer/permissions headers present; `server: nginx` without a
-  version; frontend/API bound loopback; `/api/v1/health` OK; migration flag
-  `multi_user_v1=done`; one user row; progress sync for user 1 works.
+- **Deployed 2026-11-13 ~00:29 IST** from `main` at `5a95d67` (device-code login
+  release). Portainer stack `twitch-drops-manager` (ID 10) pulled that revision;
+  backend/frontend images were rebuilt and all three containers recreated.
+- The previous security-hardening deploy was 2026-11-12 from `5965da4`.
+- Portainer env has `SESSION_COOKIE_SECURE=true`,
+  `AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE=120`, and
+  `TWITCH_DEVICE_GRANT_CLIENT_ID=ue6666qo983tsx6so1t0vnawi233wa`;
+  `PUBLIC_ORIGIN`/`OWNER_TWITCH_ID` remain set.
+- Pre-device-login WAL-safe backup:
+  `/home/server/twitch-drops-manager-backups/pre-device-login-20261113-022621.db`.
+- Migration verified live: `twitch_accounts.client_id` exists,
+  `twitch_device_flows` exists, `app_meta.twitch_device_login_v1=done`; existing
+  account rows preserved.
+- Existing Android-client account still synced before the device test. The live
+  device-code flow authenticated `shalevs343`, stored the Smart TV client id
+  `ue6666qo983tsx6so1t0vnawi233wa`, and the first inventory sync returned **2
+  campaigns / 8 drops**.
+- Verified: public URL `200` with no basic-auth challenge; CSP/HSTS/security
+  headers present; frontend/API loopback; `/api/v1/health` OK.
 - Public URL: `https://pi.taile9ec1c.ts.net` via Tailscale Funnel → local `8282`.
   API stays on `127.0.0.1:8000`.
 
 ## Pending work
 
-1. **Soak and verify in the browser**: sign in with Twitch, confirm migrated
-   data, a second invited user, Telegram Connect, CSRF, Secure cookies, and the
-   admin user list. A startup scan hit a transient provider error; a manual scan
-   immediately after succeeded, so watch the next scheduled scan.
+1. **Soak the device flow**: use the new code flow on a phone for a second
+   account, confirm the first inventory sync and reconnect behavior; keep the
+   implicit URL-paste flow as Advanced for one soak period.
 2. **Kuma**: the frontend no longer listens on `0.0.0.0:8282`. Update the Kuma
    monitor to the public URL/health check or a loopback-aware check.
 3. **Rollback/soak**: keep legacy tables until the soak period ends; rollback
@@ -95,8 +107,15 @@ Deployment config and docs are committed; **nothing is deployed yet**.
 
 ## Known issues / caveats
 
-- **Deployed**: the live stack runs the security-hardening release; verify the
+- **Deployed**: the live stack runs the device-code login release; verify the
   browser checklist above.
+- **Device-grant phishing**: a device code is a bearer instruction. Users must
+  only enter codes they generated in this app; the UI and docs say so. Device
+  login cannot be made phishing-proof by the server.
+- **Active poll claims**: `flow_id` is sent in POST bodies (not URLs), and the
+  server enforces the Twitch poll interval with an atomic claim.
+- **Legacy tokens**: rows with empty `client_id` use the Android/GQL default
+  client id; device-login rows use the Smart TV client id.
 - **Rollback**: the old release reads frozen legacy tables; keeping post-upgrade
   data requires restoring the pre-upgrade backup.
 - **Tokens are plaintext** in `twitch_accounts` inside the SQLite volume.

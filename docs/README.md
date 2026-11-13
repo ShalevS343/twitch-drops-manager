@@ -55,5 +55,5 @@ Rules:
 
 ## Last updated
 
-2026-11-12 — multi-user accounts, Telegram auto-link, security hardening, and
-deployment docs.
+2026-11-13 — multi-user accounts, Telegram auto-link, security hardening,
+device-code Twitch login, and deployment docs.

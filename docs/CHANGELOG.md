@@ -10,6 +10,31 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   background scan job.
 - Rotate the Telegram bot token if it appeared in pre-fix logs.
 
+## 2026-11-13
+
+### Device-code Twitch login
+
+- Merged `feat/device-login` into `main` in `5a95d67`; backend suite **307
+  passed**, ruff clean, frontend build passes.
+- Added the primary **Connect with code** flow: the app shows an 8-character code
+  and `https://www.twitch.tv/activate`; the backend polls Twitch, validates the
+  Smart TV token, stores it with its issuing client id, and creates the session.
+- Kept the implicit URL-paste flow under Advanced/desktop.
+- Added `twitch_accounts.client_id` via an idempotent SQLite ALTER and the
+  `twitch_device_flows` table; legacy rows fall back to the Android client id.
+- Polling is server-rate-limited with `last_polled_at`, atomic claim updates,
+  `slow_down` interval persistence, transient-provider retry, no-store responses,
+  and POST-body `flow_id` handling to keep bearer ids out of access logs.
+- Added ADR-021 and docs for migration, endpoints, env, phish-resistant guidance,
+  and rollout.
+- **Deployed 2026-11-13 ~00:29 IST** from `5a95d67`; pre-deploy backup at
+  `/home/server/twitch-drops-manager-backups/pre-device-login-20261113-022621.db`.
+  Live verification: migration column/table present; existing Android account
+  synced; device-code login authenticated `shalevs343`, stored the Smart TV
+  client id, and the first inventory sync returned 2 campaigns / 8 drops.
+- Pending soak: use the code flow for a second phone/account and keep the
+  implicit fallback for one release.
+
 ## 2026-11-12
 
 ### Security hardening — audit fixes

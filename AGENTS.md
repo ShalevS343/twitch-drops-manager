@@ -86,9 +86,9 @@ docker compose --project-directory infra -f infra/docker-compose.yml config -q
 docker compose --project-directory infra -f infra/docker-compose.yml up -d --build
 ```
 
-Expected current baseline: **252 backend tests pass**, `ruff check app tests` is
-clean, and the frontend `npm run build` passes. The multi-user/auth/security
-suite is the current floor; do not lower it. See
+Expected current baseline: **307 backend tests pass**, `ruff check app tests` is
+clean, and the frontend `npm run build` passes. The multi-user/auth/device-login/
+security suite is the current floor; do not lower it. See
 [`docs/STATUS.md`](docs/STATUS.md) for the live count and pending work.
 
 ## 5. Worktree workflow for parallel work
