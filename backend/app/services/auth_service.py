@@ -114,8 +114,8 @@ class AuthService:
         if str(info.get("client_id") or "") != expected_client:
             raise InvalidAuthRequestError(
                 "That token was issued for a different Twitch client. "
-                "Use the Connect Twitch link on this page and paste the URL "
-                "Twitch redirects you to."
+                "Use Connect with code on this page, or the advanced "
+                "paste-URL flow with the URL Twitch redirects you to."
             )
 
         return await self.complete_login(

@@ -35,7 +35,9 @@ from app.domain.schemas import (
     AuthConnectOut,
     AuthMeOut,
     AuthUserOut,
+    DeviceFlowConnectedOut,
     DeviceFlowPendingOut,
+    DeviceFlowRefIn,
     DeviceFlowStartIn,
     DeviceFlowStartOut,
     RegistrationStateOut,
@@ -200,18 +202,18 @@ async def auth_device_start(
     )
 
 
-@router.get(
-    "/auth/twitch/device/{flow_id}",
-    response_model=DeviceFlowPendingOut | AuthConnectOut,
+@router.post(
+    "/auth/twitch/device/poll",
+    response_model=DeviceFlowPendingOut | DeviceFlowConnectedOut,
 )
 async def auth_device_poll(
-    flow_id: str,
+    payload: DeviceFlowRefIn,
     request: Request,
     response: Response,
     service: TwitchDeviceServiceDep,
-) -> DeviceFlowPendingOut | AuthConnectOut:
+) -> DeviceFlowPendingOut | DeviceFlowConnectedOut:
     try:
-        result = await service.poll(flow_id)
+        result = await service.poll(payload.flow_id)
     except AuthError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except ProviderError as exc:
@@ -221,16 +223,23 @@ async def auth_device_poll(
 
     if result.pending or result.auth is None:
         return DeviceFlowPendingOut(status="pending", interval=result.interval)
-    return await _finish_login(
+
+    connected = await _finish_login(
         result.auth, request, response, service.settings
+    )
+    return DeviceFlowConnectedOut(
+        connected=connected.connected,
+        user=connected.user,
+        created=connected.created,
+        interval=result.interval,
     )
 
 
-@router.delete("/auth/twitch/device/{flow_id}")
+@router.post("/auth/twitch/device/cancel")
 async def auth_device_cancel(
-    flow_id: str, service: TwitchDeviceServiceDep
+    payload: DeviceFlowRefIn, service: TwitchDeviceServiceDep
 ) -> dict:
-    await service.cancel(flow_id)
+    await service.cancel(payload.flow_id)
     return {"cancelled": True}
 
 

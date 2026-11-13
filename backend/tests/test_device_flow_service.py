@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import Settings
+from app.core.db import Base
 from app.core.exceptions import (
     AccountConflictError,
     DeviceFlowAccessDeniedError,
@@ -17,6 +20,7 @@ from app.core.exceptions import (
     DeviceFlowNotFoundError,
     DeviceFlowPendingError,
     DeviceFlowSlowDownError,
+    ProviderError,
     RegistrationClosedError,
 )
 from app.domain.models import TwitchAccount, TwitchDeviceFlow
@@ -121,6 +125,20 @@ async def test_start_creates_a_short_lived_flow_without_exposing_device_code():
 
 
 @pytest.mark.asyncio
+async def test_start_clamps_ttl_to_thirty_minutes():
+    engine, factory = await make_engine()
+    provider = FakeDeviceProvider()
+    provider.start_response["expires_in"] = 999_999
+
+    async with factory() as session:
+        before = datetime.now(timezone.utc)
+        started = await (await _service(session, provider)).start()
+        assert started.expires_at <= before + timedelta(minutes=30, seconds=5)
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_pending_poll_returns_interval_and_throttles_duplicate_polls():
     engine, factory = await make_engine()
     provider = FakeDeviceProvider()
@@ -138,6 +156,34 @@ async def test_pending_poll_returns_interval_and_throttles_duplicate_polls():
         second = await service.poll(started.flow_id)
         assert second.pending is True
         assert second.interval == 5
+        assert provider.poll_calls == 1
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_transient_upstream_failure_stays_pending_and_respects_cadence():
+    engine, factory = await make_engine()
+    provider = FakeDeviceProvider()
+    provider.poll_results = [ProviderError("network down")]
+
+    async with factory() as session:
+        service = await _service(session, provider)
+        started = await service.start()
+
+        result = await service.poll(started.flow_id)
+        assert result.pending is True
+        assert result.interval == 5
+        assert provider.poll_calls == 1
+
+        flow = (
+            await session.execute(select(TwitchDeviceFlow))
+        ).scalar_one()
+        assert flow.status == "pending"
+
+        # The transient failure still consumed this cadence slot.
+        again = await service.poll(started.flow_id)
+        assert again.pending is True
         assert provider.poll_calls == 1
 
     await engine.dispose()
@@ -378,5 +424,68 @@ async def test_current_user_conflict_is_preserved_by_the_device_flow():
 
         with pytest.raises(AccountConflictError):
             await service.poll(started.flow_id)
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_polls_claim_one_upstream_slot(tmp_path):
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{tmp_path / 'device.db'}",
+        connect_args={"timeout": 30},
+    )
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    provider = FakeDeviceProvider()
+    provider.poll_results = [DeviceFlowPendingError("pending")]
+
+    async with factory() as session:
+        started = await TwitchDeviceService(
+            session, settings=_settings(), provider=provider
+        ).start()
+        flow_id = started.flow_id
+
+    async def poll_once():
+        async with factory() as session:
+            return await TwitchDeviceService(
+                session, settings=_settings(), provider=provider
+            ).poll(flow_id)
+
+    results = await asyncio.gather(poll_once(), poll_once())
+
+    assert all(result.pending for result in results)
+    assert provider.poll_calls == 1
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_connected_status_is_never_downgraded():
+    engine, factory = await make_engine()
+
+    async with factory() as session:
+        repo = TwitchDeviceFlowRepository(session)
+        flow = await repo.create(
+            flow_id="done",
+            device_code="device-code",
+            user_code="AAAA1111",
+            verification_uri="https://www.twitch.tv/activate",
+            client_id=SMART_TV,
+            invite_code="",
+            current_user_id=None,
+            interval_seconds=5,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            status="connected",
+        )
+        await session.commit()
+
+        assert await repo.set_status(flow.flow_id, "expired") is False
+        await session.commit()
+
+        refreshed = await repo.get_by_flow_id(flow.flow_id)
+        assert refreshed is not None
+        assert refreshed.status == "connected"
 
     await engine.dispose()

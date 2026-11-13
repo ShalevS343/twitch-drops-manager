@@ -56,6 +56,8 @@ async def _has_table(connection: AsyncConnection, name: str) -> bool:
 
 
 async def _column_names(connection: AsyncConnection, table: str) -> list[str]:
+    # SQLite-specific introspection: the app's only supported database is
+    # SQLite (ADR-001). A Postgres port would use information_schema instead.
     result = await connection.execute(text(f"PRAGMA table_info({table})"))
     return [str(row[1]) for row in result.all()]
 

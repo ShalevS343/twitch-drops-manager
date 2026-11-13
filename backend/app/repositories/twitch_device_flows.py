@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.models import TwitchDeviceFlow
@@ -50,13 +50,48 @@ class TwitchDeviceFlowRepository:
 
     async def get_by_flow_id(self, flow_id: str) -> TwitchDeviceFlow | None:
         result = await self.session.execute(
-            select(TwitchDeviceFlow).where(TwitchDeviceFlow.flow_id == flow_id)
+            select(TwitchDeviceFlow)
+            .where(TwitchDeviceFlow.flow_id == flow_id)
+            .execution_options(populate_existing=True)
         )
         return result.scalar_one_or_none()
+
+    async def claim_poll(
+        self,
+        flow_id: str,
+        *,
+        now: datetime,
+        not_after: datetime,
+    ) -> bool:
+        """Atomically claim the next upstream poll slot.
+
+        Only one concurrent request can move ``last_polled_at`` from an elapsed
+        value to ``now``. The caller proceeds to Twitch only when this returns
+        ``True``.
+        """
+        result = await self.session.execute(
+            update(TwitchDeviceFlow)
+            .where(
+                TwitchDeviceFlow.flow_id == flow_id,
+                TwitchDeviceFlow.status == "pending",
+                TwitchDeviceFlow.expires_at > now,
+                (
+                    TwitchDeviceFlow.last_polled_at.is_(None)
+                    | (TwitchDeviceFlow.last_polled_at <= not_after)
+                ),
+            )
+            .values(last_polled_at=now, updated_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount == 1
 
     async def set_status(self, flow_id: str, status: str) -> bool:
         flow = await self.get_by_flow_id(flow_id)
         if flow is None:
+            return False
+        # A completed login is final: a slow/duplicate poll must never turn a
+        # connected flow back into a failure.
+        if flow.status == "connected" and status != "connected":
             return False
         flow.status = status
         await self.session.flush()

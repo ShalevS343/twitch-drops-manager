@@ -11,8 +11,10 @@ Twitch is the only identity provider; there are no passwords or local tokens.
 `API_TOKEN` / `X-API-Token` is retired.
 
 Public endpoints: `GET /health`, `GET /auth/me`,
-`GET /auth/twitch/authorize`, `POST /auth/twitch/connect`. Every other endpoint
-requires an active session. Admin-only: `POST /scans`, `GET /admin/users`,
+`GET /auth/twitch/authorize`, `POST /auth/twitch/connect`,
+`POST /auth/twitch/device/start`, `POST /auth/twitch/device/poll`, and
+`POST /auth/twitch/device/cancel`. Every other endpoint requires an active
+session. Admin-only: `POST /scans`, `GET /admin/users`,
 `PATCH /admin/users/{id}`.
 
 `GET /auth/me` is the exception to `401`: when reachable it always returns `200`,
@@ -22,13 +24,17 @@ never redirects or `401`s; the SPA uses it to decide whether to show the gate.
 Sign-in:
 
 1. The SPA calls `GET /auth/me`; without a session it shows the sign-in screen.
-2. `GET /auth/twitch/authorize` returns the implicit-grant authorize URL and
-   redirect URI.
-3. The user authorizes on Twitch and pastes the full
-   `https://www.twitch.tv/#access_token=...` URL, plus the invite code for a new
-   account.
-4. `POST /auth/twitch/connect` validates the token with Twitch, resolves the
-   Twitch user id, creates or loads the local user, and sets both cookies.
+2. Primary flow: `POST /auth/twitch/device/start` returns an 8-character code and
+   an activation link. The user enters the code at `https://www.twitch.tv/activate`
+   and approves it; the SPA polls `POST /auth/twitch/device/poll` at the returned
+   interval. No token or redirect URL is copied.
+3. Advanced fallback: `GET /auth/twitch/authorize` returns the implicit-grant
+   authorize URL and redirect URI. The user pastes the full
+   `https://www.twitch.tv/#access_token=...` URL into
+   `POST /auth/twitch/connect`, plus the invite code for a new account.
+4. Either completion path validates the token with Twitch, resolves the Twitch
+   user id, creates or loads the local user, stores the token with its issuing
+   client id, and sets both cookies.
 5. The SPA refreshes `/auth/me`; all personal queries then load for that user.
 
 ### Cookies and CSRF
@@ -40,7 +46,9 @@ Sign-in:
   it compares the `tdm_csrf` cookie with the header using
   `secrets.compare_digest`. The session row stores a hash of the token for
   future use but the middleware does **not** compare against that stored hash.
-  The public connect endpoint is exempt.
+  The public `POST /auth/twitch/connect` and
+  `POST /auth/twitch/device/start` endpoints are exempt; device poll/cancel use
+  the normal CSRF rule once a session cookie exists.
 - Both cookies are `Secure` according to `SESSION_COOKIE_SECURE`: the Compose
   default is `true`; `auto` uses the effective scheme from `X-Forwarded-Proto`
   and `false` is local HTTP development only.
@@ -49,7 +57,9 @@ Sign-in:
 - Unsafe requests with an `Origin` header must match `PUBLIC_ORIGIN` (or a
   configured `CORS_ORIGINS` entry, or the request's own origin when neither is
   set). `ALLOWED_HOSTS`, when set, rejects unexpected `Host` headers.
-- Authenticated API responses send `Cache-Control: no-store`.
+- Authenticated API responses send `Cache-Control: no-store`. Every
+  `/auth/twitch/device/*` response is also `no-store`, even before a session
+  cookie exists.
 - Signing out deletes the session. A disabled user's sessions are deleted and
   their requests return `401`.
 
@@ -82,12 +92,14 @@ The local user is permanently bound to one Twitch id.
 - Timestamps are ISO-8601 strings/datetimes; Twitch campaign end dates keep the
   provider's string form (often with `Z`).
 - Errors use FastAPI's `{"detail": "..."}`. Common codes:
-  - `400` not configured / invalid token / bad input
+  - `400` not configured / invalid token / bad input / device code expired or
+    denied
   - `401` missing, invalid, or expired session
   - `403` registration closed, bad invite code, bad CSRF token, inactive user,
     or not an admin
   - `404` not found / no scans yet
   - `409` Twitch account conflict (different Twitch id while signed in)
+  - `410` device flow unknown, cancelled, or already consumed
   - `429` rate limit; the response includes `Retry-After`. Auth attempts are
     limited per client IP (`AUTH_RATE_LIMIT_PER_MINUTE`, default 10) **and** by a
     deployment-wide bucket (`AUTH_GLOBAL_RATE_LIMIT_PER_MINUTE`, default 120,
@@ -106,6 +118,9 @@ The local user is permanently bound to one Twitch id.
 | GET | `/auth/me` | public | Session user + registration state |
 | GET | `/auth/twitch/authorize` | public | Implicit-login authorize URL |
 | POST | `/auth/twitch/connect` | public | Accept pasted redirect URL/token; sets cookies |
+| POST | `/auth/twitch/device/start` | public | Start a device-code login; returns code + interval |
+| POST | `/auth/twitch/device/poll` | public | Poll a device flow; pending or sets cookies |
+| POST | `/auth/twitch/device/cancel` | public | Cancel/delete a pending device flow |
 | POST | `/auth/logout` | session | Delete the current session |
 | PATCH | `/auth/me` | session | Update current user's Telegram settings |
 | POST | `/auth/twitch/disconnect` | session | Clear current user's Twitch data |
@@ -195,6 +210,68 @@ still returned so the sign-in screen knows whether to show an invite field.
 - Sets `tdm_session` and `tdm_csrf` on success; refresh `/auth/me` for the user.
 - `403` closed registration / wrong code / inactive user, `409` different Twitch
   id while signed in, `429` rate limit.
+
+## Device-code login
+
+This is the primary phone-friendly flow. It also works on desktop. The implicit
+URL-paste endpoints above remain available as an advanced fallback.
+
+`POST /auth/twitch/device/start` (public, rate-limited)
+
+```json
+{ "invite_code": "<code>" }
+```
+
+The body is optional; `invite_code` applies only if this flow creates a new
+account. If the request carries a live session, the flow is bound to that user so
+it can reconnect the same account. Response:
+
+```json
+{
+  "flow_id": "opaque-bearer-value",
+  "user_code": "ABCD1234",
+  "verification_uri": "https://www.twitch.tv/activate",
+  "expires_at": "2026-11-13T12:30:00Z",
+  "interval": 5
+}
+```
+
+The Twitch `device_code` is never returned. Show the `user_code` and activation
+link, and warn the user to enter only a code they generated in this app
+(device-grant phishing is possible; see ADR-021).
+
+`POST /auth/twitch/device/poll` (public)
+
+```json
+{ "flow_id": "opaque-bearer-value" }
+```
+
+- Pending: `{"status": "pending", "interval": 5}`. Poll no faster than
+  `interval`; duplicate/parallel polls are throttled server-side and do not hit
+  Twitch.
+- Success: `{"status": "connected", "interval": 5, "connected": true,
+  "user": {...}, "created": false}` and sets `tdm_session`/`tdm_csrf`.
+- `slow_down` from Twitch increases and persists `interval`; the next response
+  carries the new value.
+- Transient Twitch/network/5xx failures stay `pending` (respecting the cadence);
+  they are not a `502`.
+- Terminal: `400` code expired or authorization denied; `403` registration
+  closed/disabled; `409` different Twitch id while signed in; `410` flow unknown,
+  cancelled, or already consumed; `429` rate limit. Errors are sanitized.
+- Flows expire after 30 minutes and are single-use. Once success returns, that
+  `flow_id` is gone even if the browser loses the response; start a new code.
+
+`POST /auth/twitch/device/cancel` (public)
+
+```json
+{ "flow_id": "opaque-bearer-value" }
+```
+
+Deletes a pending flow and returns `{"cancelled": true}`. Cancelling an unknown
+flow is idempotent. Poll/cancel use a POST body so the bearer `flow_id` stays out
+of Uvicorn access logs. When a session cookie is present, poll/cancel require the
+normal `X-CSRF-Token` header (start is CSRF-exempt like the implicit connect
+endpoint). All device-login responses are `Cache-Control: no-store`.
 
 `PATCH /auth/me` (session)
 
@@ -536,7 +613,8 @@ user's chat, and does not auto-move.
 - Authenticated action budgets (in-process, per user, per minute; `429` +
   `Retry-After`): `POST /progress/refresh` 2, `POST /notifications/test` 3,
   `POST /telegram/link` 3, `POST /telegram/unlink` 3, `PATCH /auth/me` 10.
-- Authenticated responses: `Cache-Control: no-store`.
+- Authenticated responses: `Cache-Control: no-store`; all
+  `/auth/twitch/device/*` responses are also `no-store` without a session.
 - nginx gzips JSON/JS/CSS and caches hashed assets immutably.
 
 ## Breaking-change policy

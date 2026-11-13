@@ -74,8 +74,12 @@ frontend through the local listener).
 ### Authentication and sessions
 
 - Twitch is the only identity provider. There are no passwords.
-- `POST /auth/twitch/connect` validates the pasted implicit-grant token with
-  Twitch, maps it to `users.twitch_user_id`, and creates/loads the local user.
+- The primary login is the Smart TV device-code flow
+  (`POST /auth/twitch/device/start|poll|cancel`): the user enters an 8-character
+  code at `https://www.twitch.tv/activate`. The advanced fallback
+  `POST /auth/twitch/connect` validates a pasted implicit-grant token with
+  Twitch. Both paths map the Twitch id to `users.twitch_user_id` and
+  create/load the local user.
 - The first admin needs a matching `OWNER_TWITCH_ID`, a valid
   `REGISTRATION_CODE`, or explicit `REGISTRATION_OPEN=true`; an empty DB is not
   implicitly open. Later users need the invite code unless registration is open.
@@ -172,11 +176,14 @@ id, and logout/user change clears the query cache. See [FRONTEND.md](FRONTEND.md
 ### Sign-in
 
 1. `GET /auth/me` → no session → `AuthGate` renders the sign-in screen.
-2. `GET /auth/twitch/authorize` → authorize URL.
-3. The user authorizes and pastes the redirect URL (+ invite code for a new
-   account).
-4. Backend validates with Twitch, maps/creates the user, stores the token,
-   creates the session, sets cookies, and refreshes the profile.
+2. Primary: `POST /auth/twitch/device/start` → code + activation link; the user
+   approves at `https://www.twitch.tv/activate`; the SPA polls
+   `POST /auth/twitch/device/poll`.
+3. Advanced fallback: `GET /auth/twitch/authorize` → authorize URL; the user
+   authorizes and pastes the redirect URL (+ invite code for a new account).
+4. Backend validates with Twitch, maps/creates the user, stores the token and its
+   issuing client id, creates the session, sets cookies, and refreshes the
+   profile.
 5. The SPA refreshes `/auth/me` and loads all data for that user.
 
 ### Catalog scan (shared, once)

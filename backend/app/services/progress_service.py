@@ -75,7 +75,10 @@ class ProgressService:
             return self._empty(connected=False)
 
         account = await self._ensure_token(account)
-        client_id = account.client_id or self.settings.gql_client_id
+        client_id = (
+            await self.accounts.get_client_id(self.user_id)
+            or self.settings.gql_client_id
+        )
         try:
             inventory = await self.provider.fetch_inventory(
                 account.access_token, client_id
