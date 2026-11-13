@@ -75,8 +75,11 @@ class ProgressService:
             return self._empty(connected=False)
 
         account = await self._ensure_token(account)
+        client_id = account.client_id or self.settings.gql_client_id
         try:
-            inventory = await self.provider.fetch_inventory(account.access_token)
+            inventory = await self.provider.fetch_inventory(
+                account.access_token, client_id
+            )
         except NotConfiguredError:
             # Global provider misconfiguration is not a per-user reconnect.
             raise

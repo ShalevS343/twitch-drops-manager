@@ -39,7 +39,7 @@ class InventoryProvider:
         self.error = error
         self.tokens: list[str] = []
 
-    async def fetch_inventory(self, access_token):
+    async def fetch_inventory(self, access_token, client_id=""):
         self.tokens.append(access_token)
         if self.error is not None:
             raise self.error

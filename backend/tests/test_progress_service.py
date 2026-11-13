@@ -25,7 +25,7 @@ from tests.support import (
 
 
 class FakeProvider:
-    async def fetch_inventory(self, access_token):
+    async def fetch_inventory(self, access_token, client_id=""):
         return {
             "dropCampaignsInProgress": [
                 {
@@ -76,7 +76,7 @@ class CompletedProvider:
     def __init__(self, claimed_rewards: int) -> None:
         self.claimed_rewards = claimed_rewards
 
-    async def fetch_inventory(self, access_token):
+    async def fetch_inventory(self, access_token, client_id=""):
         return {
             "dropCampaignsInProgress": [],
             "earnedDropRewards": {
@@ -426,7 +426,7 @@ class DeadlineProvider:
     def __init__(self, end_at: str) -> None:
         self.end_at = end_at
 
-    async def fetch_inventory(self, access_token):
+    async def fetch_inventory(self, access_token, client_id=""):
         return {
             "dropCampaignsInProgress": [
                 {
@@ -497,7 +497,7 @@ async def test_progress_service_sends_campaign_deadline_reminders_once():
 
 
 class TwoReadyDropsProvider:
-    async def fetch_inventory(self, access_token):
+    async def fetch_inventory(self, access_token, client_id=""):
         return {
             "dropCampaignsInProgress": [
                 {
