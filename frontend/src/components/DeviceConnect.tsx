@@ -499,6 +499,13 @@ export function useDeviceConnect(
     const active = flowRef.current
     if (!active) return
 
+    // Open the activation page synchronously while the click gesture is still
+    // active so pop-up blockers allow it. Then copy the code for the user.
+    const activationUrl = safeExternalUrl(active.verificationUri)
+    if (activationUrl) {
+      window.open(activationUrl, '_blank', 'noopener,noreferrer')
+    }
+
     const copiedOk = await copyText(active.userCode)
     setCopied(copiedOk)
     setCopyFailed(!copiedOk)
@@ -635,7 +642,7 @@ export function DeviceConnect({
               onClick={connect.copyCode}
             >
               <Icon name={connect.copied ? 'check' : 'copy'} size={14} />
-              {connect.copied ? 'Copied' : 'Copy code'}
+              {connect.copied ? 'Copied' : 'Copy & open Twitch'}
             </button>
           </div>
 
