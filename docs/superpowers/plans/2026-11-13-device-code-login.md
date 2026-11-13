@@ -71,8 +71,8 @@
 
 **Interfaces:**
 - `POST /auth/twitch/device/start` -> `{flow_id, user_code, verification_uri, expires_at, interval}`.
-- `GET /auth/twitch/device/{flow_id}` -> `{status:"pending", interval}` or `AuthConnectOut` + cookies.
-- `DELETE /auth/twitch/device/{flow_id}` -> cancel.
+- `POST /auth/twitch/device/poll` `{flow_id}` -> `{status:"pending", interval}` or `AuthConnectOut` + cookies.
+- `POST /auth/twitch/device/cancel` `{flow_id}` -> cancel.
 - `TwitchDeviceService.start/poll/cancel`; cleanup expired rows on start + scan.
 - Poll enforces `last_polled_at + interval_seconds`; `slow_down` increases interval.
 

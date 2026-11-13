@@ -85,7 +85,7 @@ inventory (ADR-003). The app would lose progress.
    - returns `flow_id`, `user_code`, `verification_uri`, `expires_at`, `interval`.
 3. UI shows the code and `https://www.twitch.tv/activate`; user enters the code
    and approves on Twitch.
-4. UI polls `GET /auth/twitch/device/{flow_id}` every `interval` seconds.
+4. UI polls `POST /auth/twitch/device/poll` with `{flow_id}` every `interval` seconds.
 5. Backend polls Twitch's token endpoint with the stored `device_code`:
    - `authorization_pending` → `{status:"pending", interval}`;
    - `slow_down` → increase `interval_seconds`, persist it, return the new
@@ -144,8 +144,8 @@ Cleanup: expired rows removed on start and during the worker scan.
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | POST | `/auth/twitch/device/start` | public | start flow; body `{invite_code?}` |
-| GET | `/auth/twitch/device/{flow_id}` | public | poll; returns pending or sets cookies + user |
-| DELETE | `/auth/twitch/device/{flow_id}` | public | cancel/delete a flow |
+| POST | `/auth/twitch/device/poll` | public | poll `{flow_id}`; returns pending or sets cookies + user |
+| POST | `/auth/twitch/device/cancel` | public | cancel `{flow_id}` |
 
 Errors: `400` invalid/expired/denied/registration closed, `409` different Twitch
 account while signed in, `429` rate limit. `GET /auth/me` is unchanged.

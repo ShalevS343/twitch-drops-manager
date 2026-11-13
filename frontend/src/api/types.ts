@@ -235,7 +235,7 @@ export type TwitchDevicePoll = TwitchDevicePending | TwitchLoginResult
 
 /** Response from `POST /auth/twitch/device/cancel`. */
 export interface TwitchDeviceCancel {
-  canceled: boolean
+  cancelled: boolean
 }
 
 export type UserRole = 'admin' | 'user'
