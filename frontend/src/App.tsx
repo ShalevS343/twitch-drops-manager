@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { CampaignsPage } from './pages/CampaignsPage'
@@ -39,19 +39,83 @@ export default function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
 
+  const burgerRef = useRef<HTMLButtonElement>(null)
+  const drawerRef = useRef<HTMLElement>(null)
+  const drawerCloseRef = useRef<HTMLButtonElement>(null)
+  const drawerWasOpenRef = useRef(false)
+
+  const closeMobileNav = () => setMobileNavOpen(false)
+
   useEffect(() => {
     setMobileNavOpen(false)
   }, [tab])
 
+  // Mobile drawer: lock background scroll, move focus inside, trap Tab and
+  // restore focus to the burger when it closes for any reason.
+  useEffect(() => {
+    if (!mobileNavOpen) {
+      if (drawerWasOpenRef.current) {
+        drawerWasOpenRef.current = false
+        burgerRef.current?.focus()
+      }
+      return
+    }
+
+    drawerWasOpenRef.current = true
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const focusFrame = window.requestAnimationFrame(() => {
+      drawerCloseRef.current?.focus()
+    })
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setMobileNavOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const items = Array.from(
+        drawerRef.current?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((element) => element.offsetParent !== null)
+
+      if (items.length === 0) return
+      const first = items[0]
+      const last = items[items.length - 1]
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = previousOverflow
+    }
+  }, [mobileNavOpen])
+
+  // If the viewport grows past the mobile breakpoint while the drawer is open,
+  // close it so the desktop sidebar is not left behind a scroll lock or scrim.
   useEffect(() => {
     if (!mobileNavOpen) return
 
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setMobileNavOpen(false)
+    const query = window.matchMedia('(min-width: 641px)')
+    const handleChange = () => {
+      if (query.matches) setMobileNavOpen(false)
     }
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    handleChange()
+    query.addEventListener('change', handleChange)
+    return () => query.removeEventListener('change', handleChange)
   }, [mobileNavOpen])
 
   useEffect(() => {
@@ -171,6 +235,7 @@ export default function App() {
             <PageHeader title={meta.title} description={meta.subtitle} />
 
             <button
+              ref={burgerRef}
               type="button"
               className="btn btn-secondary mobile-menu-toggle"
               aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
@@ -254,10 +319,34 @@ export default function App() {
             </div>
           </header>
 
+          {mobileNavOpen && (
+            <button
+              type="button"
+              className="nav-scrim"
+              tabIndex={-1}
+              aria-hidden="true"
+              onClick={closeMobileNav}
+            />
+          )}
+
           <aside
             id="mobile-nav"
+            ref={drawerRef}
             className={`sidebar${mobileNavOpen ? ' is-open' : ''}`}
+            role={mobileNavOpen ? 'dialog' : undefined}
+            aria-modal={mobileNavOpen ? true : undefined}
+            aria-label="Dashboard navigation"
           >
+            <button
+              ref={drawerCloseRef}
+              type="button"
+              className="drawer-close"
+              aria-label="Close navigation"
+              onClick={closeMobileNav}
+            >
+              <Icon name="x" size={18} />
+            </button>
+
             <a
               className="brand"
               href="#/overview"
