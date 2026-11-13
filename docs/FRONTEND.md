@@ -276,15 +276,28 @@ Borders, spacing, and a larger type scale carry the hierarchy.
 - ≤900px: sidebar becomes a horizontally scrollable tab bar under the topbar.
 - ≤640px: compact topbar (brand + title + icon actions), 2-column stat grid,
   single-column cards, hidden button labels, full-width search/add-game row.
-  Navigation moves behind a burger button; the menu opens a vertical tab panel
-  and closes on navigation or `Escape`. Dashboard panels use a
-  `minmax(0, 1fr)` track and `min-width: 0` grid items so long section headings
-  and action buttons cannot clip the Overview panels.
+  The burger opens a **left off-canvas drawer** (`min(84vw, 300px)`) over a
+  `rgba(0,0,0,0.62)` scrim; the drawer keeps the brand, vertical tab list, account
+  chip and sign-out. It closes on the drawer X, the scrim, `Escape`, navigation,
+  or growth past the mobile breakpoint. Opening locks background scroll, moves
+  focus to the drawer close button and traps Tab inside; closing returns focus
+  to the burger. The burger is hidden while the drawer is open. Desktop and the
+  641–900px tab strip are unchanged.
+- ≤480px: the Overview connect callout stacks with a full-width action; key/value
+  rows stack label over value; auth card padding and the device code size shrink.
+- Settings uses a `minmax(0, 1fr)` track at ≤1180px and `min-width: 0` sections so
+  the admin Users list cannot widen the page. At ≤640px list rows wrap, their
+  meta lines stop using nowrap, and action groups move to their own row.
+- Long values (`code`, key/value values, chips, list meta) wrap instead of
+  widening the page. Buttons may wrap their labels at ≤640px, and stacked
+  action-card/form/add-game/save buttons become full width.
+- Dashboard panels use a `minmax(0, 1fr)` track and `min-width: 0` grid items so
+  long section headings and action buttons cannot clip the Overview panels.
 - Focus states use a 2px violet outline; skip link, aria labels, `aria-live`
   toast, and keyboard-navigable tabs are preserved.
 - Horizontal overflow is clipped at the page level (`html`/`body`
-  `overflow-x: clip`); the 641–900px tab bar scrolls, and ≤640px uses the burger
-  menu.
+  `overflow-x: clip`); the 641–900px tab bar scrolls, and ≤640px uses the
+  off-canvas drawer.
 
 ## Game tracking
 

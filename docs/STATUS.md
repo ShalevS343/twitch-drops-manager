@@ -8,6 +8,22 @@ The current release is deployed.
 
 ## Current state
 
+### Mobile layout / navigation (built, deploy pending)
+
+- All dashboard pages fit phone widths (320/360/390/414) without horizontal
+  clipping. The Settings admin Users list no longer widens the page; the
+  `minmax(0, 1fr)` grid track and wrapped list meta fix the ~664px blowout.
+- ≤640px navigation is a left off-canvas drawer over a scrim instead of an inline
+  panel. It locks background scroll, traps Tab, focuses the close button on open,
+  restores focus to the burger on close, hides the burger while open, and closes
+  on the X, scrim, `Escape`, navigation, or resize past the breakpoint.
+- Overview callout stacks at ≤480px; stacked action buttons, form actions,
+  game rows, key/value rows and long code/chip strings have mobile rules.
+- Validation: frontend `npm run build` passes; a Playwright audit at
+  320/360/390/414/768px reports **126/126 checks** (no page/element overflow,
+  drawer scrim/Escape/focus/scroll-lock, auth card). Backend suite not re-run for
+  this frontend-only change; the last recorded floor remains 307.
+
 ### Multi-user accounts (deployed)
 
 - Twitch is the only identity provider: no passwords or email accounts. The first
