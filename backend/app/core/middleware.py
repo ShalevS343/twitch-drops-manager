@@ -51,7 +51,10 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         is_api = path == prefix or path.startswith(f"{prefix}/")
         unsafe = request.method.upper() in UNSAFE_METHODS
-        exempt = {f"{prefix}/auth/twitch/connect"}
+        exempt = {
+            f"{prefix}/auth/twitch/connect",
+            f"{prefix}/auth/twitch/device/start",
+        }
 
         if is_api and unsafe:
             origin = request.headers.get("origin")

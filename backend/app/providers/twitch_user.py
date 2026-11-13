@@ -318,7 +318,10 @@ class TwitchUserProvider:
         Results are cached in memory for a few minutes so the status endpoint
         does not hit Twitch on every page load. Nothing is persisted.
         """
-        cache_key = user_id or (access_token or "")[-8:]
+        cache_key = (
+            f"{client_id or self.settings.gql_client_id}:"
+            f"{user_id or (access_token or '')[-8:]}"
+        )
         cached = self._profile_cache.get(cache_key)
         if cached is not None:
             expires_at, profile = cached

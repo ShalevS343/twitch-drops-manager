@@ -6,6 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.config import get_settings
 from app.core.db import SessionLocal, engine, init_db
 from app.core.logging import configure_logging
+from app.repositories.twitch_device_flows import TwitchDeviceFlowRepository
 from app.repositories.user_sessions import UserSessionRepository
 from app.repositories.users import UserRepository
 from app.services.factory import (
@@ -52,6 +53,7 @@ async def run_scan(session_factory=None) -> None:
 
         try:
             await UserSessionRepository(session).delete_expired()
+            await TwitchDeviceFlowRepository(session).delete_expired()
             await session.commit()
         except Exception as exc:  # noqa: BLE001 - best-effort cleanup
             await session.rollback()

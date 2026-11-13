@@ -9,6 +9,7 @@ from app.api.deps import (
     AuthServiceDep,
     CurrentUserDep,
     SessionDep,
+    TwitchDeviceServiceDep,
     TwitchUserDep,
 )
 from app.core.config import get_settings
@@ -34,10 +35,14 @@ from app.domain.schemas import (
     AuthConnectOut,
     AuthMeOut,
     AuthUserOut,
+    DeviceFlowPendingOut,
+    DeviceFlowStartIn,
+    DeviceFlowStartOut,
     RegistrationStateOut,
     TelegramSettingsIn,
     TwitchConnectOut,
 )
+from app.services.auth_service import AuthResult
 from app.services.factory import build_progress_service
 
 logger = logging.getLogger(__name__)
@@ -76,6 +81,30 @@ async def shutdown_first_progress_syncs() -> None:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
     _sync_tasks.clear()
+
+
+async def _finish_login(
+    result: AuthResult,
+    request: Request,
+    response: Response,
+    settings,
+) -> AuthConnectOut:
+    """Set the session cookies and schedule the shared first inventory sync."""
+    max_age = settings.session_ttl_days * 24 * 60 * 60
+    set_auth_cookies(
+        response,
+        request,
+        result.session_token,
+        result.csrf_token,
+        max_age,
+        settings=settings,
+    )
+    await _first_progress_sync(result.user.id)
+    return AuthConnectOut(
+        connected=True,
+        user=AuthUserOut.model_validate(result.user),
+        created=result.created,
+    )
 
 
 @router.get("/auth/me", response_model=AuthMeOut)
@@ -131,22 +160,78 @@ async def auth_connect(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
 
-    max_age = service.settings.session_ttl_days * 24 * 60 * 60
-    set_auth_cookies(
-        response,
-        request,
-        result.session_token,
-        result.csrf_token,
-        max_age,
-        settings=service.settings,
-    )
-    await _first_progress_sync(result.user.id)
+    return await _finish_login(result, request, response, service.settings)
 
-    return AuthConnectOut(
-        connected=True,
-        user=AuthUserOut.model_validate(result.user),
-        created=result.created,
+
+@router.post(
+    "/auth/twitch/device/start", response_model=DeviceFlowStartOut
+)
+async def auth_device_start(
+    request: Request,
+    session: SessionDep,
+    service: TwitchDeviceServiceDep,
+    payload: DeviceFlowStartIn | None = None,
+) -> DeviceFlowStartOut:
+    retry_after = check_auth_rate_limits(client_ip(request))
+    if retry_after:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many authentication attempts; try again later",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    current_user = await get_optional_user(request, session)
+    try:
+        started = await service.start(
+            invite_code=payload.invite_code if payload is not None else "",
+            current_user=current_user,
+        )
+    except ProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    return DeviceFlowStartOut(
+        flow_id=started.flow_id,
+        user_code=started.user_code,
+        verification_uri=started.verification_uri,
+        expires_at=started.expires_at,
+        interval=started.interval,
     )
+
+
+@router.get(
+    "/auth/twitch/device/{flow_id}",
+    response_model=DeviceFlowPendingOut | AuthConnectOut,
+)
+async def auth_device_poll(
+    flow_id: str,
+    request: Request,
+    response: Response,
+    service: TwitchDeviceServiceDep,
+) -> DeviceFlowPendingOut | AuthConnectOut:
+    try:
+        result = await service.poll(flow_id)
+    except AuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except ProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    if result.pending or result.auth is None:
+        return DeviceFlowPendingOut(status="pending", interval=result.interval)
+    return await _finish_login(
+        result.auth, request, response, service.settings
+    )
+
+
+@router.delete("/auth/twitch/device/{flow_id}")
+async def auth_device_cancel(
+    flow_id: str, service: TwitchDeviceServiceDep
+) -> dict:
+    await service.cancel(flow_id)
+    return {"cancelled": True}
 
 
 @router.post("/auth/logout")
