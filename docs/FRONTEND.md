@@ -145,7 +145,8 @@ response/next query reflects the newly created tracked row.
    AuthPage a required invite code is sent with the request.
 2. `POST /auth/twitch/device/start` returns `flow_id`, the 8-character
    `user_code`, `verification_uri`, `expires_at`, and the current poll `interval`.
-3. The UI shows the code with **Copy code**, links to
+3. The UI shows the code with **Copy & open Twitch** (copies the code and opens
+   `twitch.tv/activate` in a new tab in the same click gesture), links to
    `twitch.tv/activate`, and displays a waiting state. Before the activation
    link, it shows a prominent warning: **Only enter a code you generated in this
    app.** Never enter a code someone sent you. The user enters the code and

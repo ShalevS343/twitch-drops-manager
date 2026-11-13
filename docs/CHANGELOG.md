@@ -32,6 +32,9 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
   Live verification: migration column/table present; existing Android account
   synced; device-code login authenticated `shalevs343`, stored the Smart TV
   client id, and the first inventory sync returned 2 campaigns / 8 drops.
+- Copy button now copies the device code **and opens**
+  `https://www.twitch.tv/activate` in a new tab in the same click gesture, so
+  pop-up blockers allow it. Deployed from `4e636cf`.
 - Pending soak: use the code flow for a second phone/account and keep the
   implicit fallback for one release.
 

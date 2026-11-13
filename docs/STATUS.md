@@ -1,9 +1,10 @@
 # Status / handoff
 
 Last updated: **2026-11-13**
-Source of truth: `main` at the device-code login merge (`5a95d67`), multi-user
-merged in `78d2603`, Telegram auto-link in `f1278a8`, link-only chat ID in
-`b558ca0`, and security hardening in `5fe3bc7`. The current release is deployed.
+Source of truth: `main` at the device-code UI update (`4e636cf`), device-code
+login merged in `5a95d67`, multi-user in `78d2603`, Telegram auto-link in
+`f1278a8`, link-only chat ID in `b558ca0`, and security hardening in `5fe3bc7`.
+The current release is deployed.
 
 ## Current state
 
@@ -48,7 +49,8 @@ merged in `78d2603`, Telegram auto-link in `f1278a8`, link-only chat ID in
   backend polls Twitch, creates the session, and the first Smart TV inventory
   sync returned 2 campaigns / 8 drops. The existing URL-paste implicit flow is
   still available under Advanced/desktop. `twitch_accounts.client_id` stores the
-  issuing client; legacy empty rows fall back to the Android client.
+  issuing client; legacy empty rows fall back to the Android client. The Copy
+  button now copies the code and opens the activation page in a new tab.
 - Docs/ADR updated: API, data model, backend, architecture, frontend, operations,
   decisions (ADR-019, ADR-021), README, AGENTS.
 
