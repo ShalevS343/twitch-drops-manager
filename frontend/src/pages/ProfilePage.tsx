@@ -1,6 +1,10 @@
 import { useState } from 'react'
 
-import { TwitchConnect, useTwitchConnect } from '../components/TwitchConnect'
+import { DeviceConnect, useDeviceConnect } from '../components/DeviceConnect'
+import {
+  TwitchConnectAdvanced,
+  useTwitchConnect,
+} from '../components/TwitchConnect'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { Icon } from '../components/ui/Icon'
@@ -17,6 +21,7 @@ interface Props {
 export function ProfilePage({ twitch }: Props) {
   const { user, isAdmin, telegramBotConfigured, logout, refresh } = useAuth()
   const connect = useTwitchConnect({ onConnected: refresh })
+  const device = useDeviceConnect({ mode: 'reconnect' })
   const disconnect = useTwitchDisconnect()
 
   const [signingOut, setSigningOut] = useState(false)
@@ -93,15 +98,15 @@ export function ProfilePage({ twitch }: Props) {
             )}
             <button
               className="btn btn-secondary"
-              onClick={connect.start}
-              disabled={connect.starting}
+              onClick={device.start}
+              disabled={device.starting}
             >
               <Icon name="twitch" size={16} />
-              {connect.starting
+              {device.starting
                 ? 'Starting…'
                 : twitchConnected
-                  ? 'Reconnect Twitch'
-                  : 'Connect Twitch'}
+                  ? 'Reconnect with code'
+                  : 'Connect with code'}
             </button>
             <button
               className="btn btn-secondary"
@@ -206,11 +211,11 @@ export function ProfilePage({ twitch }: Props) {
               <div className="inline-actions">
                 <button
                   className="btn btn-secondary"
-                  onClick={connect.start}
-                  disabled={connect.starting}
+                  onClick={device.start}
+                  disabled={device.starting}
                 >
                   <Icon name="twitch" size={16} />
-                  {connect.starting ? 'Starting…' : 'Reconnect Twitch'}
+                  {device.starting ? 'Starting…' : 'Reconnect with code'}
                 </button>
                 <button
                   className="btn btn-danger"
@@ -280,11 +285,11 @@ export function ProfilePage({ twitch }: Props) {
             <div className="inline-actions">
               <button
                 className="btn btn-primary"
-                onClick={connect.start}
-                disabled={connect.starting}
+                onClick={device.start}
+                disabled={device.starting}
               >
                 <Icon name="twitch" size={16} />
-                {connect.starting ? 'Starting…' : 'Connect Twitch'}
+                {device.starting ? 'Starting…' : 'Connect with code'}
               </button>
             </div>
           </div>
@@ -297,7 +302,8 @@ export function ProfilePage({ twitch }: Props) {
           </p>
         )}
 
-        <TwitchConnect connect={connect} />
+        <DeviceConnect connect={device} showStart={false} />
+        <TwitchConnectAdvanced connect={connect} />
       </section>
     </div>
   )

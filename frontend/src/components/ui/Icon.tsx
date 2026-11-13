@@ -20,6 +20,7 @@ export type IconName =
   | 'inbox'
   | 'twitch'
   | 'logout'
+  | 'copy'
   | 'sparkles'
   | 'x'
   | 'plus'
@@ -163,6 +164,12 @@ const ICONS: Record<IconName, ReactNode> = {
       <path d="M10 3H4.8A1.8 1.8 0 0 0 3 4.8v14.4A1.8 1.8 0 0 0 4.8 21H10" />
       <path d="M15 7l5 5-5 5" />
       <path d="M20 12H9" />
+    </g>
+  ),
+  copy: (
+    <g fill="none" stroke="currentColor">
+      <rect x="8" y="8" width="12" height="13" />
+      <path d="M16 8V3H4v13h4" />
     </g>
   ),
   sparkles: (

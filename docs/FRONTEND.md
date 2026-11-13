@@ -21,7 +21,8 @@ frontend/src/
     StreamCard.tsx
     WatchFocusPanel.tsx     single focused watcher, dispatch/next/stop
     WatchQueueCard.tsx       start watching = open stream + focus target
-    TwitchConnect.tsx        reusable authorize/paste flow + hook
+    DeviceConnect.tsx        code-login controller + waiting UI (sessionStorage resume)
+    TwitchConnect.tsx        legacy authorize/paste flow, hook, advanced disclosure
     GameSelector.tsx
     ui/                      Avatar, Badge, EmptyState, Icon, PageHeader,
                              PerGameSelect, Spinner, StatCard, TabNav
@@ -35,7 +36,7 @@ frontend/src/
     tabs.ts                  tab ids + metadata
     url.ts                   safe http(s) URL checks for API-provided links
   pages/
-    AuthPage.tsx             Twitch authorize/paste + invite code
+    AuthPage.tsx             code login (primary) + invite code + advanced paste
     OverviewPage.tsx
     CampaignsPage.tsx
     ProgressPage.tsx
@@ -50,10 +51,12 @@ frontend/src/
 ## Auth gate
 
 `AuthGate` calls `GET /auth/me`; without a session it renders `AuthPage` instead
-of the dashboard. The sign-in screen reuses the existing authorize/paste steps
-and shows the invite-code field only when `registration.invite_required` is true.
-When registration is closed it shows a "registration closed" message instead of
-a field that cannot work.
+of the dashboard. The sign-in screen leads with the device-code flow
+(`DeviceConnect`) and shows the invite-code field only when
+`registration.invite_required` is true and registration is open. When
+registration is closed it shows a "registration closed" message; existing
+accounts can still sign in with a code. The legacy authorize/paste flow is kept
+under an **Advanced / desktop** disclosure.
 
 `AuthContext` exposes `{ user, isLoading, login, logout, refresh }`. After a
 successful connect, both cookies are set, `/auth/me` refreshes, and all data
@@ -122,7 +125,11 @@ TanStack Query; all requests go through `api/client.ts`:
 - `useWatcher()` — 15s
 - Mutations: save games, scan (admin only), refresh progress, test Telegram,
   watcher enable/focus/next/stop, Telegram settings, admin enable/disable,
-  Twitch connect/reconnect, logout, disconnect.
+  Twitch device start/poll/cancel, Twitch connect/reconnect, logout, disconnect.
+- Device login calls `POST /auth/twitch/device/start`,
+  `GET /auth/twitch/device/{flow_id}`, and `DELETE /auth/twitch/device/{flow_id}`
+  through `api.startTwitchDevice`, `api.pollTwitchDevice`, and
+  `api.cancelTwitchDevice`.
 
 Invalidation: scan refreshes all queries; game save refreshes games/campaigns/
 status; progress refresh refreshes progress/watch queue/twitch/status; logout
@@ -131,17 +138,45 @@ response/next query reflects the newly created tracked row.
 
 ## Authentication flow
 
-1. `AuthGate` calls `/auth/me`; without a session, `AuthPage` fetches
-   `GET /auth/twitch/authorize`.
-2. The authorize URL opens in a new tab; the user approves and copies the full
-   `twitch.tv/#access_token=...` URL back into the app.
-3. The user pastes it (and the invite code for a new account) and submits
-   `POST /auth/twitch/connect`.
-4. The backend validates the token, creates/loads the local user, sets both
-   cookies, and refreshes the profile.
-5. The UI refreshes `/auth/me` and invalidates all queries.
+### Device code (primary)
 
-Signed-in users use the same flow to reconnect an expired token or to connect
+1. The user clicks **Connect with code** (AuthPage, Profile, or Settings). On
+   AuthPage a required invite code is sent with the request.
+2. `POST /auth/twitch/device/start` returns `flow_id`, the 8-character
+   `user_code`, `verification_uri`, `expires_at`, and the current poll `interval`.
+3. The UI shows the code with **Copy code**, links to
+   `twitch.tv/activate`, and displays a waiting state. The user enters the code
+   and approves access on Twitch.
+4. The UI polls `GET /auth/twitch/device/{flow_id}` every `interval` seconds and
+   adopts the interval returned by each pending response (the backend raises it
+   on Twitch `slow_down`). Polling stops on success, **Cancel**, a terminal error,
+   the local `expires_at` timeout, or unmount.
+5. On success the session cookies are already set. The controller refreshes
+   `/auth/me`, which purges all caches when the signed-in identity changes, and
+   invalidates the user-scoped queries for an in-place reconnect.
+6. **Cancel** calls `DELETE /auth/twitch/device/{flow_id}` as a best effort and
+   clears the waiting state.
+
+While waiting, `DeviceConnect` stores
+`{flow_id, user_code, interval, verification_uri}` (plus `expires_at` and the
+login/reconnect mode) in `sessionStorage`. Reloading the page or returning from
+the Twitch app resumes polling from that record. The
+record is removed on success, cancel, expiry, terminal error, or a mode mismatch
+(a reconnect flow must not resume on the signed-out gate). If Twitch accepted the
+code but the success response never reached this browser, the error state
+explains that the confirmation may have been lost and offers **Start a new
+code**; the stored flow is already cleared so the user can retry cleanly.
+
+### Advanced / desktop fallback
+
+`TwitchConnect` still implements the implicit grant: `GET
+/auth/twitch/authorize`, approve in a new tab, copy the full
+`twitch.tv/#access_token=...` URL, then submit `POST /auth/twitch/connect`.
+AuthPage, Profile, and Settings keep it inside an **Advanced / desktop**
+disclosure. It remains the only flow for existing Android-client tokens and is
+not removed by the code flow.
+
+Signed-in users use either flow to reconnect an expired token or to connect
 Twitch after a disconnect. Connecting a **different** Twitch account while signed
 in returns `409`; the UI tells the user to sign out first. There are no
 passwords, and `VITE_API_TOKEN` no longer exists; the browser never holds a
@@ -166,8 +201,9 @@ missing dates render `Unknown`; token expiry can be absent for legacy tokens.
 - **Global scan** is admin-only: the “Scan for new drops” action is hidden for
   non-admins, and the API returns `403` if called directly.
 - **Profile**: local account (login, display name, role), Twitch connection and
-  sync health (`reconnect_required`, last sync/error), reconnect, sign out, and
-  disconnect. Disconnect clears that user's Twitch data but keeps the account.
+  sync health (`reconnect_required`, last sync/error), reconnect with a code,
+  sign out, and disconnect. The URL-paste reconnect stays under **Advanced /
+  desktop**. Disconnect clears that user's Twitch data but keeps the account.
 - Copy that claimed “there are no local user accounts” is gone. The UI says the
   Twitch token is stored on this server for that user's account.
 

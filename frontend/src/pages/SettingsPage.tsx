@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 
+import { DeviceConnect, useDeviceConnect } from '../components/DeviceConnect'
 import { GameSelector } from '../components/GameSelector'
-import { TwitchConnect, useTwitchConnect } from '../components/TwitchConnect'
+import {
+  TwitchConnectAdvanced,
+  useTwitchConnect,
+} from '../components/TwitchConnect'
 import { Avatar } from '../components/ui/Avatar'
 import { Badge } from '../components/ui/Badge'
 import { Icon } from '../components/ui/Icon'
@@ -52,6 +56,7 @@ export function SettingsPage({ status, twitch }: Props) {
   const unlink = useUnlinkTelegram()
   const disconnect = useTwitchDisconnect()
   const connect = useTwitchConnect({ onConnected: refresh })
+  const device = useDeviceConnect({ mode: 'reconnect' })
   const updateMe = useUpdateMe()
   const adminUsers = useAdminUsers()
   const updateUser = useUpdateAdminUser()
@@ -523,15 +528,15 @@ export function SettingsPage({ status, twitch }: Props) {
           <div className="inline-actions">
             <button
               className="btn btn-secondary"
-              onClick={connect.start}
-              disabled={connect.starting}
+              onClick={device.start}
+              disabled={device.starting}
             >
               <Icon name="twitch" size={16} />
-              {connect.starting
+              {device.starting
                 ? 'Starting…'
                 : connected
-                  ? 'Reconnect Twitch'
-                  : 'Connect Twitch'}
+                  ? 'Reconnect with code'
+                  : 'Connect with code'}
             </button>
             {connected && (
               <button
@@ -553,7 +558,8 @@ export function SettingsPage({ status, twitch }: Props) {
           </p>
         )}
 
-        <TwitchConnect connect={connect} />
+        <DeviceConnect connect={device} showStart={false} />
+        <TwitchConnectAdvanced connect={connect} />
       </section>
 
       {isAdmin && (
