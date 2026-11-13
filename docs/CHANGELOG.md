@@ -12,6 +12,29 @@ All notable changes. Dates are ISO (`YYYY-MM-DD`). Newest first.
 
 ## 2026-11-13
 
+### Mobile responsiveness and off-canvas navigation
+
+- Replaced the inline ≤640px burger panel with a left off-canvas drawer above a
+  scrim. It locks `html` and `body` scroll, traps Tab including a `focusin`
+  guard, focuses the close button on open, restores focus to the burger on close
+  (or the active tab-strip link on resize), and closes on the X, scrim,
+  `Escape`, navigation, or a resize past the mobile breakpoint. The drawer
+  header is sticky so the close button stays reachable on short screens.
+- Fixed the Settings admin `Users` list widening `.settings-grid` to ~664px and
+  clipping every section on phones. The track now uses `minmax(0, 1fr)` and
+  list meta wraps at ≤640px.
+- Phone polish: stacked Overview connect callout at ≤480px, full-width stacked
+  actions, wrapping button labels, global `overflow-wrap: anywhere` for long
+  code/title/URL-like strings, stacked key/value rows, a capped topbar account
+  name (and no duplicate user chip at ≤900px), and a narrower game-option
+  layout. Quick-action labels wrap instead of overlapping on narrow desktop
+  cards.
+- Verified with `npm run build` and an extended Playwright audit at
+  320/360/390/414/768px: **149/149 checks**, including no page/element overflow,
+  long unbroken titles/URLs at 320px, real drawer hit-testing, wheel/PageDown
+  scroll lock, focus trap/return, nav-link navigation, sticky close button,
+  resize focus, and the signed-out auth card.
+
 ### Device-code Twitch login
 
 - Merged `feat/device-login` into `main` in `5a95d67`; backend suite **307

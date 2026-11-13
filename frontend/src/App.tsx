@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 
 import { CampaignsPage } from './pages/CampaignsPage'
@@ -39,19 +39,121 @@ export default function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
 
+  const burgerRef = useRef<HTMLButtonElement>(null)
+  const drawerRef = useRef<HTMLElement>(null)
+  const drawerCloseRef = useRef<HTMLButtonElement>(null)
+  const drawerWasOpenRef = useRef(false)
+
+  const closeMobileNav = () => setMobileNavOpen(false)
+
   useEffect(() => {
     setMobileNavOpen(false)
   }, [tab])
 
+  // Mobile drawer: lock background scroll, move focus inside, trap Tab and
+  // restore focus to the burger when it closes for any reason.
+  useEffect(() => {
+    if (!mobileNavOpen) {
+      if (drawerWasOpenRef.current) {
+        drawerWasOpenRef.current = false
+        const burger = burgerRef.current
+        const burgerVisible =
+          burger &&
+          burger.getClientRects().length > 0 &&
+          window.getComputedStyle(burger).visibility !== 'hidden'
+
+        if (burgerVisible) {
+          burger.focus()
+        } else {
+          document.querySelector<HTMLElement>('.nav-link.active')?.focus()
+        }
+      }
+      return
+    }
+
+    drawerWasOpenRef.current = true
+    const previousBodyOverflow = document.body.style.overflow
+    const previousHtmlOverflow = document.documentElement.style.overflow
+    const previousBodyOverscroll = document.body.style.overscrollBehavior
+    const previousHtmlOverscroll = document.documentElement.style.overscrollBehavior
+    document.body.style.overflow = 'hidden'
+    document.documentElement.style.overflow = 'hidden'
+    document.body.style.overscrollBehavior = 'none'
+    document.documentElement.style.overscrollBehavior = 'none'
+    const focusFrame = window.requestAnimationFrame(() => {
+      drawerCloseRef.current?.focus()
+    })
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setMobileNavOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const drawer = drawerRef.current
+      if (!drawer) return
+      const items = Array.from(
+        drawer.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.offsetParent !== null)
+
+      if (items.length === 0) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+
+      if (!active || !drawer.contains(active)) {
+        event.preventDefault()
+        first.focus()
+        return
+      }
+
+      if (event.shiftKey && active === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    function handleFocusIn(event: FocusEvent) {
+      const drawer = drawerRef.current
+      const target = event.target as Node | null
+      if (drawer && target && !drawer.contains(target)) {
+        drawerCloseRef.current?.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('focusin', handleFocusIn)
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('focusin', handleFocusIn)
+      document.body.style.overflow = previousBodyOverflow
+      document.documentElement.style.overflow = previousHtmlOverflow
+      document.body.style.overscrollBehavior = previousBodyOverscroll
+      document.documentElement.style.overscrollBehavior = previousHtmlOverscroll
+    }
+  }, [mobileNavOpen])
+
+  // If the viewport grows past the mobile breakpoint while the drawer is open,
+  // close it so the desktop sidebar is not left behind a scroll lock or scrim.
   useEffect(() => {
     if (!mobileNavOpen) return
 
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') setMobileNavOpen(false)
+    const query = window.matchMedia('(min-width: 641px)')
+    const handleChange = () => {
+      if (query.matches) setMobileNavOpen(false)
     }
 
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    handleChange()
+    query.addEventListener('change', handleChange)
+    return () => query.removeEventListener('change', handleChange)
   }, [mobileNavOpen])
 
   useEffect(() => {
@@ -171,6 +273,7 @@ export default function App() {
             <PageHeader title={meta.title} description={meta.subtitle} />
 
             <button
+              ref={burgerRef}
               type="button"
               className="btn btn-secondary mobile-menu-toggle"
               aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
@@ -254,23 +357,47 @@ export default function App() {
             </div>
           </header>
 
+          {mobileNavOpen && (
+            <div
+              className="nav-scrim"
+              aria-hidden="true"
+              onClick={closeMobileNav}
+            />
+          )}
+
           <aside
             id="mobile-nav"
+            ref={drawerRef}
             className={`sidebar${mobileNavOpen ? ' is-open' : ''}`}
+            role={mobileNavOpen ? 'dialog' : undefined}
+            aria-modal={mobileNavOpen ? true : undefined}
+            aria-label="Dashboard navigation"
           >
-            <a
-              className="brand"
-              href="#/overview"
-              aria-label="Twitch Drops Manager overview"
-            >
-              <span className="brand-mark">
-                <Icon name="gift" size={20} />
-              </span>
-              <span className="brand-copy">
-                <span className="brand-name">Drops Manager</span>
-                <span className="brand-sub">Twitch dashboard</span>
-              </span>
-            </a>
+            <div className="sidebar-head">
+              <a
+                className="brand"
+                href="#/overview"
+                aria-label="Twitch Drops Manager overview"
+              >
+                <span className="brand-mark">
+                  <Icon name="gift" size={20} />
+                </span>
+                <span className="brand-copy">
+                  <span className="brand-name">Drops Manager</span>
+                  <span className="brand-sub">Twitch dashboard</span>
+                </span>
+              </a>
+
+              <button
+                ref={drawerCloseRef}
+                type="button"
+                className="drawer-close"
+                aria-label="Close navigation"
+                onClick={closeMobileNav}
+              >
+                <Icon name="x" size={18} />
+              </button>
+            </div>
 
             <div className="nav-section-label">Dashboard</div>
             <TabNav
