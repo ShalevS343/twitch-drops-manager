@@ -127,6 +127,7 @@ code {
   font-family: var(--font-mono);
   font-size: 0.92em;
   color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 /* -------------------------------------------------------------- utilities */
@@ -759,12 +760,14 @@ code {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  max-width: 100%;
   padding: 5px 9px;
   border: 1px solid var(--border);
   border-radius: 3px;
   background: var(--surface-2);
   color: var(--text);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .chip small {
@@ -865,6 +868,10 @@ code {
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+}
+
+.section-head > div {
+  min-width: 0;
 }
 
 .section-head h2 {
@@ -1782,9 +1789,11 @@ code {
 
 .kv dd {
   margin: 0;
+  min-width: 0;
   color: var(--text);
   font-size: 13.5px;
   text-align: right;
+  overflow-wrap: anywhere;
 }
 
 /* --------------------------------------------------------------- settings */
@@ -1865,6 +1874,7 @@ code {
   flex-direction: column;
   gap: 2px;
   min-width: 180px;
+  overflow-wrap: anywhere;
 }
 
 .settings-status-copy strong {
@@ -2364,6 +2374,10 @@ code {
     padding: 0;
   }
 
+  .mobile-menu-toggle[aria-expanded='true'] {
+    visibility: hidden;
+  }
+
   .nav-scrim {
     position: fixed;
     inset: 0;
@@ -2460,6 +2474,7 @@ code {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
+    column-gap: 12px;
     row-gap: 8px;
     padding: 13px 16px;
   }
@@ -2517,6 +2532,44 @@ code {
 
   .mobile-connection {
     margin-right: auto;
+  }
+
+  .mobile-connection > span:not(.status-dot) {
+    max-width: 96px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .btn {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .action-card .btn,
+  .form-actions .btn,
+  .add-game-row .btn,
+  .whitelist-footer .btn {
+    width: 100%;
+  }
+
+  .game-option {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+
+  .game-option small {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .game-option .add-mark {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .settings-status-copy {
+    min-width: 0;
   }
 
   .content {
@@ -2602,6 +2655,43 @@ code {
 
   .next-list .btn {
     width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .callout {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .callout .btn {
+    width: 100%;
+  }
+
+  .kv {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .kv dd {
+    text-align: left;
+  }
+
+  .auth-shell {
+    padding: 24px 14px;
+  }
+
+  .auth-card {
+    padding: 20px;
+  }
+
+  .device-code {
+    font-size: 1.35rem;
+  }
+
+  .section-head {
+    gap: 10px;
   }
 }
 
